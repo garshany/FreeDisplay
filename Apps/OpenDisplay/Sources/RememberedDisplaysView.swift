@@ -63,7 +63,7 @@ struct RememberedDisplaysView: View {
                             }
                         }
                     }
-                    Text("Forgetting a display that isn’t connected removes OpenDisplay’s record of it; if it is connected again later, OpenDisplay treats it as a new display. A connected display can’t be forgotten — macOS would report it again at once — so it offers “Reset Settings…” instead. Neither one sends anything to the monitor or changes macOS’s own display settings: “Factory reset” in the monitor controls is a different thing.")
+                    Text("Forgetting a display that isn’t connected removes OpenDisplay’s record of it; if it is connected again later, OpenDisplay treats it as a new display. A connected display can’t be forgotten — macOS would report it again at once — so it offers “Reset Settings…” instead. A display OpenDisplay switched off has to be reconnected first; if it doesn’t come back, it can be forgotten then. None of this sends anything to the monitor or changes macOS’s own display settings: “Factory reset” in the monitor controls is a different thing.")
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -108,7 +108,8 @@ private struct RememberedDisplayRow: View {
                 if let live {
                     Button("Settings") { onShow(live.recordID) }.controlSize(.small)
                 }
-                if let offline = entry.offline, entry.isTurnedOffByApp {
+                // Also for a display that is still enumerated: mirroring keeps it in the display list.
+                if let offline = entry.offline {
                     Button(model.logicalOffMethod == .mirror ? String(localized: "Stop Mirroring")
                                                              : String(localized: "Reconnect")) {
                         Task { await model.reconnectOffline(offline) }
@@ -117,17 +118,38 @@ private struct RememberedDisplayRow: View {
                 }
                 Button(entry.cleanupMode == .forget ? String(localized: "Forget…") : String(localized: "Reset Settings…"),
                        role: .destructive) { onCleanup() }
-                    .controlSize(.small).disabled(model.busy)
-                    .help(entry.cleanupMode == .forget
-                          ? String(localized: "Remove OpenDisplay’s record of this display")
-                          : String(localized: "Clear what OpenDisplay saved for this display; it stays connected and recognized"))
+                    .controlSize(.small).disabled(model.busy || forgetBlocked)
+                    .help(cleanupHelp)
             }
+        }
+    }
+
+    /// Forget isn't offered while OpenDisplay still owes the display its way back.
+    private var forgetBlocked: Bool {
+        entry.cleanupMode == .forget && entry.forgetRefusal != nil
+    }
+
+    private var cleanupHelp: String {
+        switch (entry.cleanupMode, entry.forgetRefusal) {
+        case (.reset, _):
+            return String(localized: "Clear what OpenDisplay saved for this display; it stays connected and recognized")
+        case (.forget, .turnedOffByApp?):
+            return String(localized: "OpenDisplay switched this display off and still owes it a way back. Reconnect it first; if it doesn’t come back, it can be forgotten.")
+        case (.forget, .builtInTurnedOff?):
+            return String(localized: "The built-in display can’t be forgotten while OpenDisplay has it switched off: this record is how it is turned back on.")
+        default:
+            return String(localized: "Remove OpenDisplay’s record of this display")
         }
     }
 
     @ViewBuilder private var statusBadge: some View {
         switch entry.status {
-        case .connected: ODBadge(String(localized: "Connected"), tone: .green)
+        case .connected:
+            if entry.offline != nil, model.logicalOffMethod == .mirror {
+                ODBadge(String(localized: "Mirrored by OpenDisplay"), tone: .accent)
+            } else {
+                ODBadge(String(localized: "Connected"), tone: .green)
+            }
         case .turnedOff:
             ODBadge(model.logicalOffMethod == .mirror ? String(localized: "Mirrored by OpenDisplay")
                                                       : String(localized: "Turned off by OpenDisplay"), tone: .accent)
@@ -150,6 +172,9 @@ private struct RememberedDisplayRow: View {
         if entry.record?.isProvisional == true {
             parts.append(String(localized: "not told apart from a similar display yet"))
         }
+        if entry.mayBeConnectedDisplay {
+            parts.append(String(localized: "may be the connected look-alike"))
+        }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
@@ -161,14 +186,29 @@ private struct RememberedDisplayCleanupSheet: View {
     let request: RememberedDisplaysView.PendingCleanup
     let onFinish: (RememberedDisplaysView.Outcome?) -> Void
     @State private var working = false
+    /// What the sheet showed when the user confirmed. Drawn instead of the live state while the
+    /// action runs, so the sheet doesn't change (or blank out) under the user mid-operation.
+    @State private var frozen: Snapshot?
+
+    struct Snapshot {
+        let entry: RememberedDisplay
+        let plan: RememberedDisplayCleanup.Plan
+        let name: String
+    }
 
     var body: some View {
-        let entry = model.rememberedDisplays.first { $0.id == request.id }
+        let live = model.rememberedDisplays.first { $0.id == request.id }
+        let shown = frozen ?? live.flatMap { entry in
+            model.cleanupPlan(for: entry).map { Snapshot(entry: entry, plan: $0, name: model.rememberedName(of: entry)) }
+        }
         VStack(alignment: .leading, spacing: ODSpacing.md) {
-            if let entry, let plan = model.cleanupPlan(for: entry) {
-                content(entry: entry, plan: plan)
+            if let shown {
+                content(shown)
             } else {
-                Text("This display is no longer remembered.").font(.headline)
+                // Gone, or — if its state changed while the sheet was open — no longer forgettable.
+                Text(live == nil ? String(localized: "This display is no longer remembered.")
+                                 : String(localized: "This display can’t be forgotten right now."))
+                    .font(.headline)
                 HStack {
                     Spacer()
                     Button("Close") { onFinish(nil) }.keyboardShortcut(.cancelAction)
@@ -180,10 +220,12 @@ private struct RememberedDisplayCleanupSheet: View {
     }
 
     @ViewBuilder
-    private func content(entry: RememberedDisplay, plan: RememberedDisplayCleanup.Plan) -> some View {
-        let name = model.rememberedName(of: entry)
+    private func content(_ shown: Snapshot) -> some View {
+        let entry = shown.entry
+        let plan = shown.plan
+        let name = shown.name
         // The display came (or went) while the sheet was open: what was asked for no longer applies.
-        let changed = entry.cleanupMode != request.mode
+        let changed = frozen == nil && entry.cleanupMode != request.mode
         Text(request.mode == .forget ? String(localized: "Forget “\(name)”?")
                                      : String(localized: "Reset OpenDisplay’s settings for “\(name)”?"))
             .font(.headline)
@@ -198,7 +240,7 @@ private struct RememberedDisplayCleanupSheet: View {
                            title: model.logicalOffMethod == .mirror
                                ? String(localized: "OpenDisplay mirrored this display and this record is how it undoes that")
                                : String(localized: "OpenDisplay turned this display off and this record is how it turns it back on"),
-                           message: String(localized: "After forgetting, its card leaves the menu, and neither Reconnect All nor quitting OpenDisplay will bring it back. If it is still switched off, it may stay dark until you unplug it and plug it in again, or restart the Mac. If the monitor is no longer connected at all, forgetting only removes the card. Try “Reconnect” first if you aren’t sure."))
+                           message: String(localized: "Its last reconnect found no display. After forgetting, its card leaves the menu, and neither Reconnect All nor quitting OpenDisplay will bring it back. If it is in fact still attached and switched off, it may stay dark until you unplug it and plug it in again, or restart the Mac. If the monitor is no longer connected, forgetting only removes the card."))
         }
         VStack(alignment: .leading, spacing: 4) {
             Text("Removes").font(.subheadline.weight(.semibold))
@@ -209,10 +251,13 @@ private struct RememberedDisplayCleanupSheet: View {
             ForEach(kept(plan), id: \.self) { bullet($0) }
         }
         HStack {
+            if working { ProgressView().controlSize(.small) }
             Spacer()
-            Button("Cancel") { onFinish(nil) }.keyboardShortcut(.cancelAction)
+            // Once confirmed, the change is under way: Cancel would only hide it, not stop it.
+            Button("Cancel") { onFinish(nil) }.keyboardShortcut(.cancelAction).disabled(working)
             Button(request.mode == .forget ? String(localized: "Forget Display") : String(localized: "Reset Settings"),
                    role: .destructive) {
+                frozen = shown
                 working = true
                 Task {
                     let result = await model.performCleanup(of: request.id, confirmed: request.mode)
@@ -283,6 +328,14 @@ private struct RememberedDisplayCleanupSheet: View {
                 items.append(String(localized: "Adaptive Display’s pending return to the day colour preset"))
             }
         }
+        // The user's own rules aimed at this display stay where they were made.
+        if plan.keptInputSwitchHotkeys > 0 {
+            items.append(String(localized: "Input hotkeys for it: \(plan.keptInputSwitchHotkeys) — edit them under Diagnostics → Input hotkeys"))
+        }
+        if !plan.keptAppPresetNames.isEmpty {
+            let names = plan.keptAppPresetNames.joined(separator: ", ")
+            items.append(String(localized: "App presets aimed at it: \(names)"))
+        }
         items.append(String(localized: "Scenes, the monitor’s own settings, and macOS’s display settings, colour profiles and modes — nothing is sent to the monitor"))
         return items
     }
@@ -294,8 +347,11 @@ private struct RememberedDisplayCleanupSheet: View {
             return .init(text: request.mode == .forget ? String(localized: "“\(name)” was forgotten.")
                                                        : String(localized: "OpenDisplay’s settings for “\(name)” were reset."),
                          isProblem: false)
-        case .connectedNow:
+        case .stateChanged:
             return .init(text: String(localized: "Nothing was changed: “\(name)” was connected or disconnected meanwhile."),
+                         isProblem: true)
+        case .refused:
+            return .init(text: String(localized: "Nothing was changed: OpenDisplay still has “\(name)” switched off. Reconnect it first."),
                          isProblem: true)
         case .notFound:
             return .init(text: String(localized: "Nothing was changed: “\(name)” is no longer remembered."), isProblem: true)

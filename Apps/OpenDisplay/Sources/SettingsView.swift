@@ -178,6 +178,15 @@ private struct DisplaysSection: View {
             showingRemembered = false
             model.rememberedDisplayFocus = nil
         }
+        // A deep link into Displays that isn't the Forget… link means a display's own settings —
+        // even when it names the display already selected, which `onChange` above can't see.
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("OpenDisplayShowSection"))) { note in
+            if note.object as? String == SettingsSection.displays.rawValue, model.rememberedDisplayFocus == nil {
+                showingRemembered = false
+            }
+        }
+        // The focus is a one-visit request: leaving the section must not pin the list open next time.
+        .onDisappear { model.rememberedDisplayFocus = nil }
     }
 }
 

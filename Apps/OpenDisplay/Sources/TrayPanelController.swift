@@ -323,7 +323,7 @@ final class TrayPanelController: NSObject {
     func show(from button: NSStatusBarButton?) {
         anchorButton = button
         anchor = nil
-        if let button, let window = button.window, window.isVisible,
+        if let button, let window = button.window,
            let screen = window.screen ?? NSScreen.main, let id = screen.displayID {
             let icon = window.convertToScreen(button.convert(button.bounds, to: nil))
             if screen.frame.intersects(icon) { anchor = (id, screen.frame.maxX - icon.minX) }

@@ -56,6 +56,13 @@ final class RememberedDisplayCleanupTests: XCTestCase {
         settings.faceLightPriorStateByDisplay = [desk.rawValue: .init(brightness: 0.4)]
         settings.adaptiveDayPresetByDisplay = [desk.rawValue: 5]
         settings.appPresetPriorStateByDisplay = [laptop.rawValue: .init(brightness: 0.5)]
+        settings.hotkeyShortcuts.addInputSwitchBinding(
+            InputSwitchBinding(displayID: deskOtherPort, inputCode: 0x11, binding: KeyBinding(keyCode: 1, modifiers: 2)))
+        settings.appPresets = [
+            .init(bundleIdentifier: "com.example.photo", applicationName: "Photo", brightness: 0.9,
+                  target: .display(desk.rawValue)),
+            .init(bundleIdentifier: "com.example.all", applicationName: "Everywhere", brightness: 0.2),
+        ]
         return settings
     }
 
@@ -98,6 +105,7 @@ final class RememberedDisplayCleanupTests: XCTestCase {
         XCTAssertEqual(entries[1].observationIDs, [desk, deskOtherPort])
         XCTAssertEqual(entries[1].offline?.recordID, desk)
         XCTAssertEqual(entries.map(\.cleanupMode), [.reset, .forget, .forget])
+        XCTAssertEqual(entries.map(\.forgetRefusal), [.connected, .turnedOffByApp, nil])
     }
 
     func testInventoryShowsAFailedReconnectAheadOfOtherTurnedOffDisplays() {
@@ -127,6 +135,21 @@ final class RememberedDisplayCleanupTests: XCTestCase {
         XCTAssertEqual(entries.map(\.status), [.connected])
         XCTAssertFalse(entries[0].isRegistered)
         XCTAssertEqual(entries[0].cleanupMode, .reset)
+    }
+
+    /// A record a live provisional display couldn't be told apart from may be that very display:
+    /// the entry says so (it stays "not connected" — nothing proves it is).
+    func testInventoryFlagsARecordALiveAmbiguousDisplayMayBe() {
+        let candidate = record("disp_a", alias: "Left")
+        let provisional = DisplayRecord(id: .init(rawValue: "unresolved:TV"), fingerprint: DisplayFingerprint(),
+                                        unresolvedCandidates: [candidate.id])
+        let entries = RememberedDisplayInventory.build(
+            registry: [(candidate, [desk]), (record("disp_b", alias: "Other"), [laptop])],
+            live: [.init(observationID: tv, record: provisional)], offline: [])
+        let flagged = entries.first { $0.id == "disp_a" }
+        XCTAssertEqual(flagged?.status, .notConnected)
+        XCTAssertEqual(flagged?.mayBeConnectedDisplay, true)
+        XCTAssertEqual(entries.first { $0.id == "disp_b" }?.mayBeConnectedDisplay, false)
     }
 
     /// A display without a CG UUID has no index entry; its live resolution is what links it.
@@ -166,6 +189,36 @@ final class RememberedDisplayCleanupTests: XCTestCase {
         XCTAssertTrue(plan.adaptiveOffset)
         XCTAssertFalse(plan.removesTurnedOffRecord)
         XCTAssertEqual(Set(plan.keptRestores), [.faceLight, .eveningColorPreset])
+        // The user's own rules aimed at it are kept, and said to be.
+        XCTAssertEqual(plan.keptInputSwitchHotkeys, 1)
+        XCTAssertEqual(plan.keptAppPresetNames, ["Photo"])
+        let after = RememberedDisplayCleanup.applying(plan, to: populatedSettings())
+        XCTAssertEqual(after.hotkeyShortcuts.inputSwitchBindings.count, 1)
+        XCTAssertEqual(after.appPresets.count, 2)
+    }
+
+    /// A display OpenDisplay switched off is still owed its way back: no forgetting until a
+    /// reconnect has found no display — and never for the built-in panel, which the safety net
+    /// relights from that same entry.
+    func testForgettingADisplayStillOwedItsWayBackIsRefused() throws {
+        let still = deskEntry(status: .turnedOff, ledger: offline(desk))
+        XCTAssertThrowsError(try RememberedDisplayCleanup.plan(
+            for: still, mode: .forget, settings: OpenDisplaySettings(), favorites: FavoriteResolutions(),
+            menuLayout: MenuLayoutSettings(), ledger: [offline(desk)])) { error in
+            XCTAssertEqual(error as? RememberedDisplayCleanup.Refusal, .turnedOffByApp)
+        }
+
+        var builtInOff = ManagedOfflineDisplay(recordID: laptop, cgID: 1, name: "Built-in", displayClass: .builtIn)
+        builtInOff.reconnectFailedAt = Date(timeIntervalSince1970: 1)
+        let builtIn = RememberedDisplay(id: "disp_laptop", record: record("disp_laptop"), isRegistered: true,
+                                        observationIDs: [laptop], status: .reconnectFailed, offline: builtInOff)
+        XCTAssertEqual(builtIn.forgetRefusal, .builtInTurnedOff)
+        XCTAssertThrowsError(try RememberedDisplayCleanup.plan(
+            for: builtIn, mode: .forget, settings: OpenDisplaySettings(), favorites: FavoriteResolutions(),
+            menuLayout: MenuLayoutSettings(), ledger: [builtInOff]))
+
+        // An external whose reconnect found nothing — unplugged while off — can be forgotten.
+        XCTAssertNil(deskEntry(status: .reconnectFailed, ledger: offline(desk, failed: true)).forgetRefusal)
     }
 
     func testForgetRemovesTheDisplaysDataAndLeavesOtherDisplaysAndRestoreLedgersAlone() throws {
@@ -243,10 +296,10 @@ final class RememberedDisplayCleanupTests: XCTestCase {
     /// A provisional record isn't persisted, so the plan has no registry record to remove.
     func testPlanForAnUnregisteredEntryHasNoRegistryRecord() throws {
         let entry = RememberedDisplay(id: tv.rawValue, record: nil, isRegistered: false,
-                                      observationIDs: [tv], status: .turnedOff, offline: offline(tv))
+                                      observationIDs: [tv], status: .reconnectFailed, offline: offline(tv, failed: true))
         let plan = try RememberedDisplayCleanup.plan(
             for: entry, mode: .forget, settings: OpenDisplaySettings(), favorites: FavoriteResolutions(),
-            menuLayout: MenuLayoutSettings(), ledger: [offline(tv)])
+            menuLayout: MenuLayoutSettings(), ledger: [offline(tv, failed: true)])
         XCTAssertNil(plan.registryRecordID)
         XCTAssertTrue(plan.removesTurnedOffRecord)
     }

@@ -221,7 +221,8 @@ private struct TrayDeviceHeader: View {
                 if NSEvent.modifierFlags.contains(.option) { identify() } else { toggle() }
             } label: {
                 HStack(spacing: 9) {
-                    TrayGlyph(symbol: model.menuIconSymbol(for: [display.recordID]) ?? trayGlyph(display.displayClass),
+                    TrayGlyph(symbol: model.menuIconSymbol(for: model.menuPreferenceIDs(for: display.recordID))
+                                  ?? trayGlyph(display.displayClass),
                               highlighted: display.isMain)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(model.displayName(for: display))
@@ -316,7 +317,8 @@ private struct TrayOfflineSection: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            TrayGlyph(symbol: model.menuIconSymbol(for: [offline.recordID]) ?? trayGlyph(offline.displayClass),
+            TrayGlyph(symbol: model.menuIconSymbol(for: model.menuPreferenceIDs(for: offline.recordID))
+                          ?? trayGlyph(offline.displayClass),
                       highlighted: false).opacity(0.55)
             VStack(alignment: .leading, spacing: 1) {
                 Text(offline.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary).lineLimit(1)
@@ -324,20 +326,23 @@ private struct TrayOfflineSection: View {
                     Text(offStatus).font(.system(size: 11)).foregroundStyle(.tertiary)
                 } else {
                     // macOS accepted the reconnect but no display appeared — keep the way out visible.
-                    HStack(spacing: 4) {
-                        Text(failedStatus).font(.system(size: 11)).foregroundStyle(ODColor.caution)
+                    Text(failedStatus).font(.system(size: 11)).foregroundStyle(ODColor.caution)
+                    HStack(spacing: 8) {
                         Button("Recovery steps…") { NSWorkspace.shared.open(ReconnectVerification.recoveryGuideURL) }
                             .buttonStyle(.link).font(.system(size: 11))
                         // A monitor unplugged while it was off never comes back to clear its card;
                         // Settings is where its record can be forgotten, with the warning that goes
-                        // with it (the tray can't host a confirmation).
-                        Button("Forget…") {
-                            model.rememberedDisplayFocus = model.rememberedDisplays
-                                .first { $0.observationIDs.contains(offline.recordID) }?.id ?? offline.recordID.rawValue
-                            ui.openSettings(.displays)
+                        // with it (the tray can't host a confirmation). Not for the built-in panel,
+                        // which can't have been unplugged (`RememberedDisplay.forgetRefusal`).
+                        let entry = model.rememberedDisplays.first { $0.observationIDs.contains(offline.recordID) }
+                        if let entry, entry.forgetRefusal == nil {
+                            Button("Forget…") {
+                                model.rememberedDisplayFocus = entry.id
+                                ui.openSettings(.displays)
+                            }
+                            .buttonStyle(.link).font(.system(size: 11))
+                            .help(String(localized: "Review and forget this display’s record in Settings"))
                         }
-                        .buttonStyle(.link).font(.system(size: 11))
-                        .help(String(localized: "Review and forget this display’s record in Settings"))
                     }
                 }
             }
@@ -509,7 +514,7 @@ private enum TrayItems {
                          for display: DisplayObservation, modes: [TrayModeOption],
                          model: AppModel) -> [MenuItemFamily] {
         MenuItemFamily.families(in: section).filter {
-            model.menuPlacement($0) == placement && isAvailable($0, for: display, modes: modes, model: model)
+            model.trayPlacement($0) == placement && isAvailable($0, for: display, modes: modes, model: model)
         }
     }
 
@@ -530,7 +535,8 @@ private enum TrayItems {
             // Same conditions the slider itself draws under: never for a mirror target, and only
             // with more than one stop to choose from.
             guard let mode = display.mode, display.mirrorSourceID == nil else { return false }
-            return TrayModeCatalog.sliderStops(modes, current: mode).count > 1
+            let stops = TrayModeCatalog.sliderStops(modes, current: mode)
+            return stops.count > 1 && DisplayModeCatalog.index(of: mode, in: stops) != nil
         case .volume:
             return isExternal && model.ddcControl(.volume, for: display) != nil
         case .refreshRate:
@@ -1207,7 +1213,7 @@ private struct TrayManageDisplay: View {
         VStack(alignment: .leading, spacing: 6) {
             // With «Toggles» hidden from the menu, its switches (main display, Black Out, HiDPI…)
             // move here rather than disappearing with it.
-            if model.menuPlacement(.toggles) == .hidden {
+            if model.trayPlacement(.toggles) == .hidden {
                 TraySubheader(String(localized: "Toggles"))
                 TrayToggles(display: display, modes: modes)
                 TrayDivider()
@@ -1307,7 +1313,7 @@ private struct TrayToolsSection: View {
         .background(ODColor.fillQuaternary, in: RoundedRectangle(cornerRadius: 11))
     }
 
-    private func shows(_ family: MenuItemFamily) -> Bool { model.menuPlacement(family) != .hidden }
+    private func shows(_ family: MenuItemFamily) -> Bool { model.trayPlacement(family) != .hidden }
 
     @ViewBuilder
     private func tool<Content: View>(_ id: String, _ icon: String, _ title: String,

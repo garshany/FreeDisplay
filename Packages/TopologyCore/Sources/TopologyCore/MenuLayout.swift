@@ -184,6 +184,16 @@ public struct MenuLayoutSettings: Hashable, Sendable, Codable {
         }
     }
 
+    /// Where the tray actually draws a family. The same as `placement(of:)`, except that Toggles
+    /// can't vanish completely: hidden, its switches move into Manage display — and with Manage
+    /// display hidden too, they stay behind «More». Black Out is one of them, and a screen blacked
+    /// out from the tray has to be undoable from the tray.
+    public func trayPlacement(of family: MenuItemFamily) -> MenuPlacement {
+        let stored = placement(of: family)
+        if family == .toggles, stored == .hidden, placement(of: .manageDisplay) == .hidden { return .expanded }
+        return stored
+    }
+
     /// True when every family sits where it does by default.
     public var hasDefaultContents: Bool {
         MenuItemFamily.allCases.allSatisfy { placement(of: $0) == $0.defaultPlacement }
@@ -215,11 +225,12 @@ public struct MenuLayoutSettings: Hashable, Sendable, Codable {
         return symbol
     }
 
-    /// Whether the tray lists this display. A display the app turned off always keeps its card:
-    /// that card is the one-click way back on, and hiding it would leave a dark screen whose only
-    /// recovery is a menu the user removed it from.
-    public func showsInTray(_ display: DisplayRecordID, turnedOffByApp: Bool) -> Bool {
-        turnedOffByApp || !isHidden(display)
+    /// Whether the tray lists a display, given every id it is remembered under (hidden under any of
+    /// them = hidden, so the choice follows it to a new port). A display the tray is the way back
+    /// for — one the app turned off, or blacked out — always keeps its section: hiding it would
+    /// leave a dark screen whose recovery is in a menu the user removed it from.
+    public func showsInTray(_ ids: [DisplayRecordID], keptForRecovery: Bool) -> Bool {
+        keptForRecovery || !ids.contains(where: isHidden)
     }
 
     public mutating func setHidden(_ hidden: Bool, for displays: [DisplayRecordID]) {

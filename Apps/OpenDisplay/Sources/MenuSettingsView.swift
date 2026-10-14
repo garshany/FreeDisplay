@@ -55,7 +55,7 @@ private struct MenuDisplaysCard: View {
         let entries = model.rememberedDisplaysInMenuOrder
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
             ODCard(title: String(localized: "Displays in the menu"),
-                   footnote: String(localized: "Hiding a display only takes it out of this menu: it stays connected and keeps responding to brightness keys, hotkeys and automation. A display OpenDisplay turned off always keeps its card in the menu, so it can be turned back on. The order is the menu’s only — it doesn’t move displays on the desktop.")) {
+                   footnote: String(localized: "Hiding a display only takes it out of this menu: it stays connected and keeps responding to brightness keys, hotkeys and automation. A display OpenDisplay turned off, or one that is blacked out, always stays in the menu, so it can be brought back. The order is the menu’s only — it doesn’t move displays on the desktop.")) {
                 if entries.isEmpty {
                     Text("No displays yet.").font(.callout).foregroundStyle(.secondary).padding(12)
                 }
@@ -160,7 +160,7 @@ private struct MenuContentsCard: View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
             familyCard(String(localized: "Sliders"), .slider)
             familyCard(String(localized: "Display features"), .displayFeature,
-                       footnote: String(localized: "“Visible” puts an item straight into a display’s section, “In More” behind its More button. An item a display or this build can’t offer never appears, whatever is chosen here, and a hidden item keeps working and stays in Settings. With “Toggles” hidden, its switches move into “Manage display”."))
+                       footnote: String(localized: "“Visible” puts an item straight into a display’s section, “In More” behind its More button. An item a display or this build can’t offer never appears, whatever is chosen here, and hiding an item only takes it out of the menu — what it controls keeps working. With “Toggles” hidden, its switches move into “Manage display”, or stay in More if that is hidden too."))
             familyCard(String(localized: "Tools"), .tool,
                        footnote: String(localized: "Reconnect all and Detect displays always stay in Tools: they are the way back when a display is lost."))
             HStack(alignment: .firstTextBaseline, spacing: ODSpacing.md) {

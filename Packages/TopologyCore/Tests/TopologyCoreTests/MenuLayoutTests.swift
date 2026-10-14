@@ -75,13 +75,34 @@ final class MenuLayoutTests: XCTestCase {
         XCTAssertNil(layout.displays[desk.rawValue], "a default entry isn't stored")
     }
 
-    /// A hidden display OpenDisplay switched off still shows its card: it's the way back on.
-    func testHiddenDisplaysLeaveTheTrayExceptWhileTurnedOff() {
+    /// A hidden display OpenDisplay switched off (or blacked out) still shows: it's the way back.
+    func testHiddenDisplaysLeaveTheTrayExceptWhileTheTrayIsTheirWayBack() {
         var layout = MenuLayoutSettings()
         layout.setHidden(true, for: [desk])
-        XCTAssertFalse(layout.showsInTray(desk, turnedOffByApp: false))
-        XCTAssertTrue(layout.showsInTray(desk, turnedOffByApp: true))
-        XCTAssertTrue(layout.showsInTray(laptop, turnedOffByApp: false))
+        XCTAssertFalse(layout.showsInTray([desk], keptForRecovery: false))
+        XCTAssertTrue(layout.showsInTray([desk], keptForRecovery: true))
+        XCTAssertTrue(layout.showsInTray([laptop], keptForRecovery: false))
+    }
+
+    /// Hidden under any of a display's ids is hidden, so the choice follows it to another port.
+    func testHiddenUnderAnyRememberedIDHidesTheDisplay() {
+        var layout = MenuLayoutSettings()
+        let otherPort = DisplayRecordID.forCGUUID("DESK-2")
+        layout.setHidden(true, for: [desk])
+        XCTAssertFalse(layout.showsInTray([otherPort, desk], keptForRecovery: false))
+        XCTAssertTrue(layout.showsInTray([otherPort], keptForRecovery: false))
+    }
+
+    /// Toggles never disappear entirely: hidden, they move into Manage display; with that hidden
+    /// too, they stay behind More.
+    func testTogglesKeepAPlaceWhenManageDisplayIsHiddenToo() {
+        var layout = MenuLayoutSettings()
+        layout.setPlacement(.hidden, for: .toggles)
+        XCTAssertEqual(layout.trayPlacement(of: .toggles), .hidden, "relocated into Manage display")
+        layout.setPlacement(.hidden, for: .manageDisplay)
+        XCTAssertEqual(layout.trayPlacement(of: .toggles), .expanded)
+        XCTAssertEqual(layout.placement(of: .toggles), .hidden, "the stored choice is unchanged")
+        XCTAssertEqual(layout.trayPlacement(of: .rotation), .expanded)
     }
 
     func testRoundTripAndTolerantDecoding() throws {

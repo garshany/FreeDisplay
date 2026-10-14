@@ -722,7 +722,11 @@ final class AppModel: ObservableObject {
     private func refreshRegistryKnownRecords() async {
         guard let registry else { return }
         registryKnownRecords = await registry.recordsByObservationID()
-        registryInventory = await registry.rememberedDisplays()
+        // Republish only on a change: every view observing the model re-evaluates on a publish.
+        let inventory = await registry.rememberedDisplays()
+        if !inventory.elementsEqual(registryInventory, by: {
+            $0.record == $1.record && $0.observationIDs == $1.observationIDs
+        }) { registryInventory = inventory }
     }
 
     private func setUpScenes() async {
@@ -1518,35 +1522,47 @@ final class AppModel: ObservableObject {
 
     enum RememberedDisplayCleanupOutcome: Equatable {
         case done
-        /// The display was detected again between the confirmation and the action: forgetting it now
-        /// would only rediscover it, so nothing was changed.
-        case connectedNow
+        /// The display was connected or disconnected between the confirmation and the action, so
+        /// what was confirmed no longer applies; nothing was changed.
+        case stateChanged
+        /// Forgetting isn't allowed for it now (`RememberedDisplay.forgetRefusal`); nothing changed.
+        case refused(RememberedDisplayCleanup.Refusal)
         /// Nothing by that id is remembered any more (already forgotten elsewhere).
         case notFound
     }
 
     /// Forgets a display that isn't connected, or resets a connected one's saved settings — whichever
-    /// the confirmation showed (`mode`). The entry is looked up again first, because the display can
-    /// have come back while the sheet was open: a forget confirmed for an absent display is never
-    /// carried out on a present one. No monitor or macOS setting is written either way.
+    /// the confirmation showed (`mode`). The topology is read afresh and the entry looked up again
+    /// first, because the display can have come back while the sheet was open: a forget confirmed
+    /// for an absent display is never carried out on a present one. After that read, the forget
+    /// path changes every store without suspending, so nothing can slip in between check and write.
+    /// No monitor or macOS setting is written either way.
     @discardableResult
     func performCleanup(of entryID: String, confirmed mode: RememberedDisplayCleanup.Mode) async
         -> RememberedDisplayCleanupOutcome {
+        await refresh()
         guard let entry = rememberedDisplays.first(where: { $0.id == entryID }) else { return .notFound }
-        guard entry.cleanupMode == mode else { return .connectedNow }
-        guard let plan = try? RememberedDisplayCleanup.plan(
-            for: entry, mode: mode, settings: settings, favorites: favorites,
-            menuLayout: menuLayout, ledger: managedOffline) else { return .connectedNow }
+        guard entry.cleanupMode == mode else { return .stateChanged }
+        let plan: RememberedDisplayCleanup.Plan
+        do {
+            plan = try RememberedDisplayCleanup.plan(
+                for: entry, mode: mode, settings: settings, favorites: favorites,
+                menuLayout: menuLayout, ledger: managedOffline)
+        } catch {
+            return .refused(error)
+        }
 
         if mode == .reset {
             // These two change how a live display is driven, so they go through their own setters,
-            // which also drop the DDC state and re-read brightness on the new route.
+            // which also drop the DDC state and re-read brightness on the new route. The Apple-DDC
+            // override goes first: dropping software brightness re-reads over DDC, and that read
+            // must not reach an Apple display whose override is about to be withdrawn (FB-08).
             for observation in displays where plan.observationIDs.contains(observation.recordID) {
-                if settings.softwareBrightnessDisplayIDs.contains(observation.recordID.rawValue) {
-                    await setSoftwareBrightness(false, for: observation)
-                }
                 if settings.ddcAppleDisplayOverrideIDs.contains(observation.recordID.rawValue) {
                     await setAppleDisplayDDCOverride(false, for: observation)
+                }
+                if settings.softwareBrightnessDisplayIDs.contains(observation.recordID.rawValue) {
+                    await setSoftwareBrightness(false, for: observation)
                 }
             }
         }
@@ -1658,27 +1674,40 @@ final class AppModel: ObservableObject {
     }
 
     /// The tray's display sections in menu order (`MenuDisplayOrder`), hidden displays left out —
-    /// except a switched-off display's card, which stays as its way back on.
+    /// except where the tray is the way back: a switched-off display's card, and a blacked-out
+    /// display's section. Visibility and order are read under every id the display is remembered by,
+    /// the same ids Settings writes, so the two never disagree after it turns up on another port.
     var trayEntries: [TrayEntry] {
-        let entries = displays.map(TrayEntry.live) + managedOffline.map(TrayEntry.offline)
-        let shown = entries.filter { entry in
-            if case .offline(_) = entry { return menuLayout.showsInTray(entry.recordID, turnedOffByApp: true) }
-            return menuLayout.showsInTray(entry.recordID, turnedOffByApp: false)
+        let remembered = rememberedDisplays
+        func ids(of id: DisplayRecordID) -> [DisplayRecordID] {
+            remembered.first { $0.observationIDs.contains(id) }?.observationIDs ?? [id]
         }
-        let byID = Dictionary(shown.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let candidates = shown.map { entry -> MenuDisplayOrder.Candidate in
+        let entries = displays.map(TrayEntry.live) + managedOffline.map(TrayEntry.offline)
+        var candidates: [MenuDisplayOrder.Candidate] = []
+        var byID: [String: TrayEntry] = [:]
+        for entry in entries where byID[entry.id] == nil {
+            let known = ids(of: entry.recordID)
             switch entry {
             case .live(let display):
-                return .init(id: entry.id, orderKeys: [display.recordID.rawValue], name: displayName(for: display),
-                             isMain: display.isMain, isBuiltIn: display.displayClass == .builtIn)
+                guard menuLayout.showsInTray(known, keptForRecovery: isBlackedOut(display)) else { continue }
+                candidates.append(.init(id: entry.id, orderKeys: known.map(\.rawValue), name: displayName(for: display),
+                                        isMain: display.isMain, isBuiltIn: display.displayClass == .builtIn))
             case .offline(let offline):
-                return .init(id: entry.id, orderKeys: [offline.recordID.rawValue], name: offline.name,
-                             isBuiltIn: offline.displayClass == .builtIn)
+                guard menuLayout.showsInTray(known, keptForRecovery: true) else { continue }
+                let name = remembered.first { $0.observationIDs.contains(offline.recordID) }.map(rememberedName(of:))
+                    ?? offline.name
+                candidates.append(.init(id: entry.id, orderKeys: known.map(\.rawValue), name: name,
+                                        isBuiltIn: offline.displayClass == .builtIn))
             }
+            byID[entry.id] = entry
         }
         return MenuDisplayOrder.sorted(candidates, manualOrder: menuLayout.displayOrder,
                                        mainFirst: menuLayout.mainDisplayFirst).compactMap { byID[$0.id] }
     }
+
+    /// Where the tray draws a family (`MenuLayoutSettings.trayPlacement`): the stored choice, except
+    /// that Toggles never vanish entirely.
+    func trayPlacement(_ family: MenuItemFamily) -> MenuPlacement { menuLayout.trayPlacement(of: family) }
 
     /// The remembered displays in tray order — the list Settings → Menu reorders.
     var rememberedDisplaysInMenuOrder: [RememberedDisplay] {
