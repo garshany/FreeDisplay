@@ -39,7 +39,14 @@ public struct VirtualDisplayProvider: DisplayProvider {
     private var inFlight = false
     @Published public private(set) var endpoints: [Endpoint] = []
     private var serial: UInt32 = UInt32.random(in: 1...UInt32.max / 2)
-    public init() {}
+    /// The shared physical-presence classification (`PhysicalPresenceClassifier`) for a set of
+    /// display ids, supplied by the host that can read it. With it, "a physical screen stays
+    /// visible" means exactly what lifecycle preflight means by it; without it the guard falls back
+    /// to its vendor heuristic.
+    private let surfacePresence: (@Sendable ([CGDirectDisplayID]) -> [CGDirectDisplayID: PhysicalPresence])?
+    public init(surfacePresence: (@Sendable ([CGDirectDisplayID]) -> [CGDirectDisplayID: PhysicalPresence])? = nil) {
+        self.surfacePresence = surfacePresence
+    }
     public var isAvailable: Bool { runtimeAvailable() }
 
     public func create(_ definition: VirtualDisplayDefinition, experimentalOptIn: Bool,
@@ -96,9 +103,13 @@ public struct VirtualDisplayProvider: DisplayProvider {
     }
 
     private func activeSurfaces() throws -> [VirtualDisplaySurface] {
-        try activeIDs().map {
-            VirtualDisplaySurface(displayID: $0, vendorID: CGDisplayVendorNumber($0),
-                isBuiltIn: CGDisplayIsBuiltin($0) != 0, mirroredSourceID: CGDisplayMirrorsDisplay($0))
+        let ids = try activeIDs()
+        let presence = surfacePresence?(ids)
+        return ids.map { id in
+            VirtualDisplaySurface(displayID: id, vendorID: CGDisplayVendorNumber(id),
+                isBuiltIn: CGDisplayIsBuiltin(id) != 0, mirroredSourceID: CGDisplayMirrorsDisplay(id),
+                // A display the classifier was asked about but gave no verdict for fails closed.
+                physicalPresence: presence.map { $0[id] ?? .unverified })
         }
     }
 

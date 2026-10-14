@@ -97,6 +97,10 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
     public var colorProfileName: String?
     public var transport: ConnectionTransport
     public var displayClass: DisplayClass
+    /// Whether the provider found evidence that this is a physical screen (`PhysicalPresence`).
+    /// Nil when nothing assessed it — fixtures, and snapshots decoded from before the field existed;
+    /// `RecoverySurfacePolicy` then falls back to `displayClass`.
+    public var physicalPresence: PhysicalPresence?
     public var generation: TopologyGeneration
     public var observedAt: Date
 
@@ -116,6 +120,7 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
         colorProfileName: String? = nil,
         transport: ConnectionTransport = .unknown,
         displayClass: DisplayClass = .unknown,
+        physicalPresence: PhysicalPresence? = nil,
         generation: TopologyGeneration,
         observedAt: Date = Date()
     ) {
@@ -134,6 +139,7 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
         self.colorProfileName = colorProfileName
         self.transport = transport
         self.displayClass = displayClass
+        self.physicalPresence = physicalPresence
         self.generation = generation
         self.observedAt = observedAt
     }

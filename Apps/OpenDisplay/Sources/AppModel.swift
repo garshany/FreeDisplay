@@ -176,13 +176,31 @@ final class AppModel: ObservableObject {
     /// you turned off is exactly the one you may need the CLI to bring back.
     typealias OfflineDisplay = ManagedOfflineDisplay
 
-    /// Count of currently-active REAL displays — the UI disables the off-toggle on the last one.
-    /// Excludes macOS's `.virtual` placeholder, which is never a surface the user can see; the
-    /// predicate is `WakeConvergencePolicy`'s so the menu, the safety net, and the ledger can never
-    /// disagree about what counts as a screen.
+    /// Count of currently-lit PHYSICAL displays. Excludes macOS's placeholder and every virtual or
+    /// unverified screen (ours, other apps', DisplayLink, Sidecar), none of which is a surface the
+    /// user can be left on; the predicate is `WakeConvergencePolicy`'s so the menu, the safety net,
+    /// and the ledger can never disagree about what counts as a screen.
     var activeDisplayCount: Int {
-        WakeConvergencePolicy.visibleSurfaces(in: displays).count
+        WakeConvergencePolicy.recoverySurfaces(in: displays).count
     }
+
+    /// Whether turning `display` off would still leave a physical screen to recover from — the
+    /// same candidates `SafetyEngine` will accept, so the switch is never offered for a request the
+    /// coordinator is bound to refuse.
+    func canTurnOff(_ display: DisplayObservation) -> Bool {
+        display.isActive
+            && !RecoverySurfacePolicy.safeSurfaceCandidates(in: displays, excluding: [display.recordID]).isEmpty
+    }
+
+    /// What turning a display off does with the lifecycle provider in use — published from the
+    /// provider probe so the menu never promises power-off for what is really a mirror.
+    @Published private(set) var logicalOffMethod: LogicalOffMethod = {
+        #if PUBLIC_API_ONLY
+        return .mirror
+        #else
+        return .disconnect
+        #endif
+    }()
 
     /// True when any provider isn't fully supported — drives the menu-bar caution banner.
     var isDegraded: Bool { diagnostics.contains { $0.status != "supported" } }
@@ -569,6 +587,10 @@ final class AppModel: ObservableObject {
                               reasons: lifecycleProbe.reasons.map(\.rawValue))
         ]
         if diagnostics != updated { diagnostics = updated }
+        // The router answers with the probe of the provider it would route to, so its id says which
+        // operation "off" is: the Core Graphics fallback mirrors, the SkyLight provider disconnects.
+        let method: LogicalOffMethod = lifecycleProbe.providerID == observer.providerID ? .mirror : .disconnect
+        if logicalOffMethod != method { logicalOffMethod = method }
     }
 
     /// Loads the most recent audit-log entries for Settings → Recent Activity.
@@ -1212,7 +1234,7 @@ final class AppModel: ObservableObject {
         // The start of the current dark spell, stamped here because this is the one place the app
         // looks at the world. The safety net measures its "give up waiting and light something"
         // deadline from it, so it has to survive across the several events a wake emits.
-        displaysDarkSince = WakeConvergencePolicy.visibleSurfaces(in: displays).isEmpty
+        displaysDarkSince = WakeConvergencePolicy.recoverySurfaces(in: displays).isEmpty
             ? (displaysDarkSince ?? Date())
             : nil
         // A ledger display lit during the wake window gets the wake's stamp before anything can
@@ -3408,7 +3430,7 @@ final class AppModel: ObservableObject {
         stampReconnectFailure(Date(), for: offline)
         await appendAudit(ReconnectVerification.failureAudit(of: offline, actor: .ui, at: Date()))
         if settings.displayNotificationsEnabled {
-            NotificationDelivery.post(NotificationDelivery.reconnectFailureNotification(for: offline))
+            NotificationDelivery.post(NotificationDelivery.reconnectFailureNotification(for: offline, method: logicalOffMethod))
         }
     }
 
@@ -3511,11 +3533,12 @@ final class AppModel: ObservableObject {
         if enabled { NotificationDelivery.requestAuthorization() }
     }
 
-    /// True when at least one REAL external display is currently present. The `.virtual` exclusion
-    /// matters: macOS's placeholder is not a monitor arriving, and treating it as one would make
-    /// auto-disconnect turn the built-in off at the exact moment it is the only screen left.
+    /// True when at least one REAL external display is currently present. The physical test
+    /// matters: macOS's placeholder, a virtual screen, DisplayLink or Sidecar is not a monitor
+    /// arriving, and treating one as such would make auto-disconnect go after the built-in at the
+    /// exact moment it is the only screen anyone can see.
     var hasExternalDisplay: Bool {
-        displays.contains { $0.displayClass != .builtIn && $0.displayClass != .virtual }
+        displays.contains { $0.displayClass != .builtIn && RecoverySurfacePolicy.isPhysical($0) }
     }
 
     /// On an external-arrival edge (and only then), turn the built-in panel off through the gated
@@ -3685,7 +3708,7 @@ final class AppModel: ObservableObject {
     /// permanent-configuration restore, which is not bound to any one process's transaction.
     private func escalateIfStillStranded() async {
         await refresh()
-        guard WakeConvergencePolicy.visibleSurfaces(in: displays).isEmpty else { return }
+        guard WakeConvergencePolicy.recoverySurfaces(in: displays).isEmpty else { return }
         #if DEBUG
         Self.err("ACTIVE-SURFACE GUARD: still no real display — escalating to permanent-config restore")
         #endif

@@ -160,10 +160,19 @@ public enum WakeConvergencePolicy {
         observations.filter { $0.isActive && $0.displayClass != .virtual }
     }
 
+    /// The lit screens the user can be *left on*: `visibleSurfaces` narrowed to physical ones
+    /// (`RecoverySurfacePolicy`). Every decision about whether someone still has a screen — the net
+    /// and the covering-surface test — asks this, because a virtual screen (ours or another app's,
+    /// DisplayLink, Sidecar) is lit and enumerated while showing the user nothing on the desk.
+    /// `visibleSurfaces` stays the answer to "is this particular display lit again?".
+    public static func recoverySurfaces(in observations: [DisplayObservation]) -> [DisplayObservation] {
+        RecoverySurfacePolicy.liveSurfaces(in: visibleSurfaces(in: observations))
+    }
+
     /// The whole net decision: is anything lit, is anything coming, and what is there to fall back
     /// on if neither.
     public static func surfaceDecision(_ context: Context) -> SurfaceDecision {
-        guard visibleSurfaces(in: context.observations).isEmpty else { return .satisfied }
+        guard recoverySurfaces(in: context.observations).isEmpty else { return .satisfied }
         guard let fallback = fallbackSurface(in: context.managedOffline) else { return .stranded }
         let darkFor = context.now.timeIntervalSince(context.darkSince ?? context.now)
         let remaining = context.recoveryDeadline - darkFor
@@ -192,8 +201,10 @@ public enum WakeConvergencePolicy {
     /// precisely the window in which the net used to panic and light the built-in.
     private static func isDisplayOnItsWayBack(_ context: Context) -> Bool {
         let owned = Set(context.managedOffline.map(\.recordID))
+        // Only a physical display can be the one "coming back": a lit virtual or unverified screen
+        // is already enumerated and will never turn into the screen the net is waiting for.
         let realDisplayStillEnumerated = context.observations.contains {
-            $0.displayClass != .virtual && !owned.contains($0.recordID)
+            RecoverySurfacePolicy.isPhysical($0) && !owned.contains($0.recordID)
         }
         return realDisplayStillEnumerated || isWakingUp(context)
     }
@@ -293,9 +304,11 @@ public enum WakeConvergencePolicy {
 
     /// Whether a lit display the ledger doesn't own is present — the screen that stays on once every
     /// owed "off" has been applied.
+    /// Physical only: putting the built-in away because a virtual screen is lit would leave the
+    /// user with nothing to look at.
     private static func hasCoveringSurface(_ context: Context) -> Bool {
         let owned = Set(context.managedOffline.map(\.recordID))
-        return visibleSurfaces(in: context.observations).contains { !owned.contains($0.recordID) }
+        return recoverySurfaces(in: context.observations).contains { !owned.contains($0.recordID) }
     }
 
     // MARK: - Audit trail

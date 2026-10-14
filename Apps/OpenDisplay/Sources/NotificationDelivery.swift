@@ -59,10 +59,19 @@ enum NotificationDelivery {
         return .init(title: String(localized: "XDR Brightness turned off"), body: body)
     }
 
-    /// `ReconnectVerification.failureNotification(for:)`.
-    static func reconnectFailureNotification(for offline: ManagedOfflineDisplay) -> NotificationPolicy.DisplayNotification {
-        .init(title: String(localized: "\(offline.name) didn’t come back on"),
-              body: String(localized: "OpenDisplay asked macOS to turn it on and nothing appeared. It is still listed in the menu, with recovery steps."))
+    /// `ReconnectVerification.failureNotification(for:)`, worded for the operation that is being
+    /// undone: a disconnected display didn't reappear, a mirrored one is still mirrored. Neither was
+    /// ever powered off, so neither is described as failing to "turn on".
+    static func reconnectFailureNotification(for offline: ManagedOfflineDisplay,
+                                             method: LogicalOffMethod) -> NotificationPolicy.DisplayNotification {
+        switch method {
+        case .disconnect:
+            return .init(title: String(localized: "\(offline.name) didn’t reconnect"),
+                         body: String(localized: "OpenDisplay asked macOS to reconnect it and the display didn’t appear. It is still listed in the menu, with recovery steps."))
+        case .mirror:
+            return .init(title: String(localized: "\(offline.name) is still mirrored"),
+                         body: String(localized: "OpenDisplay asked macOS to stop mirroring it and it didn’t return to the desktop. It is still listed in the menu, with recovery steps."))
+        }
     }
 
     /// `LayoutProtectionPolicy.restoreNotification(for:names:enabled:)`: what moved, per display,
