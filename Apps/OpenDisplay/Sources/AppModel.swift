@@ -184,6 +184,8 @@ final class AppModel: ObservableObject {
     /// ColorSync's. Only these ever need handing back, so a display nothing has dimmed or warmed
     /// gets no colour-table call at all.
     private var gammaOwned: Set<DisplayRecordID> = []
+    /// Sequence number of the newest custom-profile safeguard read (`refreshCustomProfileGuard`).
+    private var customProfileGuardRead = 0
 
     /// Standard DDC colour-preset labels (VCP 0x14, MCCS 2.2 codes 0x01…0x0C). Monitors vary; the
     /// menu offers the advertised codes (or a bounded 1...max guess) and labels the standard ones,
@@ -877,7 +879,9 @@ final class AppModel: ObservableObject {
     }
 
     /// Re-expresses a display's whole software image state — dim (gamma + overlay), warmth and
-    /// boost, or Black Out — under the current method and safeguard.
+    /// boost, or Black Out — under the current method and safeguard. The overlay window is touched
+    /// only when a dim is set: without one it may be FaceLight's warm wash, which a zero-alpha dim
+    /// write would remove.
     private func reexpressSoftwareImage(_ id: DisplayRecordID) {
         guard let cgID = displays.first(where: { $0.recordID == id })?.cgDisplayID else {
             gammaOwned.remove(id)
@@ -885,8 +889,10 @@ final class AppModel: ObservableObject {
         }
         if blackedOut.contains(id) {
             writeBlackOutGamma(id: id, cgID: cgID)
+        } else if let level = softwareDim[id], level < 1 {
+            applyDim(level: level, id: id, cgID: cgID)
         } else {
-            applyDim(level: softwareDim[id] ?? 1, id: id, cgID: cgID)
+            writeGamma(level: 1, id: id, cgID: cgID)  // warmth and boost only
         }
     }
 
@@ -934,10 +940,15 @@ final class AppModel: ObservableObject {
     /// verdict changes, re-expresses every display under the new rule: engaging it hands gamma back
     /// to ColorSync and moves dims to the overlay; lifting it puts gamma back where it was wanted.
     func refreshCustomProfileGuard() async {
+        // Refresh, profile changes and ColorSync notifications can overlap; only the newest read
+        // may decide, or a slower stale one could land last and undo a newer verdict.
+        customProfileGuardRead &+= 1
+        let read = customProfileGuardRead
         let targets = displays.compactMap { display in display.cgDisplayID.map { (display.recordID, $0) } }
         let readings = await Task.detached(priority: .utility) {
             targets.map { id, cgID in (id, ColorProfileService.assignment(for: cgID)) }
         }.value
+        guard read == customProfileGuardRead else { return }
         var classified: [DisplayRecordID: ColorProfileGuard.Assignment] = [:]
         var unreadable: Set<DisplayRecordID> = []
         for (id, assignment) in readings {
@@ -1635,7 +1646,6 @@ final class AppModel: ObservableObject {
                        origin: GroupSyncPolicy.ManualWrite.Origin = .slider) {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
-        brightness[id] = value
         #if PUBLIC_API_ONLY
         let method = BrightnessMethod.software
         #else
@@ -1643,6 +1653,8 @@ final class AppModel: ObservableObject {
             ? BrightnessMethod.software
             : brightnessMethod[id] ?? (observation.displayClass == .builtIn ? .native : .hardware)
         #endif
+        // One cache write per tick: the software route stores its floored level below instead.
+        if method != .software { brightness[id] = value }
         var onScreen = true
         switch method {
         case .native:
@@ -1809,7 +1821,6 @@ final class AppModel: ObservableObject {
     private func applySilentBrightness(_ value: Float, for observation: DisplayObservation) {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
-        brightness[id] = value  // keep the visible slider honest
         #if PUBLIC_API_ONLY
         let method = BrightnessMethod.software
         #else
@@ -1817,6 +1828,8 @@ final class AppModel: ObservableObject {
             ? BrightnessMethod.software
             : brightnessMethod[id] ?? (observation.displayClass == .builtIn ? .native : .hardware)
         #endif
+        // Keep the visible slider honest — the software route caches its floored level below.
+        if method != .software { brightness[id] = value }
         switch method {
         case .native:
             #if !PUBLIC_API_ONLY
@@ -2425,7 +2438,7 @@ final class AppModel: ObservableObject {
              assignment: ColorProfileService.assignment(for: cgID),
              name: ColorProfileService.currentProfileName(for: cgID))
         }.value
-        let landed = result.accepted && result.assignment != nil && result.assignment?.customURL == nil
+        let landed = result.accepted && result.assignment?.isFactory == true
         noteProfileChange(name: result.name, assignment: result.assignment, id: id, landed: landed,
                           failure: String(localized: "macOS didn’t switch back to the factory profile. The profile shown is the one in effect."))
         await afterProfileChange(observation)
@@ -3586,6 +3599,17 @@ final class AppModel: ObservableObject {
         favorites.favoriteModes(among: stops, for: observation.recordID)
     }
 
+    /// The display's favourites that none of `stops` matches — kept, listed apart, removable.
+    func unavailableFavoriteKeys(among stops: [DisplayMode], for observation: DisplayObservation) -> [String] {
+        favorites.unavailableKeys(among: stops, for: observation.recordID)
+    }
+
+    /// Removes a favourite by its stored key (one the display doesn't offer has no mode to toggle).
+    func removeFavoriteKey(_ key: String, for observation: DisplayObservation) {
+        favorites.removeKey(key, for: observation.recordID)
+        try? favoritesStore?.save(favorites)
+    }
+
     /// Switches the refresh rate at the current resolution.
     func setRefresh(_ hz: Double, for observation: DisplayObservation) async {
         guard var target = observation.mode else { return }
@@ -4501,8 +4525,9 @@ final class AppModel: ObservableObject {
     }
 
     /// Performs mirror steps against fresh Core Graphics IDs from `snapshot`. A step whose display or
-    /// source has no live ID is skipped rather than substituted. Returns whether anything was written;
-    /// a rejected write is left for the caller's residual check to report.
+    /// source has no live ID is skipped rather than substituted. Returns whether anything was written.
+    /// A rejected write isn't retried here: Protected Layout's residual check reports it, and the
+    /// keep/revert path (like before) relies on the refreshed topology the menus then show.
     private func applyMirrorSteps(_ steps: [MirrorRestorePlan.Step], in snapshot: TopologySnapshot) async -> Bool {
         var wrote = false
         for step in steps {

@@ -916,6 +916,15 @@ func runFavorite() async {
             $0.pointWidth == spec.pointWidth && $0.pointHeight == spec.pointHeight
                 && $0.isHiDPI == spec.isHiDPI && abs($0.refreshHz - spec.refreshHz) < 0.01
         }
+        if modes.isEmpty, sub.lowercased() == "unset" {
+            // A favourite the display no longer offers must stay removable: match the stored keys
+            // on what the argument does say (logical size, density, refresh).
+            let removed = favorites.removeKeys(matchingLogical: spec, for: recordID)
+            guard !removed.isEmpty else { fail("no favourite matches \(positional[3]) for \(name(for: target))") }
+            try? store?.save(favorites)
+            for key in removed { print("unset \(key) for \(name(for: target))") }
+            return
+        }
         guard !modes.isEmpty else {
             fail("\(name(for: target)) doesn't offer \(positional[3]) right now — it must be connected and the refresh rate exact (e.g. @59.94)")
         }

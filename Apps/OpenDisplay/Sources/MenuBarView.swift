@@ -324,7 +324,11 @@ private struct TrayBrightnessControl: View {
                 .font(.system(size: 17)).foregroundStyle(on ? ODColor.accent : Color.secondary)
         }
         .buttonStyle(.plain)
-        .help("XDR boost: SDR brightness above the normal maximum")
+        // The boost is a gamma table, so the custom-profile safeguard pauses it too.
+        .disabled(model.gammaBlockedByCustomProfile)
+        .help(model.gammaBlockedByCustomProfile
+              ? String(localized: "paused: custom colour profile")
+              : String(localized: "XDR boost: SDR brightness above the normal maximum"))
     }
 }
 
@@ -558,6 +562,11 @@ private struct TrayModeList: View {
                 TraySubheader(String(localized: "Favorites"))
                 ForEach(favorites) { row($0, current: current) }
             }
+            let unavailable = model.unavailableFavoriteKeys(among: modes.map(\.mode), for: display)
+            if !unavailable.isEmpty {
+                TraySubheader(String(localized: "Favorites not offered now"))
+                ForEach(unavailable, id: \.self) { unavailableRow($0) }
+            }
             TraySubheader(showAll ? String(localized: "All modes") : String(localized: "Other sizes"))
             ForEach(rest) { row($0, current: current) }
             // Below the rows on purpose: a message appearing here never pushes the row that was clicked.
@@ -596,6 +605,30 @@ private struct TrayModeList: View {
                 .help(favorite ? "Remove from favorites" : "Add to favorites")
             }
         }
+    }
+
+    /// A favourite the display doesn't offer right now: shown as it was stored — never matched to a
+    /// near mode — not selectable, and removable.
+    private func unavailableRow(_ favoriteKey: String) -> some View {
+        let stored = FavoriteResolutions.storedMode(forKey: favoriteKey)
+        return HStack(spacing: 5) {
+            if let stored {
+                Text(TrayModeCatalog.sizeText(stored)).font(.system(size: 12).monospacedDigit())
+                if stored.isHiDPI { TrayTag("HiDPI", tint: .secondary) }
+                Text(TrayModeCatalog.refreshText(stored.refreshHz)).font(.system(size: 10.5))
+            } else {
+                Text(verbatim: favoriteKey).font(.system(size: 12).monospacedDigit())  // older rounded key
+            }
+            Spacer(minLength: 2)
+            Button { model.removeFavoriteKey(favoriteKey, for: display) } label: {
+                Image(systemName: "star.fill").font(.system(size: 10)).foregroundStyle(Color.yellow)
+            }
+            .buttonStyle(.plain)
+            .help("Remove from favorites")
+        }
+        .foregroundStyle(.secondary)
+        .padding(.leading, 24).padding(.trailing, 6).padding(.vertical, 4)  // aligned with the choice rows' text
+        .help(stored.map(AppModel.modeLabel) ?? favoriteKey)
     }
 }
 
@@ -644,7 +677,11 @@ private struct TrayToggles: View {
             let otherLit = model.displays.contains {
                 $0.recordID != display.recordID && $0.isActive && !model.isBlackedOut($0)
             }
-            TraySwitchRow(title: String(localized: "Black Out"), detail: String(localized: "fully black screen"),
+            // Without gamma (overlay-only dimming, or the custom-profile safeguard) Black Out is the
+            // overlay alone, which sits under the menu bar — so the menu bar stays lit.
+            TraySwitchRow(title: String(localized: "Black Out"),
+                          detail: model.effectiveDimmingMethod == .overlay
+                              ? String(localized: "black except the menu bar") : String(localized: "fully black screen"),
                           isOn: model.isBlackedOut(display),
                           enabled: model.isBlackedOut(display) || otherLit) { _ in
                 model.toggleBlackOut(for: display)
@@ -654,7 +691,11 @@ private struct TrayToggles: View {
                 model.toggleFaceLight(for: display)
             }
             if model.xdrCapable(display) {
-                TraySwitchRow(title: String(localized: "XDR boost"), isOn: (model.xdrBoostFraction[display.recordID] ?? 0) > 0) { on in
+                // The boost is a gamma table: unavailable while the custom-profile safeguard pauses gamma.
+                TraySwitchRow(title: String(localized: "XDR boost"),
+                              detail: model.gammaBlockedByCustomProfile ? String(localized: "paused: custom colour profile") : nil,
+                              isOn: (model.xdrBoostFraction[display.recordID] ?? 0) > 0,
+                              enabled: !model.gammaBlockedByCustomProfile) { on in
                     model.setXDRBoost(on ? XDRBrightnessPolicy.defaultBoostFraction : 0, for: display)
                 }
             }
@@ -899,7 +940,7 @@ private struct TrayColorProfileList: View {
                 let assignment = model.colorProfileAssignment[display.recordID]
                 let profiles = model.availableColorProfilesCache
                 let sharedNames = Set(Dictionary(grouping: profiles, by: \.name).filter { $0.value.count > 1 }.keys)
-                TrayChoiceRow(selected: assignment != nil && assignment?.customURL == nil,
+                TrayChoiceRow(selected: assignment?.isFactory == true,
                               action: { Task { await model.resetColorProfile(for: display) } }) {
                     Text("Factory default").font(.system(size: 12))
                 }

@@ -61,14 +61,36 @@ final class ScenePlannerTests: XCTestCase {
         XCTAssertNil(observation(center, active: true).hdrEnabled)
     }
 
-    func testAPersistedObservationWithoutAnHDRFieldDecodesAsUnknown() throws {
-        let encoded = try JSONEncoder().encode(observation(center, active: true))
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        XCTAssertNil(object["hdrEnabled"], "unknown is not written as false")
-        object["hdrEnabled"] = false  // what older versions wrote for every display
-        let legacy = try JSONDecoder().decode(DisplayObservation.self,
-                                              from: JSONSerialization.data(withJSONObject: object))
-        XCTAssertEqual(legacy.hdrEnabled, false)
+    private func json(_ observation: DisplayObservation) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(observation)) as? [String: Any])
+    }
+
+    private func decode(_ object: [String: Any]) throws -> DisplayObservation {
+        try JSONDecoder().decode(DisplayObservation.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+
+    func testAnOlderFilesHDRFalseWasNeverObservedAndDecodesAsUnknown() throws {
+        // Older builds wrote "hdrEnabled": false for every display, observed or not.
+        var object = try json(observation(center, active: true))
+        object["hdrEnabled"] = false
+        object["hdrObserved"] = nil
+        XCTAssertNil(try decode(object).hdrEnabled)
+    }
+
+    func testUnknownStillWritesThePlainBoolOlderBuildsRequire() throws {
+        let object = try json(observation(center, active: true))
+        XCTAssertEqual(object["hdrEnabled"] as? Bool, false, "older builds decode hdrEnabled as a non-optional Bool")
+        XCTAssertNil(object["hdrObserved"])
+        XCTAssertNil(try decode(object).hdrEnabled)
+    }
+
+    func testAnObservedHDRStateRoundTrips() throws {
+        for state in [true, false] {
+            var display = observation(center, active: true)
+            display.hdrEnabled = state
+            XCTAssertEqual(try decode(json(display)).hdrEnabled, state)
+            XCTAssertEqual(try json(display)["hdrEnabled"] as? Bool, state)
+        }
     }
 
     func testDisconnectIsOrderedLastAndReconnectFirst() {

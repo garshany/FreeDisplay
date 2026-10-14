@@ -96,6 +96,32 @@ final class FavoriteResolutionsTests: XCTestCase {
         XCTAssertEqual(fav.favoriteKeys(for: dispA), ["1920x1080/3840x2160@59.940@2x"])
     }
 
+    func testUnavailableFavoritesAreListedAndRemovableByKey() {
+        var fav = legacy(["3840x2160@30"], for: dispA)
+        fav.add(scaled(1920, 1080, hz: 59.94), for: dispA)
+        fav.add(scaled(2560, 1440), for: dispA)
+        let offered = [scaled(1920, 1080, hz: 59.94), scaled(1920, 1080, hz: 60)]
+        let unavailable = fav.unavailableKeys(among: offered, for: dispA)
+        XCTAssertEqual(unavailable, ["2560x1440/5120x2880@60.000@2x", "3840x2160@30"])
+        XCTAssertEqual(FavoriteResolutions.storedMode(forKey: unavailable[0]), scaled(2560, 1440))
+        XCTAssertNil(FavoriteResolutions.storedMode(forKey: unavailable[1]), "a legacy key names no exact mode")
+        fav.removeKey(unavailable[0], for: dispA)
+        XCTAssertEqual(fav.unavailableKeys(among: offered, for: dispA), ["3840x2160@30"])
+        XCTAssertTrue(fav.isFavorite(scaled(1920, 1080, hz: 59.94), for: dispA))
+    }
+
+    func testRemovingByLogicalSpecCoversEveryFramebufferAndLegacyForm() {
+        // A legacy key next to exact ones (as a partly migrated file holds them).
+        var fav = legacy(["1920x1080/3840x2160@59.940@2x", "1920x1080/3840x2160@60.000@2x", "1920x1080@60@2x"],
+                         for: dispA)
+        // What the CLI knows: logical size, density, the refresh typed (pixels mirror points).
+        let spec = DisplayMode(pixelWidth: 1920, pixelHeight: 1080, pointWidth: 1920, pointHeight: 1080,
+                               refreshHz: 60, isHiDPI: true)
+        let removed = fav.removeKeys(matchingLogical: spec, for: dispA)
+        XCTAssertEqual(Set(removed), ["1920x1080/3840x2160@60.000@2x", "1920x1080@60@2x"])
+        XCTAssertEqual(fav.favoriteKeys(for: dispA), ["1920x1080/3840x2160@59.940@2x"], "59.94 Hz is a different favourite")
+    }
+
     func testFavoriteModesResolvesNewestFirstAndKeepsUnavailableOnesStored() {
         var fav = FavoriteResolutions()
         fav.add(mode(3840, 2160), for: dispA)   // not offered right now

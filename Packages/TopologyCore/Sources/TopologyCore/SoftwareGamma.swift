@@ -64,9 +64,10 @@ public enum ColorProfileGuard {
         if factoryPaths.contains(where: { URL(fileURLWithPath: $0).standardizedFileURL.path == path }) {
             return .factory
         }
-        // macOS keeps the generated display factory profiles here; assigning another display's
-        // factory profile is not a custom profile.
-        if path.contains("/ColorSync/Profiles/Displays/") { return .factory }
+        // macOS keeps the generated display factory profiles in the shared Displays folder;
+        // assigning another display's factory profile is not a custom profile. The user's own
+        // ~/Library/ColorSync/Profiles/Displays is not that folder.
+        if path.hasPrefix("/Library/ColorSync/Profiles/Displays/") { return .factory }
         return .custom
     }
 

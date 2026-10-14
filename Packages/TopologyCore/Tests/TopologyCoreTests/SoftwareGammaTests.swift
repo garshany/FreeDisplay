@@ -61,6 +61,9 @@ final class SoftwareGammaTests: XCTestCase {
             assignedPath: "/Users/me/Library/ColorSync/Profiles/Calibrated.icc", factoryPaths: []), .custom)
         XCTAssertEqual(ColorProfileGuard.classify(
             assignedPath: "/Library/ColorSync/Profiles/Shared custom.icc", factoryPaths: []), .custom)
+        XCTAssertEqual(ColorProfileGuard.classify(
+            assignedPath: "/Users/me/Library/ColorSync/Profiles/Displays/Calibrated.icc", factoryPaths: []),
+                       .custom, "the user's own Displays folder is not the factory folder")
     }
 
     func testACustomProfileOnAnyDisplayBlocks() {

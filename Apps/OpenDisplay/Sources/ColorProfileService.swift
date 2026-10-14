@@ -28,6 +28,12 @@ struct ICCProfile: Identifiable, Hashable {
 struct ICCAssignment: Hashable, Sendable {
     var customURL: URL?
     var factoryURLs: [URL]
+
+    /// The display shows its factory profile: no custom entry, or one naming its own factory file.
+    var isFactory: Bool {
+        guard let custom = customURL?.standardizedFileURL else { return true }
+        return factoryURLs.contains { $0.standardizedFileURL == custom }
+    }
 }
 
 /// Per-display ICC colour-profile control via **public ColorSync** (App-Store-safe). Displays are

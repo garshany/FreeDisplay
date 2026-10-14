@@ -116,6 +116,39 @@ public struct FavoriteResolutions: Hashable, Sendable, Codable {
         return result
     }
 
+    /// The stored keys naming none of `available` — favourites the display doesn't offer right now,
+    /// newest first. They are kept and never substituted by a near match; listing them is what lets
+    /// a user still see and remove them.
+    public func unavailableKeys(among available: [DisplayMode], for display: DisplayRecordID) -> [String] {
+        favoriteKeys(for: display).filter { key in !available.contains { Self.key(key, matches: $0) } }
+    }
+
+    /// Removes one stored key as it is — an unavailable favourite has no offered mode to match.
+    public mutating func removeKey(_ key: String, for display: DisplayRecordID) {
+        let list = (byDisplay[display.rawValue] ?? []).filter { $0 != key }
+        byDisplay[display.rawValue] = list.isEmpty ? nil : list
+    }
+
+    /// Removes every stored key naming this logical size, density and refresh rate (within the
+    /// usual tolerance) whatever its framebuffer — for a caller that knows only those, like the CLI
+    /// un-setting a favourite the display no longer offers. Legacy keys go when their rounded form
+    /// equals the spec's. Returns the removed keys.
+    @discardableResult
+    public mutating func removeKeys(matchingLogical spec: DisplayMode, for display: DisplayRecordID) -> [String] {
+        let list = byDisplay[display.rawValue] ?? []
+        let removed = list.filter { key in
+            guard let stored = Self.exactMode(from: key) else { return key == Self.legacyKey(for: spec) }
+            return stored.pointWidth == spec.pointWidth && stored.pointHeight == spec.pointHeight
+                && stored.isHiDPI == spec.isHiDPI && abs(stored.refreshHz - spec.refreshHz) < 0.01
+        }
+        let kept = list.filter { !removed.contains($0) }
+        byDisplay[display.rawValue] = kept.isEmpty ? nil : kept
+        return removed
+    }
+
+    /// The mode an exact key names; nil for a legacy rounded key, which never recorded one.
+    public static func storedMode(forKey key: String) -> DisplayMode? { exactMode(from: key) }
+
     /// Favourites (newest first, resolved against `stops` so stale ones drop out) followed by the
     /// remaining area-sorted stops — deduped. The single list a resolution control steps through.
     public func merged(stops: [DisplayMode], for display: DisplayRecordID) -> [DisplayMode] {

@@ -292,13 +292,21 @@ final class LayoutProtectionPolicyTests: XCTestCase {
         XCTAssertEqual(MirrorRestorePlan.steps(wanted: [step("B", "A"), step("C", "C")], current: current), [])
     }
 
-    func testAMirrorChangeOnADisplayTheUserTurnedOffGetsNoStep() {
+    func testAMirrorChangeOnADisplayTheUserTurnedOffGetsNoStep() throws {
         // The public lifecycle provider "turns off" by mirroring onto main; the policy leaves that
         // alone, and the steps come from the policy's answer, never from a fresh comparison.
         let protectedSnapshot = snap([obs("A", main: true), obs("B")])
         let current = snap([obs("A", main: true), obs("B", mirror: "A")])
-        XCTAssertEqual(mirrorSteps(protected: protectedSnapshot, current: current,
-                                   context: context(managedOffline: [.init(rawValue: "B")])), [])
+        let turnedOff = try XCTUnwrap(LayoutProtectionPolicy.actionableDrift(
+            protected: protectedSnapshot, current: current,
+            context: context(managedOffline: [.init(rawValue: "B")])))
+        XCTAssertEqual(LayoutProtectionPolicy.mirrorRestoreSteps(
+            protected: protectedSnapshot, current: current, analysis: turnedOff), [])
+        // The same drift on a display the user did NOT turn off is restored.
+        let drifted = try XCTUnwrap(LayoutProtectionPolicy.actionableDrift(
+            protected: protectedSnapshot, current: current, context: context()))
+        XCTAssertEqual(LayoutProtectionPolicy.mirrorRestoreSteps(
+            protected: protectedSnapshot, current: current, analysis: drifted), [step("B", nil)])
     }
 
     func testMainDisplayDriftRestores() {
