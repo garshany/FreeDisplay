@@ -688,7 +688,11 @@ private struct TrayDeviceControl: View {
     var body: some View {
         let controls = HardwareControl.allCases.filter { model.ddcControl($0, for: display) != nil }
         VStack(alignment: .leading, spacing: 8) {
-            if controls.isEmpty {
+            if let refusal = model.ddcBindingRefusal[display.recordID] {
+                // Deliberately not talking DDC (TR-06/FB-08) — "didn't respond" would send the user
+                // power-cycling a monitor that was never asked anything.
+                TrayNote(DDCStatusText.refusal(refusal), tint: ODColor.caution)
+            } else if controls.isEmpty {
                 TrayNote(String(localized: "The monitor didn't respond over DDC. If control worked before, turn the monitor off and on with its power button and retry."))
                 TrayPillButton(String(localized: "Retry DDC probe")) {
                     model.retryDDCDiscoveryIfDead(for: display)

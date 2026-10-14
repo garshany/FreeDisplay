@@ -7,8 +7,9 @@ import Foundation
 /// `ProductAttributes` (manufacturer, product id, serial). Matching the CG display to a service *by
 /// enumeration order* silently controls the wrong monitor whenever IOKit and Core Graphics disagree
 /// on ordering (dock re-plugs, mixed HDMI/DP, identical models) — so we score every candidate
-/// against the CG display's vendor/product/serial and pick the best, falling back to order only
-/// when no candidate carries identity attributes (some TVs/adapters strip them).
+/// against the CG display's vendor/product/serial and bind only a candidate the evidence singles
+/// out. Order is never used as a tie-breaker: a guess that is wrong sends brightness, input or
+/// power commands to a different monitor, which is worse than offering no hardware control.
 public enum DDCServiceMatcher {
     /// The identity attributes an IORegistry display-service candidate advertises
     /// (`DisplayAttributes` → `ProductAttributes` on the AppleCLCD2 node). All optional: real-world
@@ -70,18 +71,80 @@ public enum DDCServiceMatcher {
         return total
     }
 
-    /// Picks the candidate index to bind. Highest positive score wins; when nothing scores (no
-    /// attributes anywhere, or a genuinely foreign display) or the best score is tied — e.g. two
-    /// *identical* monitors with unprogrammed serials — prefer `fallbackIndex` (the order-based
-    /// guess) if it's among the tied best, else the first best. Always returns a valid index into
-    /// a non-empty array; nil only when `candidates` is empty.
-    public static func bestIndex(of candidates: [Candidate?], against target: Target,
-                                 fallbackIndex: Int) -> Int? {
-        guard !candidates.isEmpty else { return nil }
-        let clampedFallback = min(max(fallbackIndex, 0), candidates.count - 1)
+    /// Which service to bind for a display — or why none may be bound.
+    public enum Resolution: Equatable, Sendable {
+        /// One candidate matches the display's identity strictly better than every other.
+        case matched(index: Int)
+        /// The only AV service on the Mac, for the only external display that could own one. Nothing
+        /// identifies it (e.g. a TV or adapter that strips the identity attributes), but there is no
+        /// other monitor a command could reach by mistake.
+        case sole(index: Int)
+        /// Several services (or several displays) are possible owners and identity can't tell them
+        /// apart. Nothing must be written: any choice would be a guess.
+        case refused(DDCBindingRefusal)
+        /// No external AV service exists — the display has no DDC channel.
+        case none
+    }
+
+    /// Decides which candidate (if any) to bind for `target`.
+    ///
+    /// - `externals`: the CG identities of every external display that could own a service,
+    ///   including `target` itself (OpenDisplay's own virtual screens excluded by the caller).
+    ///
+    /// A unique highest positive score wins — unless another external reports exactly the same
+    /// identity as `target`: then a match proves only the model, not which of the twins owns the
+    /// service (identical monitors where IOKit labels one service and strips the other would
+    /// otherwise both bind to the labelled one). A tie for the best score is refused for the same
+    /// reason. Nothing scoring is refused too, except for the single-monitor setup — exactly one
+    /// service and exactly one external — where the service can't belong to anything else.
+    public static func resolve(_ candidates: [Candidate?], against target: Target,
+                               among externals: [Target]) -> Resolution {
+        guard !candidates.isEmpty else { return .none }
         let scores = candidates.map { $0.map { score($0, against: target) } ?? 0 }
-        guard let best = scores.max(), best > 0 else { return clampedFallback }
-        let winners = scores.indices.filter { scores[$0] == best }
-        return winners.contains(clampedFallback) ? clampedFallback : winners[0]
+        let best = scores.max() ?? 0
+        if best > 0 {
+            if externals.filter({ $0 == target }).count > 1 { return .refused(.ambiguousIdentity) }
+            let winners = scores.indices.filter { scores[$0] == best }
+            return winners.count == 1 ? .matched(index: winners[0]) : .refused(.ambiguousIdentity)
+        }
+        if candidates.count == 1, externals.count <= 1 { return .sole(index: 0) }
+        return .refused(.unidentified)
+    }
+}
+
+/// Why OpenDisplay refuses to talk DDC/CI to a display. Every case means no command is sent.
+public enum DDCBindingRefusal: Equatable, Sendable {
+    /// Another connected monitor reports the same identity (typically the same model with no serial
+    /// number), so the I2C service for this one can't be told apart from the other's.
+    case ambiguousIdentity
+    /// Several monitors could own the available I2C service(s) and none of them carries enough
+    /// identity to pick the right one.
+    case unidentified
+    /// An Apple-made display (see `DDCEligibility`): generic DDC is withheld unless the user
+    /// explicitly overrides it for this display.
+    case appleDisplay
+}
+
+/// Which displays may receive generic DDC/CI at all (FB-08), before any service is bound.
+///
+/// Apple's own displays are controlled through DisplayServices, not DDC/CI, and some older Apple
+/// models are reported to end up unable to wake (a black screen that persists) after receiving
+/// generic DDC traffic. A failed native read must therefore not fall through to DDC probing:
+/// every Apple-vendor display is excluded unless the user turned on the per-display override.
+/// Gated on the vendor alone because no verified list of safe/unsafe Apple product codes exists here;
+/// modern Apple displays don't implement DDC/CI, so excluding them costs nothing.
+public enum DDCEligibility {
+    /// EDID vendor number of Apple displays (PnP "APP").
+    public static let appleVendorNumber = 0x0610
+
+    /// Whether generic DDC/CI may be used for a display with this EDID vendor number.
+    /// `appleOverride` is the user's explicit per-display opt-in for an Apple display.
+    public static func allowsGenericDDC(vendorNumber: Int, appleOverride: Bool) -> Bool {
+        vendorNumber != appleVendorNumber || appleOverride
+    }
+
+    /// True for Apple-vendor displays — the ones that need the override.
+    public static func isAppleDisplay(vendorNumber: Int) -> Bool {
+        vendorNumber == appleVendorNumber
     }
 }

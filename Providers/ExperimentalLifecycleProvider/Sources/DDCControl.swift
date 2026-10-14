@@ -93,22 +93,81 @@ public actor ExternalDisplayDDC {
         if busWaiters.isEmpty { busLocked = false } else { busWaiters.removeFirst().resume() }
     }
 
+    /// Outcome of trying to bind a display's DDC channel.
+    public enum Binding: Sendable {
+        case bound(ExternalDisplayDDC)
+        /// A channel may exist, but OpenDisplay won't use it — see `DDCBindingRefusal`.
+        case refused(DDCBindingRefusal)
+        /// No DDC channel: the built-in, OpenDisplay's own virtual screen, no external AV service,
+        /// or the SPI is missing.
+        case unavailable
+
+        public var controller: ExternalDisplayDDC? {
+            if case .bound(let controller) = self { return controller }
+            return nil
+        }
+
+        public var refusal: DDCBindingRefusal? {
+            if case .refused(let reason) = self { return reason }
+            return nil
+        }
+    }
+
+    /// A bound I2C channel before it is wrapped in the actor.
+    private struct Channel { let service: AnyObject; let writeFn: WriteFn; let readFn: ReadFn }
+    private enum Lookup { case channel(Channel), refused(DDCBindingRefusal), unavailable }
+
+    private init(channel: Channel) {
+        service = channel.service
+        writeFn = channel.writeFn
+        readFn = channel.readFn
+    }
+
     /// Binds to the external display's IOAVService, or fails if the display is the built-in, has no
-    /// AV service, or the SPI is unavailable.
-    public init?(displayID: CGDirectDisplayID) {
-        guard CGDisplayIsBuiltin(displayID) == 0 else { return nil }
+    /// AV service, the SPI is unavailable, or the binding is refused (see `bind`).
+    public init?(displayID: CGDirectDisplayID, allowAppleDisplay: Bool = false) {
+        guard case .channel(let channel) = Self.lookup(displayID, allowAppleDisplay: allowAppleDisplay)
+        else { return nil }
+        self.init(channel: channel)
+    }
+
+    /// Binds to the external display's IOAVService, explaining a refusal. Refuses Apple-made
+    /// displays unless `allowAppleDisplay` (the user's explicit per-display override — see
+    /// `DDCEligibility`) and any service the identity evidence can't single out (`DDCServiceMatcher`):
+    /// a guessed binding would send commands to a different monitor.
+    public static func bind(displayID: CGDirectDisplayID, allowAppleDisplay: Bool = false) -> Binding {
+        switch lookup(displayID, allowAppleDisplay: allowAppleDisplay) {
+        case .channel(let channel): return .bound(ExternalDisplayDDC(channel: channel))
+        case .refused(let reason): return .refused(reason)
+        case .unavailable: return .unavailable
+        }
+    }
+
+    private static func lookup(_ displayID: CGDirectDisplayID, allowAppleDisplay: Bool) -> Lookup {
+        guard CGDisplayIsBuiltin(displayID) == 0 else { return .unavailable }
+        let vendor = CGDisplayVendorNumber(displayID)
+        // OpenDisplay's own virtual screens have no I2C channel; without this they would score zero
+        // against the real monitor's service and could only ever borrow it.
+        guard vendor != VirtualDisplaySafetyPolicy.providerVendorID else { return .unavailable }
+        guard DDCEligibility.allowsGenericDDC(vendorNumber: Int(vendor), appleOverride: allowAppleDisplay)
+        else { return .refused(.appleDisplay) }
         guard let iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW),
               let createPtr = dlsym(iokit, "IOAVServiceCreateWithService"),
               let writePtr = dlsym(iokit, "IOAVServiceWriteI2C"),
               let readPtr = dlsym(iokit, "IOAVServiceReadI2C")
-        else { return nil }
+        else { return .unavailable }
         let create = unsafeBitCast(createPtr, to: CreateFn.self)
-        writeFn = unsafeBitCast(writePtr, to: WriteFn.self)
-        readFn = unsafeBitCast(readPtr, to: ReadFn.self)
-        guard let svc = Self.avService(for: displayID) else { return nil }
+        let svc: io_service_t
+        switch avService(for: displayID) {
+        case .found(let found): svc = found
+        case .refused(let reason): return .refused(reason)
+        case .none: return .unavailable
+        }
         defer { IOObjectRelease(svc) }
-        guard let av = create(kCFAllocatorDefault, svc) else { return nil }
-        service = av.takeRetainedValue()
+        guard let av = create(kCFAllocatorDefault, svc) else { return .unavailable }
+        return .channel(Channel(service: av.takeRetainedValue(),
+                                writeFn: unsafeBitCast(writePtr, to: WriteFn.self),
+                                readFn: unsafeBitCast(readPtr, to: ReadFn.self)))
     }
 
     /// Reads a VCP feature: (current, max) in the display's native units (brightness/contrast 0...100
@@ -272,14 +331,18 @@ public actor ExternalDisplayDDC {
     /// service-plane order, so "most recent display attributes" is that proxy's panel. Each
     /// candidate is then scored against the CG display's vendor/model/serial
     /// (`DDCServiceMatcher`), which keeps DDC bound to the *right* monitor across dock re-plugs,
-    /// mixed HDMI/DP topologies, and IOKit-vs-CG ordering disagreements. Candidates without
-    /// attributes score zero and the old order-based choice remains the fallback, so nothing that
-    /// worked before stops working.
-    private static func avService(for displayID: CGDirectDisplayID) -> io_service_t? {
+    /// mixed HDMI/DP topologies, and IOKit-vs-CG ordering disagreements. Enumeration order is NOT
+    /// a fallback: when identity can't single out one service (identical serial-less monitors,
+    /// attribute-less services next to several displays) the lookup is refused — order is exactly
+    /// what changes across a dock replug, so a guess could silently retarget writes. A lone
+    /// attribute-less service for a lone external monitor still binds.
+    private enum ServiceLookup { case found(io_service_t), refused(DDCBindingRefusal), none }
+
+    private static func avService(for displayID: CGDirectDisplayID) -> ServiceLookup {
         var iterator = io_iterator_t()
         guard IORegistryCreateIterator(
             kIOMainPortDefault, kIOServicePlane, IOOptionBits(kIORegistryIterateRecursively), &iterator
-        ) == KERN_SUCCESS else { return nil }
+        ) == KERN_SUCCESS else { return .none }
         defer { IOObjectRelease(iterator) }
 
         var externals: [io_service_t] = []
@@ -318,18 +381,26 @@ public actor ExternalDisplayDDC {
             candidates.removeAll()
             IOIteratorReset(iterator)
         }
-        guard !externals.isEmpty else { return nil }
+        let index: Int
+        switch DDCServiceMatcher.resolve(candidates, against: identity(of: displayID),
+                                         among: externalDisplayIDs().map(identity(of:))) {
+        case .matched(let found), .sole(let found): index = found
+        case .refused(let reason):
+            for kept in externals { IOObjectRelease(kept) }
+            return .refused(reason)
+        case .none:
+            return .none
+        }
+        let chosen = externals[index]
+        for candidate in externals where candidate != chosen { IOObjectRelease(candidate) }
+        return .found(chosen)
+    }
 
-        let target = DDCServiceMatcher.Target(
+    private static func identity(of displayID: CGDirectDisplayID) -> DDCServiceMatcher.Target {
+        DDCServiceMatcher.Target(
             vendorNumber: Int(CGDisplayVendorNumber(displayID)),
             productNumber: Int(CGDisplayModelNumber(displayID)),
             serialNumber: Int(CGDisplaySerialNumber(displayID)))
-        let orderIndex = externalDisplayIDs().firstIndex(of: displayID) ?? 0
-        let index = DDCServiceMatcher.bestIndex(of: candidates, against: target,
-                                                fallbackIndex: orderIndex) ?? 0
-        let chosen = externals[index]
-        for candidate in externals where candidate != chosen { IOObjectRelease(candidate) }
-        return chosen
     }
 
     /// The EDID-derived identity a display-service node advertises (`DisplayAttributes` →
@@ -348,11 +419,15 @@ public actor ExternalDisplayDDC {
             serialNumber: product["SerialNumber"] as? Int)
     }
 
+    /// Online external displays that could own an AV service. OpenDisplay's own virtual screens are
+    /// left out: they never have one, and counting them would make a lone monitor look ambiguous.
     private static func externalDisplayIDs() -> [CGDirectDisplayID] {
         var ids = [CGDirectDisplayID](repeating: 0, count: 16)
         var count: UInt32 = 0
         CGGetOnlineDisplayList(16, &ids, &count)
-        return ids.prefix(Int(count)).filter { CGDisplayIsBuiltin($0) == 0 }.sorted()
+        return ids.prefix(Int(count)).filter {
+            CGDisplayIsBuiltin($0) == 0 && CGDisplayVendorNumber($0) != VirtualDisplaySafetyPolicy.providerVendorID
+        }.sorted()
     }
 }
 #endif

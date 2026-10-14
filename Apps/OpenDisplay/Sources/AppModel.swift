@@ -139,6 +139,10 @@ final class AppModel: ObservableObject {
     /// Set by the post-drain read-back (`DDCWriteVerification`); cleared by the next verified write
     /// or successful read of that feature, by a factory reset, and when the display leaves.
     @Published private(set) var ddcWriteIgnored: [DisplayRecordID: Set<UInt8>] = [:]
+    /// Displays OpenDisplay deliberately sends no DDC to, and why (TR-06 ambiguous service binding,
+    /// FB-08 Apple display without the override). Set on every controller lookup, so it follows
+    /// topology changes; the UI shows it instead of "the monitor didn't respond".
+    @Published private(set) var ddcBindingRefusal: [DisplayRecordID: DDCBindingRefusal] = [:]
     /// Current ICC colour-profile name per display (ColorSync), for the Colour profile row.
     @Published private(set) var colorProfileName: [DisplayRecordID: String] = [:]
     /// Whether each display exposes a ColorSync device that profile writes can target — resolved
@@ -205,7 +209,7 @@ final class AppModel: ObservableObject {
     private var ddc: [DisplayRecordID: ExternalDisplayDDC] = [:]
     /// In-flight DDC-controller constructions, so concurrent first-uses of one display await the same
     /// build instead of each spinning up (and binding) a duplicate IOAVService.
-    private var ddcBuilders: [DisplayRecordID: Task<ExternalDisplayDDC?, Never>] = [:]
+    private var ddcBuilders: [DisplayRecordID: Task<ExternalDisplayDDC.Binding, Never>] = [:]
     private var brightnessMax: [DisplayRecordID: Int] = [:]
     private var ddcTarget: [DisplayRecordID: Int] = [:]
     private var ddcWriters: [DisplayRecordID: Task<Void, Never>] = [:]
@@ -1148,6 +1152,7 @@ final class AppModel: ObservableObject {
         if !colorProfileName.keys.allSatisfy(ids.contains) { colorProfileName = colorProfileName.filter { ids.contains($0.key) } }
         if !softwareDim.keys.allSatisfy(ids.contains) { softwareDim = softwareDim.filter { ids.contains($0.key) } }
         if !ddcWriteIgnored.keys.allSatisfy(ids.contains) { ddcWriteIgnored = ddcWriteIgnored.filter { ids.contains($0.key) } }
+        if !ddcBindingRefusal.keys.allSatisfy(ids.contains) { ddcBindingRefusal = ddcBindingRefusal.filter { ids.contains($0.key) } }
         if !colorTemperature.keys.allSatisfy(ids.contains) {
             colorTemperature = colorTemperature.filter { ids.contains($0.key) }
         }
@@ -1305,6 +1310,8 @@ final class AppModel: ObservableObject {
             brightnessMethod[id] = .native
             return
         }
+        // An Apple display whose native read failed gets NO controller here unless the user overrode
+        // it for this display (FB-08) — it falls through to software instead of generic DDC probing.
         if observation.displayClass != .builtIn, let controller = await ddcController(for: observation) {
             // The probe tracker keeps a DDC-less external from paying the full retried read
             // (~0.7s) on every refresh before falling back to gamma — after a couple of failures
@@ -1650,17 +1657,26 @@ final class AppModel: ObservableObject {
     /// — `ExternalDisplayDDC.init` does `dlopen` + IOKit registry enumeration, which must not run on
     /// the UI thread when a display row first expands. Concurrent first-uses await one shared build,
     /// so a display can't end up with two bound IOAVService handles.
+    ///
+    /// A refused binding (Apple display without the override, or a service identity can't single
+    /// out — TR-06/FB-08) yields nil like a missing channel, so every DDC path sends nothing; the
+    /// reason is published in `ddcBindingRefusal` for the UI.
     private func ddcController(for observation: DisplayObservation) async -> ExternalDisplayDDC? {
         let id = observation.recordID
         if let existing = ddc[id] { return existing }
-        if let building = ddcBuilders[id] { return await building.value }
+        if let building = ddcBuilders[id] { return await building.value.controller }
         guard let cgID = observation.cgDisplayID else { return nil }
-        let builder = Task.detached(priority: .utility) { ExternalDisplayDDC(displayID: cgID) }
+        let allowApple = settings.ddcAppleDisplayOverrideIDs.contains(id.rawValue)
+        let builder = Task.detached(priority: .utility) {
+            ExternalDisplayDDC.bind(displayID: cgID, allowAppleDisplay: allowApple)
+        }
         ddcBuilders[id] = builder
-        let controller = await builder.value
+        let binding = await builder.value
         ddcBuilders[id] = nil
-        if let controller { ddc[id] = controller }
-        return controller
+        let refusal = binding.refusal
+        if ddcBindingRefusal[id] != refusal { ddcBindingRefusal[id] = refusal }
+        if let controller = binding.controller { ddc[id] = controller }
+        return binding.controller
     }
 
     private func drainDDCWrites(_ id: DisplayRecordID, _ observation: DisplayObservation) async {
@@ -4398,6 +4414,40 @@ final class AppModel: ObservableObject {
             settings.softwareBrightnessDisplayIDs.remove(id.rawValue)
         }
         persistSettings()
+        await refreshBrightness(for: observation)
+    }
+
+    /// Whether an external display is Apple-made — generic DDC is withheld from those unless the
+    /// user turned on `setAppleDisplayDDCOverride` for that display (FB-08).
+    func isAppleDisplay(_ observation: DisplayObservation) -> Bool {
+        guard observation.displayClass != .builtIn, let cgID = observation.cgDisplayID else { return false }
+        return DDCEligibility.isAppleDisplay(vendorNumber: Int(CGDisplayVendorNumber(cgID)))
+    }
+
+    func appleDisplayDDCOverride(for observation: DisplayObservation) -> Bool {
+        settings.ddcAppleDisplayOverrideIDs.contains(observation.recordID.rawValue)
+    }
+
+    /// Expert override (FB-08): let generic DDC reach this one Apple display. Scoped to the display's
+    /// record, never to Apple displays in general. Either way the cached binding and DDC state for
+    /// the display are dropped, so turning it off stops DDC traffic at once instead of after the next
+    /// replug, and turning it on probes from scratch.
+    func setAppleDisplayDDCOverride(_ allowed: Bool, for observation: DisplayObservation) async {
+        let id = observation.recordID
+        if allowed {
+            settings.ddcAppleDisplayOverrideIDs.insert(id.rawValue)
+        } else {
+            settings.ddcAppleDisplayOverrideIDs.remove(id.rawValue)
+        }
+        persistSettings()
+        #if !PUBLIC_API_ONLY
+        pruneDDCCaches(to: Set(displays.map(\.recordID)).subtracting([id]))
+        #endif
+        ddcControlLevel[id] = nil
+        colorPreset[id] = nil
+        inputSource[id] = nil
+        ddcWriteIgnored[id] = nil
+        brightnessMethod[id] = nil
         await refreshBrightness(for: observation)
     }
 

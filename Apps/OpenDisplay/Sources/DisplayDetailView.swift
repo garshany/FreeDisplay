@@ -383,7 +383,34 @@ struct ControlsCard: View {
             if model.ddcWriteWasIgnored(0x10, for: display) { ignoredCaption(Self.ignoredNote) }
             ODDivider()
             let controls = HardwareControl.allCases.filter { model.ddcControl($0, for: display) != nil }
-            if controls.isEmpty {
+            #if !PUBLIC_API_ONLY
+            if model.isAppleDisplay(display) {
+                // FB-08: DDC is withheld from Apple displays; this is the explicit, per-display way in.
+                Toggle("Allow DDC on this Apple display", isOn: Binding(
+                    get: { model.appleDisplayDDCOverride(for: display) },
+                    set: { allowed in Task { await model.setAppleDisplayDDCOverride(allowed, for: display) } }))
+                    .font(.caption)
+                Text("For experts. Some older Apple displays can end up with a screen that stays black after receiving DDC commands, and the fault may persist. Turn this on only if you know this model handles DDC.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            #endif
+            let refusal = model.ddcBindingRefusal[display.recordID]
+            if let refusal, refusal != .appleDisplay {
+                // TR-06: refused on purpose — not a stuck channel the user should power-cycle.
+                ODRow(String(localized: "No hardware control")) {}
+                Text(DDCStatusText.refusal(refusal))
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 10).padding(.bottom, 6)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if controls.isEmpty, refusal == nil {
+                #if PUBLIC_API_ONLY
+                ODRow(String(localized: "No hardware control")) {}
+                Text("This build uses only public macOS interfaces, and monitor control over DDC needs private ones. Brightness uses software dimming.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 10).padding(.bottom, 6)
+                    .fixedSize(horizontal: false, vertical: true)
+                #else
                 ODRow(String(localized: "No other adjustable hardware controls reported")) {}
                 // A panel that answers nothing usually isn't DDC-less — its scaler's DDC channel is
                 // often just stuck (a state that survives display sleep; only its own power button
@@ -392,6 +419,7 @@ struct ControlsCard: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .padding(.horizontal, 10).padding(.bottom, 6)
                     .fixedSize(horizontal: false, vertical: true)
+                #endif
             } else {
                 ForEach(Array(controls.enumerated()), id: \.element) { index, control in
                     if index > 0 { ODDivider() }
