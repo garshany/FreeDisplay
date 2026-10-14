@@ -37,6 +37,11 @@
 	<string>https://github.com/aquitaine/OpenDisplay/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>G9aQchK8B0eqrXhKwKWat4SRCR/XboPdgpmfuHrBnuE=</string>
+	<!-- FreeDisplay fork: the feed above publishes upstream aquitaine/OpenDisplay builds, and
+	     installing one would replace this fork's modified app. Until the fork has its own signed
+	     appcast, every build is a local build: Sparkle checks are skipped and About says so. -->
+	<key>OpenDisplayLocalBuild</key>
+	<true/>
 	<!-- opendisplay:// URL-scheme automation (Issue 4). Routes onto the same safety-checked,
 	     audited CommandGateway as the CLI and App Intents; only non-destructive recovery
 	     commands auto-run, arrangement-altering ones require in-app confirmation. -->

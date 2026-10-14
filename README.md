@@ -1,5 +1,11 @@
 # OpenDisplay
 
+> **FreeDisplay fork.** This repository is a modified fork of
+> [aquitaine/OpenDisplay](https://github.com/aquitaine/OpenDisplay) (GPL-3.0-or-later), changed
+> since October 2026: tray panel, session virtual displays, capture preview, local HTTP control,
+> EDID/HiDPI export tools and a Russian UI. It is not affiliated with BetterDisplay or its author.
+> The install instructions below refer to the upstream project.
+
 **Free, open-source display control for macOS (Apple Silicon).** Drive your external
 monitor's *real* hardware — brightness, volume, colour, input — over **DDC/CI**, from the
 menu bar, your keyboard's **brightness keys**, a CLI, or Shortcuts. Plus **auto-brightness**
