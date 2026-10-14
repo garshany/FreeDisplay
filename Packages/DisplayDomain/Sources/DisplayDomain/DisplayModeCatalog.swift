@@ -10,12 +10,43 @@ public struct DisplayModeOption: Hashable, Sendable, Identifiable {
     public let isNative: Bool
     /// The mode macOS itself picks by default for this display.
     public let isDefault: Bool
+    /// `CGDisplayModeIsUsableForDesktopGUI`: macOS considers the mode fit for a desktop. The ones
+    /// it doesn't are still listed by Core Graphics; they are kept out of ordinary lists.
+    public let isUsableForDesktop: Bool
+    /// The mode's IOKit flags as Core Graphics reports them, or nil when not read (fixtures,
+    /// options built without them). Only the documented public flag bits are interpreted.
+    public let ioFlags: UInt32?
 
-    public init(mode: DisplayMode, isNative: Bool, isDefault: Bool) {
+    public init(mode: DisplayMode, isNative: Bool, isDefault: Bool,
+                isUsableForDesktop: Bool = true, ioFlags: UInt32? = nil) {
         self.mode = mode
         self.isNative = isNative
         self.isDefault = isDefault
+        self.isUsableForDesktop = isUsableForDesktop
+        self.ioFlags = ioFlags
     }
+
+    // IOGraphicsTypes.h (public IOKit constants).
+    static let validFlag: UInt32 = 0x0000_0001
+    static let safeFlag: UInt32 = 0x0000_0002
+    static let interlacedFlag: UInt32 = 0x0000_0040
+    static let stretchedFlag: UInt32 = 0x0000_0800
+    static let televisionFlag: UInt32 = 0x0010_0000
+
+    /// The valid flag: false means the driver lists the mode but doesn't call it valid for this
+    /// display. Nil when no flags were read.
+    public var isReportedValid: Bool? { ioFlags.map { $0 & Self.validFlag != 0 } }
+    /// The safe flag: false means the mode may exceed what the display is known to accept.
+    public var isReportedSafe: Bool? { ioFlags.map { $0 & Self.safeFlag != 0 } }
+    public var isInterlaced: Bool { (ioFlags ?? 0) & Self.interlacedFlag != 0 }
+    public var isStretched: Bool { (ioFlags ?? 0) & Self.stretchedFlag != 0 }
+    public var isTelevisionMode: Bool { (ioFlags ?? 0) & Self.televisionFlag != 0 }
+
+    /// What an ordinary list offers: the modes macOS calls usable for a desktop. Everything else
+    /// needs an explicit "show every mode". The valid/safe flags are shown as tags but don't hide
+    /// a mode by themselves — which flags a driver sets varies, and hiding on them could empty
+    /// the list of a display whose modes all work.
+    public var isOrdinary: Bool { isUsableForDesktop }
 
     /// Exact identity: logical size, framebuffer, the unrounded refresh rate (59.94 ≠ 60) and the
     /// bit depth when it is known.

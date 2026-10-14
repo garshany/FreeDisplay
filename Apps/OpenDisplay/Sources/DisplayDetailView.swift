@@ -1,5 +1,6 @@
 #if os(macOS)
 import AutomationSchema
+import CoreGraphicsProvider
 import DisplayDomain
 import OpenDisplayDesignSystem
 import SwiftUI
@@ -73,13 +74,27 @@ struct ResolutionCard: View {
         self.display = display
         self.compact = compact
     }
-    @State private var allModes: [DisplayMode] = []
+    /// Every mode Core Graphics lists, with its markers (`DisplayModeReader`), duplicates included
+    /// so the discovery summary can count them.
+    @State private var listed: [DisplayModeOption] = []
     @State private var selectedMode: DisplayMode?
     @State private var applying = false
     @State private var showLowerDensity = false
+    /// Filters per display, kept while Settings is open so switching displays doesn't lose them.
+    @State private var filters: [DisplayRecordID: DisplayModeFilter] = [:]
+    @State private var showMissingHelp = false
 
+    private var options: [DisplayModeOption] { DisplayModeCatalog.distinct(listed) }
+    private var filter: DisplayModeFilter { filters[display.recordID] ?? .any }
+    private var filterResult: DisplayModeCatalog.FilterResult {
+        DisplayModeCatalog.filter(options, with: filter, current: display.mode)
+    }
+
+    /// The filtered modes, then the older "hide non-HiDPI duplicates" rule — which only applies
+    /// while density isn't filtered: a chosen LoDPI filter must not be emptied by it.
     private var choices: [DisplayMode] {
-        DisplayModeChoices.visible(from: allModes, current: display.mode, includeLowerDensity: showLowerDensity)
+        DisplayModeChoices.visible(from: filterResult.visible.map(\.mode), current: display.mode,
+                                   includeLowerDensity: showLowerDensity || filter.densities != nil)
     }
 
     private var canApply: Bool {
@@ -108,11 +123,25 @@ struct ResolutionCard: View {
                 ODRow(String(localized: "Choose mode")) { modePicker.frame(maxWidth: 380) }
             }
             ODDivider()
+            ODRow(String(localized: "Filter")) { filterControls }
+            ODDivider()
             ODRow(String(localized: "More modes")) {
-                Toggle(compact ? "Show non-HiDPI" : "Show non-HiDPI alternatives", isOn: $showLowerDensity)
-                    .font(.system(size: 11)).disabled(applying || model.pendingRevert != nil)
-                    .help("Non-HiDPI variants are hidden by default when a HiDPI mode exists for the same logical size. The current mode always stays visible.")
+                VStack(alignment: .trailing, spacing: 4) {
+                    Toggle(compact ? "Show non-HiDPI" : "Show non-HiDPI alternatives", isOn: $showLowerDensity)
+                        .font(.system(size: 11)).disabled(applying || model.pendingRevert != nil || filter.densities != nil)
+                        .help("Non-HiDPI variants are hidden by default when a HiDPI mode exists for the same logical size. The current mode always stays visible.")
+                    Toggle("Include modes not meant for desktop use", isOn: Binding(
+                        get: { filter.includeNonOrdinary },
+                        set: { value in updateFilter { $0.includeNonOrdinary = value } }))
+                        .font(.system(size: 11)).disabled(applying || model.pendingRevert != nil)
+                        .help("Lists every mode macOS reports, including the ones it marks as not usable for a desktop. Such a mode can leave the picture blank or distorted; like any new mode it has to be confirmed, or it reverts on its own.")
+                }
             }
+            Text(listSummary)
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10).padding(.vertical, 6)
             if let error = model.modeChangeError {
                 ODDivider()
                 Text(error).font(.system(size: 11)).foregroundStyle(.orange)
@@ -159,19 +188,40 @@ struct ResolutionCard: View {
             } else {
                 ODRow(String(localized: "Change mode")) { actionButtons }
             }
+            ODDivider()
+            DisclosureGroup("Why isn’t a mode listed?", isExpanded: $showMissingHelp) {
+                missingModeHelp.padding(.top, 4)
+            }
+            .font(.system(size: 11))
+            .padding(10)
         }
         .task(id: display.cgDisplayID) {
-            allModes = model.allModes(for: display)
+            reloadModes()
             selectedMode = display.mode
         }
-        .onChange(of: showLowerDensity) { _, _ in
-            if let selectedMode, !choices.contains(selectedMode) { self.selectedMode = display.mode }
-        }
+        .onChange(of: showLowerDensity) { _, _ in keepSelectionListed() }
+        .onChange(of: filter) { _, _ in keepSelectionListed() }
         .onChange(of: display.mode) { _, current in
             // Restore/readback only updates the draft; observing a mode never writes a mode.
             selectedMode = current
-            allModes = model.allModes(for: display)
+            reloadModes()
         }
+    }
+
+    private func reloadModes() {
+        listed = display.cgDisplayID.map(DisplayModeReader.listedOptions(for:)) ?? []
+    }
+
+    /// Filters only change the list: a draft that drops out of it falls back to the current mode,
+    /// and nothing is applied.
+    private func keepSelectionListed() {
+        if let selectedMode, !choices.contains(selectedMode) { self.selectedMode = display.mode }
+    }
+
+    private func updateFilter(_ change: (inout DisplayModeFilter) -> Void) {
+        var next = filter
+        change(&next)
+        filters[display.recordID] = next
     }
 
     private var currentModeText: some View {
@@ -184,15 +234,190 @@ struct ResolutionCard: View {
         if choices.isEmpty {
             Text("No modes available").font(.system(size: 11)).foregroundStyle(.secondary)
         } else {
+            let byMode = Dictionary(options.map { ($0.mode, $0) }, uniquingKeysWith: { first, _ in first })
             Picker("New display mode", selection: $selectedMode) {
                 if selectedMode == nil { Text("Choose a mode").tag(nil as DisplayMode?) }
                 ForEach(choices, id: \.self) { mode in
-                    Text(AppModel.modeLabel(mode)).tag(Optional(mode))
+                    Text(taggedLabel(mode, option: byMode[mode])).tag(Optional(mode))
                 }
             }
             .labelsHidden().pickerStyle(.menu)
             .disabled(applying || model.pendingRevert != nil)
-            .help("Full mode: logical size, framebuffer, refresh rate and HiDPI")
+            .help("Full mode: logical size, framebuffer, refresh rate and HiDPI, then the markers macOS reports for it")
+        }
+    }
+
+    /// The full mode label plus the reported markers the label doesn't already say.
+    private func taggedLabel(_ mode: DisplayMode, option: DisplayModeOption?) -> String {
+        let option = option ?? DisplayModeOption(mode: mode, isNative: false, isDefault: false)
+        let tags = DisplayModeCatalog.tags(for: option, among: options, current: display.mode)
+            .filter { $0 != .hiDPI && $0 != .loDPI }
+            .map { DisplayModeCatalog.tagLabel($0, .app) }
+        return AppModel.modeLabel(mode) + (tags.isEmpty ? "" : " — " + tags.joined(separator: ", "))
+    }
+
+    // MARK: Filters
+
+    private var filterControls: some View {
+        let facets = DisplayModeCatalog.facets(options)
+        return HStack(spacing: 6) {
+            categoryMenu(String(localized: "Aspect"), values: facets.aspects, selected: filter.aspects,
+                         text: { $0.label(.app) }) { $0.aspects = $1 }
+            categoryMenu(String(localized: "Refresh"), values: facets.refreshRates, selected: filter.refreshRates,
+                         text: { $0.isKnown ? TrayModeCatalog.refreshText($0.hertz) : String(localized: "Rate not reported") }) {
+                $0.refreshRates = $1
+            }
+            categoryMenu(String(localized: "Density"), values: facets.densities, selected: filter.densities,
+                         text: { $0 == .hiDPI ? "HiDPI" : "LoDPI" }) { $0.densities = $1 }
+            // Depth only when some mode reports it; macOS's public mode API usually doesn't.
+            if !facets.bitDepths.isEmpty {
+                categoryMenu(String(localized: "Bit depth"), values: facets.bitDepths, selected: filter.bitDepths,
+                             text: { String(localized: "\($0)-bit") }) { $0.bitDepths = $1 }
+            }
+            Menu {
+                Button("Like the Current Mode") {
+                    guard let current = display.mode else { return }
+                    updateFilter { filter in
+                        let keep = filter.includeNonOrdinary
+                        filter = .matching(current)
+                        filter.includeNonOrdinary = keep
+                    }
+                }
+                .disabled(display.mode == nil)
+                Button("Clear Filters") { filters[display.recordID] = .any }
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+            .help("Filters only change this list. They never select or apply a mode, and they can’t add modes macOS doesn’t offer.")
+        }
+        .font(.system(size: 11))
+        .disabled(applying || model.pendingRevert != nil)
+    }
+
+    /// A multi-select menu for one category: "Any" clears it; each value toggles, so several
+    /// values of one category combine as alternatives.
+    private func categoryMenu<Value: Hashable>(_ title: String, values: [Value], selected: Set<Value>?,
+                                               text: @escaping (Value) -> String,
+                                               assign: @escaping (inout DisplayModeFilter, Set<Value>?) -> Void) -> some View {
+        let summary: String
+        if let selected {
+            let names = values.filter(selected.contains).map(text)
+            summary = names.isEmpty ? String(localized: "none") : names.joined(separator: ", ")
+        } else {
+            summary = String(localized: "any")
+        }
+        return Menu {
+            Toggle("Any", isOn: Binding(get: { selected == nil }, set: { _ in updateFilter { assign(&$0, nil) } }))
+            Divider()
+            ForEach(values, id: \.self) { value in
+                Toggle(text(value), isOn: Binding(
+                    get: { selected?.contains(value) ?? false },
+                    set: { _ in
+                        updateFilter { filter in
+                            var next = selected ?? []
+                            if selected == nil || !next.contains(value) { next.insert(value) } else { next.remove(value) }
+                            assign(&filter, selected == nil ? [value] : next)
+                        }
+                    }))
+            }
+        } label: {
+            Text(verbatim: "\(title): \(summary)").lineLimit(1)
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+    }
+
+    private var listSummary: String {
+        let result = filterResult
+        var parts = [String(localized: "Modes shown: \(choices.count). Modes macOS lists for this display: \(options.count).")]
+        if result.hiddenByFilters > 0 { parts.append(String(localized: "Hidden by filters: \(result.hiddenByFilters).")) }
+        if result.hiddenNonOrdinary > 0 {
+            parts.append(String(localized: "Hidden as not meant for desktop use: \(result.hiddenNonOrdinary)."))
+        }
+        let duplicates = result.visible.count - choices.count
+        if duplicates > 0 { parts.append(String(localized: "Hidden non-HiDPI alternatives: \(duplicates).")) }
+        // Each reason the current mode is listed anyway, said as what it is.
+        if result.currentNotEnumerated {
+            parts.append(String(localized: "macOS doesn’t list the current mode; it is shown anyway."))
+        } else if result.currentFailsFilters {
+            parts.append(String(localized: "The current mode stays listed even though the filters would hide it."))
+        } else if result.currentIsNotOrdinary {
+            parts.append(String(localized: "The current mode stays listed although macOS marks it as not meant for desktop use."))
+        }
+        return parts.joined(separator: " ")
+    }
+
+    // MARK: Missing modes
+
+    @ViewBuilder private var missingModeHelp: some View {
+        let summary = DisplayModeCatalog.summary(listed: listed)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Entries macOS lists for this display: \(summary.listed). Distinct modes: \(summary.distinct); usable for the desktop: \(summary.ordinary); not meant for desktop use: \(summary.notForDesktop); HiDPI: \(summary.hiDPI); LoDPI: \(summary.loDPI).")
+            if summary.duplicates > 0 {
+                Text("Entries that repeat another mode’s logical size, framebuffer and refresh rate exactly: \(summary.duplicates). A mode change can’t choose between them, so each is listed once.")
+            }
+            Text("OpenDisplay can list and apply only the modes macOS offers right now. A missing size or refresh rate usually means the display, the cable or adapter, or the GPU doesn’t offer that combination — filters and “Include modes not meant for desktop use” can’t add it. A HiDPI size needs a framebuffer twice its logical size, which isn’t offered for every size. Adding new modes needs a display override, which OpenDisplay doesn’t install.")
+            ForEach(favouriteNotes, id: \.self) { note in
+                Text(note).foregroundStyle(.orange)
+            }
+        }
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Why each favourite isn't in the list: not offered now (and what is offered at that size
+    /// instead), hidden by a filter, or not meant for desktop use.
+    private var favouriteNotes: [String] {
+        var notes: [String] = []
+        let offered = options.map(\.mode)
+        for key in model.unavailableFavoriteKeys(among: offered, for: display) {
+            guard let stored = FavoriteResolutions.storedMode(forKey: key) else { continue }
+            notes.append(Self.absenceText(DisplayModeCatalog.availability(of: stored, in: options, filter: filter),
+                                          mode: stored))
+        }
+        for favorite in model.favoriteResolutions(among: offered, for: display) where !choices.contains(favorite) {
+            notes.append(Self.absenceText(DisplayModeCatalog.availability(of: favorite, in: options, filter: filter),
+                                          mode: favorite))
+        }
+        return notes
+    }
+
+    private static func absenceText(_ availability: DisplayModeCatalog.Availability, mode: DisplayMode) -> String {
+        let name = AppModel.modeLabel(mode)
+        switch availability {
+        case .listed:
+            return String(localized: "Favourite \(name) is listed only with “Show non-HiDPI alternatives”.")
+        case .hiddenByFilters(let categories):
+            let words = categories.map { category -> String in
+                switch category {
+                case .aspect: return String(localized: "Aspect")
+                case .refresh: return String(localized: "Refresh")
+                case .density: return String(localized: "Density")
+                case .bitDepth: return String(localized: "Bit depth")
+                }
+            }.joined(separator: ", ")
+            return String(localized: "Favourite \(name) is offered, but the filter hides it: \(words).")
+        case .hiddenNotOrdinary:
+            return String(localized: "Favourite \(name) is offered, but macOS marks it as not meant for desktop use. Turn on “Include modes not meant for desktop use” to list it.")
+        case .notOffered(let near):
+            if near.sizeNotOffered {
+                return String(localized: "Favourite \(name) isn’t offered now: macOS lists no mode with this logical size.")
+            }
+            var parts = [String(localized: "Favourite \(name) isn’t offered now.")]
+            if !near.otherRefreshRates.isEmpty {
+                let rates = near.otherRefreshRates.map(TrayModeCatalog.refreshText).joined(separator: ", ")
+                parts.append(String(localized: "The same size and framebuffer are offered at \(rates)."))
+            }
+            if near.otherFramebufferOffered {
+                parts.append(String(localized: "The same size is offered with a different framebuffer."))
+            }
+            if near.otherDensityOffered {
+                parts.append(mode.isHiDPI
+                             ? String(localized: "The same size is offered without HiDPI.")
+                             : String(localized: "The same size is offered as HiDPI."))
+            }
+            return parts.joined(separator: " ")
         }
     }
 
@@ -800,6 +1025,10 @@ private struct IdentityCard: View {
 struct InformationCard: View {
     @EnvironmentObject private var model: AppModel
     let display: DisplayObservation
+    @State private var showingReport = false
+    /// Pixel density from the native-flagged mode, read when the display or its mode changes
+    /// rather than on every render (the card re-renders on every model change).
+    @State private var density: String?
 
     var body: some View {
         ODCard(title: String(localized: "Information")) {
@@ -808,9 +1037,47 @@ struct InformationCard: View {
                 if index > 0 { ODDivider() }
                 ODRow(item.label) {
                     Text(item.value).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                        .textSelection(.enabled)
                 }
             }
+            if let density {
+                ODDivider()
+                ODRow(String(localized: "Pixel density")) {
+                    Text(density).font(.system(size: 11)).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+            }
+            ODDivider()
+            // SD-14: the complete per-display report — identity, modes, state, capabilities and
+            // connection — collected when opened, with copy and UTF-8 export.
+            ODRow(String(localized: "Full report"),
+                  secondary: String(localized: "Every detail OpenDisplay can read, to copy or save")) {
+                Button("Show Report…") { showingReport = true }.controlSize(.small)
+            }
         }
+        .sheet(isPresented: $showingReport) {
+            DisplayInformationReportSheet(display: display).environmentObject(model)
+        }
+        .task(id: DensityInputs(record: display.recordID, mode: display.mode, presence: display.physicalPresence)) {
+            density = Self.density(for: display)
+        }
+    }
+
+    private struct DensityInputs: Equatable {
+        let record: DisplayRecordID
+        let mode: DisplayMode?
+        let presence: PhysicalPresence?
+    }
+
+    /// Only for a screen with display hardware (macOS estimates other screens' sizes at 72 dpi)
+    /// and only from the native-flagged framebuffer — a scaled framebuffer isn't the panel's
+    /// pixel count, so without a native mode no density is claimed (TR-12).
+    private static func density(for display: DisplayObservation) -> String? {
+        guard display.physicalPresence == .physical, let cgID = display.cgDisplayID else { return nil }
+        let size = CGDisplayScreenSize(cgID)
+        guard let physical = DisplayPhysicalSize(widthMM: Double(size.width), heightMM: Double(size.height)),
+              let native = DisplayModeCatalog.nativeFramebuffer(DisplayModeReader.options(for: cgID)),
+              let ppi = physical.density(width: native.width, height: native.height) else { return nil }
+        return String(localized: "\(Int(ppi.rounded())) ppi")
     }
 }
 #endif

@@ -1477,8 +1477,10 @@ final class AppModel: ObservableObject {
         guard let cgID = observation.cgDisplayID else { return [] }
         var info: [(String, String)] = [
             (String(localized: "Name"), displayName(for: observation)),
-            (String(localized: "Type"), observation.displayClass == .builtIn
-                ? String(localized: "Built-in") : String(localized: "External")),
+            // Not a blanket "External": without hardware evidence the screen may be virtual,
+            // Sidecar, AirPlay or DisplayLink (SD-14).
+            (String(localized: "Type"), DisplayInformationReport.classLabel(
+                observation.displayClass, presence: observation.physicalPresence, .app)),
         ]
         let vendor = CGDisplayVendorNumber(cgID)
         let model = CGDisplayModelNumber(cgID)
@@ -1497,9 +1499,15 @@ final class AppModel: ObservableObject {
             info.append((String(localized: "Density"), mode.isHiDPI ? "HiDPI" : String(localized: "No HiDPI")))
         }
         let size = CGDisplayScreenSize(cgID)
-        if size.width > 0, size.height > 0 {
-            let inches = (size.width * size.width + size.height * size.height).squareRoot() / 25.4
-            info.append((String(localized: "Size"), String(format: String(localized: "%.1f-inch"), inches)))
+        if let physical = DisplayPhysicalSize(widthMM: Double(size.width), heightMM: Double(size.height)) {
+            info.append((String(localized: "Size"), String(format: String(localized: "%.1f-inch"), physical.diagonalInches)))
+            // macOS estimates a size at 72 dpi when the display gives none; only a screen with
+            // display hardware gets its millimetres stated (TR-12). Pixel density is added by the
+            // Settings card, which can afford the mode enumeration it needs.
+            if observation.physicalPresence == .physical {
+                info.append((String(localized: "Physical size"),
+                             String(localized: "\(Int(physical.widthMM.rounded())) × \(Int(physical.heightMM.rounded())) mm")))
+            }
         }
         return info
     }
