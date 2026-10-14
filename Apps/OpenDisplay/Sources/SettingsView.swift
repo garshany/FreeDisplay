@@ -33,22 +33,37 @@ struct SettingsView: View {
             case .displays: DisplaysSection()
             case .arrange: ArrangeSection()
             case .scenes: ScenesSection()
-            case .capture: CapturePanel()
+            case .capture:
+                ScrollView {
+                    CapturePanel()
+                        .padding(ODSpacing.lg)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .navigationTitle("Захват экрана")
             case .advanced:
                 if let display = model.displays.first(where: { $0.recordID == model.selectedDisplayID }) ?? model.displays.first,
                    let id = display.cgDisplayID {
-                    AdvancedDisplayToolsView(displayID: id).padding()
-                } else { Text("Сначала выберите подключённый монитор.") }
+                    AdvancedDisplayToolsView(displayID: id, displayName: model.displayName(for: display))
+                } else {
+                    ContentUnavailableView("Сначала выберите подключённый монитор.", systemImage: "display")
+                        .navigationTitle("EDID и HiDPI")
+                }
             case .automation: LocalControlPanel()
             case .virtual:
 #if !PUBLIC_API_ONLY
                 ScrollView {
                     VirtualDisplaysSettingsView(
                         safeMode: ProcessInfo.processInfo.arguments.contains("--safe-mode"),
-                        session: virtualSession).padding()
+                        session: virtualSession)
+                        .padding(ODSpacing.lg)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
+                .navigationTitle("Виртуальные экраны")
 #else
-                Text("Создание виртуальных мониторов недоступно в сборке только с публичными API.").padding()
+                Text("Создание виртуальных мониторов недоступно в сборке только с публичными API.")
+                    .padding(ODSpacing.lg)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .navigationTitle("Виртуальные экраны")
 #endif
             case .health: HealthSection()
             case .about: AboutSection()

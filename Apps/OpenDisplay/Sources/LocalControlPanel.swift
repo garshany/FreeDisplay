@@ -35,7 +35,8 @@ struct LocalControlPanel: View {
                 Text("Изменение яркости возвращает статус запроса; аппаратный результат не подтверждён. Протоколы телевизоров и AV-ресиверов, а также HDMI-CEC в этой сборке не реализованы.").font(.caption)
             }
         }
-        .padding()
+        .formStyle(.grouped)
+        .navigationTitle("Автоматизация")
         .onAppear { visible = true }
         .task {
             while !Task.isCancelled {

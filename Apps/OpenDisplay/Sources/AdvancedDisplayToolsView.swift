@@ -9,6 +9,7 @@ import TopologyCore
 @MainActor
 struct AdvancedDisplayToolsView: View {
     let displayID: CGDirectDisplayID
+    let displayName: String
     @State private var edid: EDIDDocument?
     @State private var status = "Импортируйте двоичный EDID монитора для проверки и экспорта конфигурации."
     @State private var width = 1920
@@ -21,6 +22,9 @@ struct AdvancedDisplayToolsView: View {
     var body: some View {
         Form {
             Section("Возможности HDR") {
+                // The pane follows the display selected under «Мониторы»; name it so the
+                // EDR values below are not ambiguous on multi-monitor setups.
+                LabeledContent("Монитор", value: displayName)
                 if let screen {
                     LabeledContent("Доступный запас EDR", value: String(format: "%.2f×", screen.maximumExtendedDynamicRangeColorComponentValue))
                     LabeledContent("Потенциальный запас EDR", value: String(format: "%.2f×", screen.maximumPotentialExtendedDynamicRangeColorComponentValue))
@@ -51,6 +55,10 @@ struct AdvancedDisplayToolsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
+        // Without .grouped macOS renders Form in the two-column style: section headers drift into
+        // the value column, the form is centred vertically and long captions widen the window.
+        .formStyle(.grouped)
+        .navigationTitle("EDID и HiDPI")
     }
 
     private func importEDID() {
