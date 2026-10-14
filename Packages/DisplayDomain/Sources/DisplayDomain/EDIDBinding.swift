@@ -10,7 +10,8 @@ import Foundation
 /// single candidate is an answer: two same-model monitors without programmed serials, or a display
 /// whose blob isn't exposed at all, get an explicit "can't tell" instead of whichever blob came
 /// first. Byte-identical blobs are one candidate — the same EDID published on two nodes is still
-/// the same answer. Pure, so `make test` covers it.
+/// the same answer — and so is a base block published beside the full EDID it begins. Pure, so
+/// `make test` covers it.
 public enum EDIDBinding {
     /// The Core Graphics identity of the display the bytes are wanted for. 0 and 0xFFFFFFFF in
     /// vendor/model mean unknown; a serial of 0 means "not programmed", and is matched as such.
@@ -51,11 +52,11 @@ public enum EDIDBinding {
             else { continue }
             matches.append(blob)
         }
-        switch matches.count {
-        case 0: return .notFound
-        case 1: return .matched(matches[0])
-        default: return .ambiguous(candidates: matches.count)
-        }
+        guard let longest = matches.max(by: { $0.count < $1.count }) else { return .notFound }
+        // One node may publish only the base block and another the full EDID with extensions: when
+        // every match is a prefix of the longest, they are one EDID, and the longest is all of it.
+        if matches.allSatisfy({ longest.starts(with: $0) }) { return .matched(longest) }
+        return .ambiguous(candidates: matches.count)
     }
 
     /// The identity fields of a well-formed base block, in the encodings Core Graphics reports:

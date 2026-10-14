@@ -48,6 +48,17 @@ final class EDIDBindingTests: XCTestCase {
         XCTAssertEqual(EDIDBinding.bind([blob, blob], to: target(serial: 0)), .matched(blob))
     }
 
+    /// A node exposing only the base block beside one exposing the full EDID: one display, all bytes.
+    func testABaseBlockBesideItsFullEDIDIsOneAnswer() {
+        let base = edid(serial: 1001)
+        let full = base + [UInt8](repeating: 0x02, count: 128)
+        XCTAssertEqual(EDIDBinding.bind([base, full], to: target(serial: 1001)), .matched(full))
+        XCTAssertEqual(EDIDBinding.bind([full, base], to: target(serial: 1001)), .matched(full))
+        let otherExtension = base + [UInt8](repeating: 0x03, count: 128)
+        XCTAssertEqual(EDIDBinding.bind([full, otherExtension], to: target(serial: 1001)),
+                       .ambiguous(candidates: 2), "same base, different extensions: two displays")
+    }
+
     /// The old fallbacks ("a single candidate is unambiguous", "first non-Apple blob") returned
     /// another display's EDID for a display whose own isn't exposed.
     func testAnotherDisplaysBlobIsNeverTheAnswer() {
