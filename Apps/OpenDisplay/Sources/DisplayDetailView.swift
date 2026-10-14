@@ -230,6 +230,13 @@ struct AppearanceCard: View {
         model.colorTemperature[display.recordID] ?? ColorTemperatureCurve.neutralKelvin
     }
 
+    /// Displayed software contrast factor (absent cache = neutral).
+    private var contrast: Float {
+        model.softwareContrast[display.recordID] ?? SoftwareContrast.neutral
+    }
+
+    private var suspended: Bool { model.softwareAdjustmentsSuspended.contains(display.recordID) }
+
     var body: some View {
         ODCard(title: String(localized: "Appearance")) {
             ODRow(String(localized: "Colour temperature")) {
@@ -245,6 +252,54 @@ struct AppearanceCard: View {
                         .font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
                         .lineLimit(1).fixedSize()  // «Системный» is wider than "6500 K"; never wrap it
                         .frame(minWidth: 48, alignment: .trailing)
+                }
+                .disabled(suspended)
+            }
+            ODDivider()
+            // TR-14/SD-20: named by method — this is the picture's tone curve in the display's colour
+            // table, not the monitor's DDC contrast (that one is in Controls, on its own scale).
+            ODRow(String(localized: "Software contrast"),
+                  secondary: String(localized: "This display’s colour table, not the monitor’s own contrast")) {
+                HStack(spacing: 8) {
+                    Slider(value: Binding(get: { Double(contrast) },
+                                          set: { model.setSoftwareContrast(Float($0), for: display) }),
+                           in: Double(SoftwareContrast.minimum)...Double(SoftwareContrast.maximum))
+                        .frame(width: 140)
+                    Text(model.softwareContrast[display.recordID] == nil
+                         ? "Neutral" : "\(Int((contrast * 100).rounded()))%")
+                        .font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
+                        .lineLimit(1).fixedSize()
+                        .frame(minWidth: 48, alignment: .trailing)
+                    Button("Reset") { model.setSoftwareContrast(SoftwareContrast.neutral, for: display) }
+                        .controlSize(.small)
+                        .disabled(model.softwareContrast[display.recordID] == nil)
+                }
+                .disabled(suspended)
+            }
+            if !suspended, contrast > SoftwareContrast.neutral {
+                // T18: say how much detail the curve throws away, not just that it might.
+                let clipped = Int((SoftwareContrast.clippedShare(factor: contrast) * 100).rounded())
+                secondaryNote(String(localized: "\(clipped)% of the tonal range clips to pure black or white."))
+            }
+            if model.softwareContrast[display.recordID] != nil, model.isHDRCapable(display) {
+                secondaryNote(String(localized: "With HDR content, colour-table contrast can clip highlights or look different."))
+            }
+            ODDivider()
+            // AM-18: suspend and reset are different operations, offered side by side.
+            ODRow(String(localized: "Image adjustments"),
+                  secondary: suspended
+                      ? String(localized: "Suspended: colour temperature and contrast are kept but not applied")
+                      : String(localized: "Colour temperature, contrast and dimming apply to this display until you quit")) {
+                HStack(spacing: 8) {
+                    Toggle("Suspend", isOn: Binding(
+                        get: { suspended },
+                        set: { model.setSoftwareAdjustmentsSuspended($0, for: display) }))
+                        .toggleStyle(.checkbox).controlSize(.small)
+                        .help("Bypass colour temperature and contrast without losing them; brightness and dimming keep working")
+                    Button("Reset") { Task { await model.resetSoftwareAdjustments(for: display) } }
+                        .controlSize(.small)
+                        .disabled(!model.hasSoftwareAdjustments(display))
+                        .help("Return dimming, colour temperature and contrast to neutral")
                 }
             }
             ODDivider()
@@ -331,8 +386,9 @@ struct AppearanceCard: View {
                 }
             }
             if let error = model.colorProfileError[display.recordID] { secondaryNote(error) }
-            if let issue = model.gammaIssueText(for: display), model.colorTemperature[display.recordID] != nil {
-                secondaryNote(issue)  // the temperature above is set but isn't on screen
+            if let issue = model.gammaIssueText(for: display),
+               model.colorTemperature[display.recordID] != nil || model.softwareContrast[display.recordID] != nil {
+                secondaryNote(issue)  // the temperature or contrast above is set but isn't on screen
             }
         }
         if let reason = model.rotationUnavailableReason {
@@ -536,7 +592,7 @@ struct ControlsCard: View {
                 // AM-06: the app's own layers are a separate choice, offered only after a reset that
                 // went through and only while there is something of OpenDisplay's to undo.
                 if resetResult == .sent, model.hasSoftwareAdjustments(display) {
-                    Button("Also Reset OpenDisplay’s Dimming and Colour Temperature") {
+                    Button("Also Reset OpenDisplay’s Dimming, Colour Temperature and Contrast") {
                         Task { await model.resetSoftwareAdjustments(for: display) }
                     }
                     .controlSize(.small)
@@ -560,7 +616,7 @@ struct ControlsCard: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The monitor is asked to restore its factory settings — brightness, contrast, colour preset and anything else it resets. OpenDisplay’s own software dimming and colour temperature stay as they are; you can reset them separately afterwards.")
+            Text("The monitor is asked to restore its factory settings — brightness, contrast, colour preset and anything else it resets. OpenDisplay’s own software dimming, colour temperature and contrast stay as they are; you can reset them separately afterwards.")
         }
     }
 

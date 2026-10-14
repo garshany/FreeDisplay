@@ -838,8 +838,47 @@ final class AppModel: ObservableObject {
         writeGamma(level: dimGammaLevel(for: id), id: id, cgID: cgID)
     }
 
-    /// The one funnel for gamma writes: dim scale × the display's colour-temperature gains × the
-    /// XDR boost (Issue #35 — read live here so no caller can silently clear an active boost).
+    /// Per-display software contrast factor (`SoftwareContrast`); absent = neutral, the display's own
+    /// picture. Session-only like the dim and the temperature (SD-21: nothing of the colour table is
+    /// restored at launch) — `restoreGamma` on quit clears it with them.
+    @Published private(set) var softwareContrast: [DisplayRecordID: Float] = [:]
+
+    /// Sets the display's software contrast (TR-14) and re-expresses the gamma slot it shares with
+    /// the dim, warmth and boost — composed into one transfer, so none of them is lost.
+    func setSoftwareContrast(_ factor: Float, for observation: DisplayObservation) {
+        guard let cgID = observation.cgDisplayID else { return }
+        let id = observation.recordID
+        softwareContrast[id] = SoftwareContrast.normalized(factor)
+        guard !blackedOut.contains(id) else { return }  // applied when the blackout lifts
+        writeGamma(level: dimGammaLevel(for: id), id: id, cgID: cgID)
+    }
+
+    /// Displays whose software image adjustments are suspended (AM-18): colour temperature and
+    /// contrast are kept but not applied, while brightness — software dimming and XDR boost
+    /// included — keeps working. Lifting it puts back exactly what was set. Session-only, like the
+    /// adjustments it pauses.
+    @Published private(set) var softwareAdjustmentsSuspended: Set<DisplayRecordID> = []
+
+    func setSoftwareAdjustmentsSuspended(_ suspended: Bool, for observation: DisplayObservation) {
+        guard let cgID = observation.cgDisplayID else { return }
+        let id = observation.recordID
+        guard softwareAdjustmentsSuspended.contains(id) != suspended else { return }
+        if suspended { softwareAdjustmentsSuspended.insert(id) } else { softwareAdjustmentsSuspended.remove(id) }
+        guard !blackedOut.contains(id) else { return }
+        writeGamma(level: dimGammaLevel(for: id), id: id, cgID: cgID)
+    }
+
+    /// Whether `observation` shows HDR-capable output, where colour-table changes can look different
+    /// and highlights can clip — said next to the contrast control rather than discovered.
+    func isHDRCapable(_ observation: DisplayObservation) -> Bool {
+        guard let screen = observation.cgDisplayID.flatMap(Self.screen(for:)) else { return false }
+        return screen.maximumPotentialExtendedDynamicRangeColorComponentValue > 1.0
+    }
+
+    /// The one funnel for gamma writes: dim scale × the display's colour-temperature gains × its
+    /// software contrast × the XDR boost (Issue #35 — read live here so no caller can silently clear
+    /// an active boost), composed by `SoftwareImageTransfer`. A suspended display (AM-18) writes its
+    /// dim and boost with neutral temperature and contrast.
     /// Direct `setGammaDim` calls would silently clear an active warmth — only Black Out (which
     /// wants the neutral floor) bypasses this, through `writeBlackOutGamma`.
     ///
@@ -850,15 +889,16 @@ final class AppModel: ObservableObject {
     /// state is on screen.
     @discardableResult
     private func writeGamma(level: Float, id: DisplayRecordID, cgID: CGDirectDisplayID) -> Bool {
-        let gains = ColorTemperatureCurve.gains(
-            kelvin: colorTemperature[id] ?? ColorTemperatureCurve.neutralKelvin)
         // Headroom is only read while a boost is set — a plain dim/warmth write skips the
         // NSScreen lookup and takes the provider's untouched formula path (boost 1).
         let fraction = xdrBoostFraction[id] ?? 0
         let boost = fraction > 0
             ? XDRBrightnessPolicy.boost(forFraction: fraction, headroom: xdrHeadroom(cgID: cgID))
             : 1
-        let needsGamma = GammaSlotPolicy.needsGamma(dim: level, gains: gains, boost: boost)
+        let transfer = SoftwareImageTransfer.composed(
+            dim: level, kelvin: colorTemperature[id], contrast: softwareContrast[id], boost: boost,
+            suspended: softwareAdjustmentsSuspended.contains(id))
+        let needsGamma = transfer.needsGamma
         switch GammaSlotPolicy.action(needsGamma: needsGamma, owned: gammaOwned.contains(id),
                                       blocked: gammaBlockedByCustomProfile) {
         case .none:
@@ -870,8 +910,7 @@ final class AppModel: ObservableObject {
         case .blocked:
             return false
         case .write:
-            let result = observer.setGammaAdjustment(
-                dim: level, red: gains.red, green: gains.green, blue: gains.blue, boost: boost, for: cgID)
+            let result = observer.setGammaAdjustment(transfer, for: cgID)
             if result == .success { gammaOwned.insert(id) }
             noteGammaWrite(result, id: id)
             return result == .success
@@ -911,10 +950,10 @@ final class AppModel: ObservableObject {
         for other in gammaOwned { reexpressSoftwareImage(other) }
     }
 
-    /// Re-expresses a display's whole software image state — dim (gamma + overlay), warmth and
-    /// boost, or Black Out — under the current method and safeguard. The overlay window is touched
-    /// only when a dim is set: without one it may be FaceLight's warm wash, which a zero-alpha dim
-    /// write would remove.
+    /// Re-expresses a display's whole software image state — dim (gamma + overlay), warmth,
+    /// contrast and boost, or Black Out — under the current method and safeguard. The overlay window
+    /// is touched only when a dim is set: without one it may be FaceLight's warm wash, which a
+    /// zero-alpha dim write would remove.
     private func reexpressSoftwareImage(_ id: DisplayRecordID) {
         guard let cgID = displays.first(where: { $0.recordID == id })?.cgDisplayID else {
             gammaOwned.remove(id)
@@ -925,7 +964,7 @@ final class AppModel: ObservableObject {
         } else if let level = softwareDim[id], level < 1 {
             applyDim(level: level, id: id, cgID: cgID)
         } else {
-            writeGamma(level: 1, id: id, cgID: cgID)  // warmth and boost only
+            writeGamma(level: 1, id: id, cgID: cgID)  // warmth, contrast and boost only
         }
     }
 
@@ -998,8 +1037,9 @@ final class AppModel: ObservableObject {
         if wasBlocked != gammaBlockedByCustomProfile { gammaBlockChanged() }
     }
 
-    /// Why a display's software image (gamma dim, colour temperature, XDR boost) isn't on screen as
-    /// set, or nil when it is: a rejected gamma write, or the custom-profile safeguard pausing gamma.
+    /// Why a display's software image (gamma dim, colour temperature, contrast, XDR boost) isn't on
+    /// screen as set, or nil when it is: a rejected gamma write, or the custom-profile safeguard
+    /// pausing gamma.
     func gammaIssueText(for observation: DisplayObservation) -> String? {
         if let code = gammaWriteFailures[observation.recordID] {
             return String(localized: "macOS rejected the gamma change (error \(code)), so it isn’t on screen.")
@@ -1007,7 +1047,7 @@ final class AppModel: ObservableObject {
         guard gammaBlockedByCustomProfile else { return nil }
         let names = displays.filter { customProfileDisplays.contains($0.recordID) }
             .map { displayName(for: $0) }.sorted().joined(separator: ", ")
-        return String(localized: "Gamma is paused because \(names) uses a custom colour profile, which can turn a screen black or tinted. Dimming uses the overlay instead; colour temperature and XDR boost are off. Choose a factory profile, or allow gamma with custom profiles in Settings › Displays › Dimming.")
+        return String(localized: "Gamma is paused because \(names) uses a custom colour profile, which can turn a screen black or tinted. Dimming uses the overlay instead; colour temperature, contrast and XDR boost are off. Choose a factory profile, or allow gamma with custom profiles in Settings › Displays › Dimming.")
     }
 
     // MARK: - XDR Brightness (Labs, Issue #35)
@@ -1482,6 +1522,12 @@ final class AppModel: ObservableObject {
         if !ddcAudioMuted.keys.allSatisfy(ids.contains) { ddcAudioMuted = ddcAudioMuted.filter { ids.contains($0.key) } }
         if !colorTemperature.keys.allSatisfy(ids.contains) {
             colorTemperature = colorTemperature.filter { ids.contains($0.key) }
+        }
+        if !softwareContrast.keys.allSatisfy(ids.contains) {
+            softwareContrast = softwareContrast.filter { ids.contains($0.key) }
+        }
+        if !softwareAdjustmentsSuspended.allSatisfy(ids.contains) {
+            softwareAdjustmentsSuspended = softwareAdjustmentsSuspended.filter(ids.contains)
         }
         if !xdrBoostFraction.keys.allSatisfy(ids.contains) {
             xdrBoostFraction = xdrBoostFraction.filter { ids.contains($0.key) }
@@ -2745,24 +2791,27 @@ final class AppModel: ObservableObject {
         #endif
     }
 
-    /// Whether OpenDisplay itself is dimming or tinting this display (software dim or temperature) —
-    /// what `resetSoftwareAdjustments` would undo.
+    /// Whether OpenDisplay itself is dimming, tinting or re-toning this display (software dim,
+    /// temperature or contrast) — what `resetSoftwareAdjustments` would undo.
     func hasSoftwareAdjustments(_ observation: DisplayObservation) -> Bool {
         let id = observation.recordID
         return (softwareDim[id].map { $0 < 1 } ?? false) || colorTemperature[id] != nil
+            || softwareContrast[id] != nil
     }
 
-    /// Returns OpenDisplay's own software layers for a display — dim (gamma + overlay) and colour
-    /// temperature — to neutral. Independent of the monitor's factory reset (AM-06): the user picks it
-    /// separately, so a monitor reset that failed (or a user who wants to keep the app's evening
-    /// warmth) leaves them alone. Cleared in the cache first so `writeGamma` re-expresses a neutral
-    /// slot. Under Black Out the panel is held at gamma 0 on purpose — the cache still resets, and
-    /// lifting the blackout restores neutral.
+    /// Returns OpenDisplay's own software layers for a display — dim (gamma + overlay), colour
+    /// temperature and contrast — to neutral. Independent of the monitor's factory reset (AM-06): the
+    /// user picks it separately, so a monitor reset that failed (or a user who wants to keep the app's
+    /// evening warmth) leaves them alone. Cleared in the cache first so `writeGamma` re-expresses a
+    /// neutral slot. Under Black Out the panel is held at gamma 0 on purpose — the cache still resets,
+    /// and lifting the blackout restores neutral. A suspension (AM-18) is the user's switch, not an
+    /// adjustment: it stays as it is, as do the dimming method and the XDR boost.
     func resetSoftwareAdjustments(for observation: DisplayObservation) async {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
         softwareDim[id] = nil
         colorTemperature[id] = nil
+        softwareContrast[id] = nil
         if !blackedOut.contains(id) {
             writeGamma(level: 1.0, id: id, cgID: cgID)
             dimOverlay.remove(for: cgID)

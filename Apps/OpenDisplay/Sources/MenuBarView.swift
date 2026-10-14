@@ -543,7 +543,11 @@ private struct TrayFeatureList: View {
     }
 
     private var imageSummary: String? {
-        model.colorTemperature[display.recordID].map { "\(Int($0)) K" }
+        let id = display.recordID
+        if model.softwareAdjustmentsSuspended.contains(id) { return String(localized: "suspended") }
+        let parts = [model.colorTemperature[id].map { "\(Int($0)) K" },
+                     model.softwareContrast[id].map { "\(Int(($0 * 100).rounded()))%" }].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// A feature row that unfolds in place under itself. Unlike BetterDisplay it neither hides its
@@ -756,6 +760,9 @@ private struct TrayImageAdjustments: View {
         // The method in force: overlay while the custom-profile safeguard pauses gamma.
         let dimFloor = model.effectiveDimmingMethod == .gamma ? Double(DimmingComposer.gammaFloor) : 0
         let dim = Double(model.softwareDim[id] ?? 1)
+        let contrast = model.softwareContrast[id] ?? SoftwareContrast.neutral
+        // Suspension keeps the values but bypasses them (AM-18); their sliders wait until it lifts.
+        let suspended = model.softwareAdjustmentsSuspended.contains(id)
         VStack(alignment: .leading, spacing: 8) {
             TrayLabeled(String(localized: "Color temperature"),
                         value: model.colorTemperature[id] == nil ? String(localized: "neutral") : "\(Int(kelvin)) K") {
@@ -763,10 +770,32 @@ private struct TrayImageAdjustments: View {
                            valueText: "", accessibilityLabel: String(localized: "Color temperature"), showsValue: false) {
                     model.setColorTemperature(Float(minK + $0 * (maxK - minK)), for: display)
                 }
+                .disabled(suspended).opacity(suspended ? 0.45 : 1)
             }
-            if model.colorTemperature[id] != nil {
+            if model.colorTemperature[id] != nil, !suspended {
                 TrayPillButton(String(localized: "Reset temperature")) {
                     model.setColorTemperature(ColorTemperatureCurve.neutralKelvin, for: display)
+                }
+            }
+            // Software contrast (TR-14): the picture's tone curve in this display's colour table —
+            // not the monitor's own contrast, which Device control sets over DDC.
+            TrayLabeled(String(localized: "Software contrast"),
+                        value: model.softwareContrast[id] == nil
+                            ? String(localized: "neutral") : "\(Int((contrast * 100).rounded()))%") {
+                TraySlider(value: Double(SoftwareContrast.position(forFactor: contrast)), icon: "circle.lefthalf.filled",
+                           valueText: "", accessibilityLabel: String(localized: "Software contrast"), showsValue: false) {
+                    model.setSoftwareContrast(SoftwareContrast.factor(forPosition: Float($0)), for: display)
+                }
+                .disabled(suspended).opacity(suspended ? 0.45 : 1)
+            }
+            if model.softwareContrast[id] != nil, !suspended {
+                if contrast > SoftwareContrast.neutral {
+                    // T18: excess contrast loses black/white detail — say how much, not just "may".
+                    let clipped = Int((SoftwareContrast.clippedShare(factor: contrast) * 100).rounded())
+                    TrayNote(String(localized: "\(clipped)% of the tonal range clips to pure black or white."))
+                }
+                TrayPillButton(String(localized: "Reset contrast")) {
+                    model.setSoftwareContrast(SoftwareContrast.neutral, for: display)
                 }
             }
             TrayLabeled(String(localized: "Software dimming"), value: "\(Int((dim * 100).rounded()))%") {
@@ -778,7 +807,23 @@ private struct TrayImageAdjustments: View {
                                     (String(localized: "Both"), DimmingMethod.combined)],
                           selection: model.settings.dimmingMethod) { model.setDimmingMethod($0) }
             if let issue = model.gammaIssueText(for: display) { TrayNote(issue, tint: ODColor.caution) }
-            TrayNote(String(localized: "The dimming method is shared by all displays. Temperature and dimming stay until you quit OpenDisplay."))
+            // AM-18: two different things. Suspend pauses colour temperature and contrast and keeps
+            // them; brightness and dimming still work. Reset returns dimming, temperature and
+            // contrast to neutral at once, and leaves the suspension and the method alone.
+            TraySwitchRow(title: String(localized: "Suspend image adjustments"),
+                          detail: String(localized: "temperature and contrast; brightness keeps working"),
+                          isOn: suspended) { on in
+                model.setSoftwareAdjustmentsSuspended(on, for: display)
+            }
+            if model.hasSoftwareAdjustments(display) {
+                TrayPillButton(String(localized: "Reset image adjustments")) {
+                    Task { await model.resetSoftwareAdjustments(for: display) }
+                }
+            }
+            if model.softwareContrast[id] != nil, model.isHDRCapable(display) {
+                TrayNote(String(localized: "With HDR content, colour-table contrast can clip highlights or look different."))
+            }
+            TrayNote(String(localized: "The dimming method is shared by all displays. Temperature, contrast and dimming apply to this display only and stay until you quit OpenDisplay."))
         }
     }
 }
@@ -886,7 +931,7 @@ private struct TrayDeviceControl: View {
                     }
                     TrayPillButton(String(localized: "Cancel")) { ui.resetConfirm = nil }
                 }
-                TrayNote(String(localized: "The monitor is asked to restore its factory settings — brightness, contrast, color preset and whatever else it resets. OpenDisplay's own dimming and color temperature stay as they are."))
+                TrayNote(String(localized: "The monitor is asked to restore its factory settings — brightness, contrast, color preset and whatever else it resets. OpenDisplay's own dimming, color temperature and software contrast stay as they are."))
             } else {
                 TrayPillButton(String(localized: "Factory reset…")) { ui.resetConfirm = display.recordID.rawValue }
             }
@@ -896,7 +941,7 @@ private struct TrayDeviceControl: View {
                 // AM-06: the app's own layers are a separate, explicit choice — offered only once the
                 // monitor reset actually went through, and only if there is something to undo.
                 if resetResult == .sent, model.hasSoftwareAdjustments(display) {
-                    TrayPillButton(String(localized: "Also reset OpenDisplay's dimming and temperature")) {
+                    TrayPillButton(String(localized: "Also reset OpenDisplay's dimming, temperature and contrast")) {
                         Task { await model.resetSoftwareAdjustments(for: display) }
                     }
                 }

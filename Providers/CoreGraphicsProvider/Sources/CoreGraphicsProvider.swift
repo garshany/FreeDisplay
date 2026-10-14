@@ -4,6 +4,7 @@ import CoreGraphics
 import DisplayDomain
 import Foundation
 import ProviderInterfaces
+import TopologyCore
 
 /// Top-level C callback for `CGDisplayRegisterReconfigurationCallback`. It must be a
 /// non-capturing function so it bridges to a `@convention(c)` pointer; the owning provider is
@@ -192,24 +193,27 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
         dim: Float, red: Float, green: Float, blue: Float, boost: Float,
         for displayID: CGDirectDisplayID
     ) -> CGError {
-        let scale = CGGammaValue(max(0.15, min(1, dim)))
-        let r = scale * CGGammaValue(min(max(red, 0), 1))
-        let g = scale * CGGammaValue(min(max(green, 0), 1))
-        let b = scale * CGGammaValue(min(max(blue, 0), 1))
-        guard boost > 1.001 else {
-            return CGSetDisplayTransferByFormula(displayID, 0, r, 1, 0, g, 1, 0, b, 1)
+        setGammaAdjustment(SoftwareImageTransfer(
+            dim: dim, gains: .init(red: red, green: green, blue: blue), boost: boost), for: displayID)
+    }
+
+    /// Writes one display's whole composed software image — dim × warmth × contrast × boost — in a
+    /// single colour-table call (TR-14/IN-17). The arithmetic, including the 0.15 dim floor, lives in
+    /// `SoftwareImageTransfer` where it is unit-tested; this only picks the API. Untouched contrast
+    /// and no boost take the formula path exactly as before; a contrast curve or a boost needs a
+    /// table, since the formula can neither clip nor exceed 1.
+    @discardableResult
+    public nonisolated func setGammaAdjustment(
+        _ transfer: SoftwareImageTransfer, for displayID: CGDirectDisplayID
+    ) -> CGError {
+        let scales = transfer.channelScales
+        guard transfer.needsTable else {
+            return CGSetDisplayTransferByFormula(
+                displayID, 0, scales.red, 1, 0, scales.green, 1, 0, scales.blue, 1)
         }
         let count = 256
-        var redTable = [CGGammaValue](repeating: 0, count: count)
-        var greenTable = [CGGammaValue](repeating: 0, count: count)
-        var blueTable = [CGGammaValue](repeating: 0, count: count)
-        for i in 0..<count {
-            let input = CGGammaValue(i) / CGGammaValue(count - 1) * CGGammaValue(boost)
-            redTable[i] = min(1, input * r)
-            greenTable[i] = min(1, input * g)
-            blueTable[i] = min(1, input * b)
-        }
-        return CGSetDisplayTransferByTable(displayID, UInt32(count), redTable, greenTable, blueTable)
+        let tables = transfer.tables(count: count)
+        return CGSetDisplayTransferByTable(displayID, UInt32(count), tables.red, tables.green, tables.blue)
     }
 
     /// Restores every display's gamma to its ColorSync calibration, clearing any software dim. Call

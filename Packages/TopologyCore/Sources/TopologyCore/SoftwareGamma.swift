@@ -10,7 +10,7 @@ import Foundation
 /// colour-table call at all — or, if its own table is still there, hands the slot back to ColorSync.
 public enum GammaSlotPolicy {
     public enum Action: Hashable, Sendable {
-        /// Express the composed dim × warmth × boost table.
+        /// Express the composed dim × warmth × contrast × boost transfer (`SoftwareImageTransfer`).
         case write
         /// Restore ColorSync's table: OpenDisplay's is installed but nothing may (or needs to) use it.
         case release
@@ -30,9 +30,9 @@ public enum GammaSlotPolicy {
     }
 
     /// Whether a dim scale, warmth gains and XDR boost amount to anything other than the display's
-    /// own calibration.
+    /// own calibration (contrast neutral). The composed transfer is the one definition of it.
     public static func needsGamma(dim: Float, gains: ColorTemperatureCurve.Gains, boost: Float) -> Bool {
-        dim < 1 || gains != .neutral || boost > 1
+        SoftwareImageTransfer(dim: dim, gains: gains, boost: boost).needsGamma
     }
 
     /// The dimming method actually used. While gamma is blocked the overlay carries the dim, so
