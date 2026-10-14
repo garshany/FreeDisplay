@@ -640,6 +640,26 @@ func runScene() async {
 
 func percentLabel(_ level: Float) -> String { "\(Int((level * 100).rounded()))%" }
 
+/// Binds a display's DDC channel under the app's rules: Apple displays only with the user's
+/// per-display override from Settings (FB-08), and never a service identity can't single out (TR-06).
+func bindDDC(_ target: ResolvedDisplay) -> ExternalDisplayDDC.Binding {
+    guard let cgID = target.observation.cgDisplayID else { return .unavailable }
+    let overrides = settingsStore?.load().ddcAppleDisplayOverrideIDs ?? []
+    return ExternalDisplayDDC.bind(displayID: cgID,
+                                   allowAppleDisplay: overrides.contains(target.observation.recordID.rawValue))
+}
+
+func ddcRefusalText(_ reason: DDCBindingRefusal) -> String {
+    switch reason {
+    case .ambiguousIdentity:
+        return "DDC refused: another connected monitor reports the same identity, so a command could reach the wrong one"
+    case .unidentified:
+        return "DDC refused: can't tell which DDC service belongs to this display"
+    case .appleDisplay:
+        return "DDC refused: withheld from Apple displays (allow it per display in Settings → Displays)"
+    }
+}
+
 /// Writes one display's brightness through whichever route it has, returning the line to print.
 func applyBrightness(_ level: Float, to target: ResolvedDisplay) async -> String {
     let label = name(for: target)
@@ -649,8 +669,9 @@ func applyBrightness(_ level: Float, to target: ResolvedDisplay) async -> String
         return ok ? "\(label): brightness = \(percentLabel(level))"
                   : "\(label): failed (DisplayServices unavailable)"
     }
-    guard let ddc = ExternalDisplayDDC(displayID: cgID) else {
-        return "\(label): no brightness control for this display"
+    let binding = bindDDC(target)
+    guard let ddc = binding.controller else {
+        return "\(label): " + (binding.refusal.map(ddcRefusalText) ?? "no brightness control for this display")
     }
     let maxValue = await ddc.read(.brightness)?.max ?? 100
     let ok = await ddc.write(.brightness, Int((level * Float(maxValue)).rounded()))
@@ -703,7 +724,7 @@ func runBrightness() async {
         print(await applyBrightness(level, to: target))
     } else if builtIn, let value = DisplayServicesBrightnessProvider().brightness(for: cgID) {
         print("\(Int((value * 100).rounded()))%")
-    } else if !builtIn, let ddc = ExternalDisplayDDC(displayID: cgID),
+    } else if !builtIn, let ddc = bindDDC(target).controller,
               let reading = await ddc.read(.brightness), reading.max > 0 {
         print("\(Int((Float(reading.current) / Float(reading.max) * 100).rounded()))% (\(reading.current)/\(reading.max), DDC)")
     } else {
@@ -729,8 +750,9 @@ func runDDC() async {
     }
     let pairs = await resolveCurrentDisplays()
     let target = uniqueDisplay(sel, in: pairs, managedOffline: managedOfflineIDs)
-    guard let cgID = target.observation.cgDisplayID, let ddc = ExternalDisplayDDC(displayID: cgID) else {
-        fail("no DDC for this display (external displays only)")
+    let binding = bindDDC(target)
+    guard let ddc = binding.controller else {
+        fail(binding.refusal.map(ddcRefusalText) ?? "no DDC for this display (external displays only)")
     }
     // Capabilities (VCP 0xF3): read the display's advertised feature set, read-only.
     if isCaps {

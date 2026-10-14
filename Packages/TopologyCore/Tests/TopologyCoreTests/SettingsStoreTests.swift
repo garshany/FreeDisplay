@@ -450,4 +450,20 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertFalse(legacy.brightnessMediaKeysRequireShift)
     }
 
+    func testAppleDisplayDDCOverrideIsOptInAndSurvivesRoundTrip() throws {
+        // FB-08: an existing settings file predates the override, so it must decode to "no Apple
+        // display may receive DDC" — never to an implicit allow.
+        let legacy = try JSONDecoder().decode(OpenDisplaySettings.self, from: Data("{}".utf8))
+        XCTAssertTrue(legacy.ddcAppleDisplayOverrideIDs.isEmpty)
+        XCTAssertTrue(OpenDisplaySettings.default.ddcAppleDisplayOverrideIDs.isEmpty)
+        var settings = OpenDisplaySettings.default
+        settings.ddcAppleDisplayOverrideIDs = ["cinema-hd-uuid"]
+        let decoded = try JSONDecoder().decode(OpenDisplaySettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertEqual(decoded.ddcAppleDisplayOverrideIDs, ["cinema-hd-uuid"])
+        // A malformed value degrades only this setting, back to the safe default.
+        let malformed = try JSONDecoder().decode(
+            OpenDisplaySettings.self, from: Data(#"{"ddcAppleDisplayOverrideIDs": 7}"#.utf8))
+        XCTAssertTrue(malformed.ddcAppleDisplayOverrideIDs.isEmpty)
+    }
+
 }

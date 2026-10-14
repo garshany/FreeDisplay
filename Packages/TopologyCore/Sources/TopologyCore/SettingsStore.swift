@@ -104,6 +104,10 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     public var automaticUpdateDownloadEnabled: Bool
     /// Displays whose brightness must not use DDC, even if the monitor answers reads.
     public var softwareBrightnessDisplayIDs: Set<String>
+    /// Apple-made displays (by `DisplayRecordID.rawValue`) the user explicitly allowed generic DDC/CI
+    /// for. Empty by default: DDC is withheld from Apple displays (`DDCEligibility`, FB-08) because
+    /// some older models can be left unable to wake after DDC traffic.
+    public var ddcAppleDisplayOverrideIDs: Set<String>
     /// Leave unmodified brightness media keys to macOS.
     public var brightnessMediaKeysRequireShift: Bool
     /// How software dimming darkens a display (gamma table, overlay window, or both).
@@ -192,6 +196,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         dimmingMethod: DimmingMethod = .gamma,
         allowGammaWithCustomProfiles: Bool = false,
         softwareBrightnessDisplayIDs: Set<String> = [],
+        ddcAppleDisplayOverrideIDs: Set<String> = [],
         brightnessMediaKeysRequireShift: Bool = false,
         appPresetsEnabled: Bool = false,
         appPresets: [AppPresetPolicy.AppPreset] = [],
@@ -240,6 +245,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.dimmingMethod = dimmingMethod
         self.allowGammaWithCustomProfiles = allowGammaWithCustomProfiles
         self.softwareBrightnessDisplayIDs = softwareBrightnessDisplayIDs
+        self.ddcAppleDisplayOverrideIDs = ddcAppleDisplayOverrideIDs
         self.brightnessMediaKeysRequireShift = brightnessMediaKeysRequireShift
         self.appPresetsEnabled = appPresetsEnabled
         self.appPresets = appPresets
@@ -290,6 +296,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case dimmingMethod
         case allowGammaWithCustomProfiles
         case softwareBrightnessDisplayIDs
+        case ddcAppleDisplayOverrideIDs
         case brightnessMediaKeysRequireShift
         case appPresetsEnabled
         case appPresets
@@ -377,6 +384,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         automaticUpdateDownloadEnabled = container.lenient(Bool.self, forKey: .automaticUpdateDownloadEnabled)
             ?? defaults.automaticUpdateDownloadEnabled
         softwareBrightnessDisplayIDs = container.lenient(Set<String>.self, forKey: .softwareBrightnessDisplayIDs) ?? []
+        ddcAppleDisplayOverrideIDs = container.lenient(Set<String>.self, forKey: .ddcAppleDisplayOverrideIDs) ?? []
         brightnessMediaKeysRequireShift = container.lenient(Bool.self, forKey: .brightnessMediaKeysRequireShift) ?? false
         dimmingMethod = container.lenient(DimmingMethod.self, forKey: .dimmingMethod)
             ?? defaults.dimmingMethod

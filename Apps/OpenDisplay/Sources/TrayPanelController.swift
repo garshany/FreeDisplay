@@ -25,6 +25,8 @@ final class TrayUIState: ObservableObject {
     @Published var showAllModes: Set<String> = []
     /// Device waiting for the second click of "factory reset".
     @Published var resetConfirm: String?
+    /// DDC power command waiting for its second click, as "<device>|<DDCPowerMode.rawValue>".
+    @Published var powerConfirm: String?
     /// Pinned panel stays open on outside clicks and Space switches (BetterDisplay's detachable
     /// menu); Esc, the status icon or the pin itself close it. Not remembered between openings.
     @Published var pinned = false
@@ -49,6 +51,7 @@ final class TrayUIState: ObservableObject {
         toolsOpen = false
         openTools = []
         resetConfirm = nil
+        powerConfirm = nil
     }
 
     /// Opens or closes one expandable item with the shared tray animation.
