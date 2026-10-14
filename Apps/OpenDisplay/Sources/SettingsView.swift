@@ -972,7 +972,9 @@ private struct AboutSection: View {
 /// choice at launch, so a change offers a relaunch instead of half-switching the open windows.
 private struct LanguageRow: View {
     @State private var choice = AppLanguage.current
-    private let launched = AppLanguage.current
+    /// Per process, not per row: the row is rebuilt each time About opens, and by then the saved
+    /// choice may already be the new one while the interface still runs in the old.
+    private let launched = AppLanguage.atLaunch
 
     var body: some View {
         ODRow(String(localized: "Interface language"),

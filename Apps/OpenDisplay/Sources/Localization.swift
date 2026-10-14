@@ -38,7 +38,13 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         return .system
     }
 
+    /// The choice this process was launched with — what the running interface uses until a
+    /// relaunch, however often the saved choice changes meanwhile. Captured once, at first access,
+    /// which `apply()` forces before it writes, so it always predates the first change.
+    static let atLaunch: AppLanguage = current
+
     func apply() {
+        _ = Self.atLaunch
         if self == .system {
             UserDefaults.standard.removeObject(forKey: "AppleLanguages")
         } else {

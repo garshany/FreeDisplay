@@ -187,6 +187,10 @@ struct BuildMetadata {
     let build: String
     let configuration: String
     let apiSurface: String
+    /// `configuration` and `apiSurface` in the interface language, for the rows; the copied
+    /// report keeps the English words.
+    let configurationTitle: String
+    let apiSurfaceTitle: String
     let isLocalBuild: Bool
     let bundleIdentifier: String
     let operatingSystem: String
@@ -197,13 +201,17 @@ struct BuildMetadata {
     @MainActor static var current: BuildMetadata {
         #if DEBUG
         let configuration = "Debug"
+        let configurationTitle = String(localized: "Debug")
         #else
         let configuration = "Release"
+        let configurationTitle = String(localized: "Release")
         #endif
         #if PUBLIC_API_ONLY
         let apiSurface = "public-API-only"
+        let apiSurfaceTitle = String(localized: "public APIs only")
         #else
         let apiSurface = "full"
+        let apiSurfaceTitle = String(localized: "full")
         #endif
         #if arch(arm64)
         let architecture = "arm64"
@@ -214,7 +222,7 @@ struct BuildMetadata {
             .contentModificationDate
         return BuildMetadata(
             version: AboutView.version, build: AboutView.build, configuration: configuration,
-            apiSurface: apiSurface,
+            apiSurface: apiSurface, configurationTitle: configurationTitle, apiSurfaceTitle: apiSurfaceTitle,
             isLocalBuild: Bundle.main.object(forInfoDictionaryKey: "OpenDisplayLocalBuild") as? Bool == true,
             bundleIdentifier: Bundle.main.bundleIdentifier ?? "?",
             operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
@@ -225,7 +233,7 @@ struct BuildMetadata {
     var rows: [(label: String, value: String)] {
         var rows: [(String, String)] = [
             (String(localized: "Version"), "\(version) (\(build))"),
-            (String(localized: "Build"), buildDescription),
+            (String(localized: "Build"), localizedBuildDescription),
         ]
         if let builtAt { rows.append((String(localized: "Built"), builtAt.formatted(date: .abbreviated, time: .shortened))) }
         rows.append((String(localized: "macOS"), operatingSystem))
@@ -234,8 +242,15 @@ struct BuildMetadata {
         return rows
     }
 
+    /// The build line of the copied report (English, see `reportText`).
     private var buildDescription: String {
         ([configuration, apiSurface] + (isLocalBuild ? ["local build"] : [])).joined(separator: " · ")
+    }
+
+    /// The same line for the rows, in the interface language.
+    private var localizedBuildDescription: String {
+        ([configurationTitle, apiSurfaceTitle] + (isLocalBuild ? [String(localized: "local build")] : []))
+            .joined(separator: " · ")
     }
 
     /// What the copy button puts on the pasteboard. English and fixed-format on purpose: it is
