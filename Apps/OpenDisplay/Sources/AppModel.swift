@@ -127,8 +127,12 @@ final class AppModel: ObservableObject {
     /// Per-display software (gamma) dim level, 1 = no dim. Applies on top of hardware brightness and
     /// works on any display, including DDC-less externals and below the hardware minimum.
     @Published private(set) var softwareDim: [DisplayRecordID: Float] = [:]
-    /// Current DDC input-source code (VCP 0x60) per external display.
+    /// DDC input-source code (VCP 0x60) per external display as the MONITOR last reported it — a
+    /// read-back, never a request (AM-05). Nil = unknown, e.g. right after a switch was sent.
     @Published private(set) var inputSource: [DisplayRecordID: Int] = [:]
+    /// The last input switch OpenDisplay requested per display and what the transport said about it,
+    /// shown next to — never instead of — the reported `inputSource`. Cleared by a fresh read.
+    @Published private(set) var inputSwitch: [DisplayRecordID: DDCInputSwitch] = [:]
     /// Current DDC colour-preset code (VCP 0x14) per external display, and the max code it reports.
     @Published private(set) var colorPreset: [DisplayRecordID: Int] = [:]
     @Published private(set) var colorPresetMax: [DisplayRecordID: Int] = [:]
@@ -139,6 +143,21 @@ final class AppModel: ObservableObject {
     /// Set by the post-drain read-back (`DDCWriteVerification`); cleared by the next verified write
     /// or successful read of that feature, by a factory reset, and when the display leaves.
     @Published private(set) var ddcWriteIgnored: [DisplayRecordID: Set<UInt8>] = [:]
+    /// Displays OpenDisplay deliberately sends no DDC to, and why (TR-06 ambiguous service binding,
+    /// FB-08 Apple display without the override). Set on every controller lookup, so it follows
+    /// topology changes; the UI shows it instead of "the monitor didn't respond".
+    @Published private(set) var ddcBindingRefusal: [DisplayRecordID: DDCBindingRefusal] = [:]
+    /// VCP codes, per display, whose last write failed at the transport (the I2C call itself) with no
+    /// read-back to say otherwise (TB-02). The control is then no longer treated as usable by the
+    /// volume keys, and the UI says the change didn't reach the monitor. Cleared like
+    /// `ddcWriteIgnored`: by a verified write or a fresh successful read.
+    @Published private(set) var ddcWriteFailed: [DisplayRecordID: Set<UInt8>] = [:]
+    /// The monitor's discrete audio mute (VCP 0x8D) as read back, per display: true = muted. Absent =
+    /// no readable discrete mute, so mute falls back to volume 0 (TB-03).
+    @Published private(set) var ddcAudioMuted: [DisplayRecordID: Bool] = [:]
+    /// MCCS audio mute (VCP 0x8D) — `ExternalDisplayDDC.Feature.audioMute`, named here so the public
+    /// build (which has no DDC module) can still key the maps above.
+    static let ddcAudioMuteVCP: UInt8 = 0x8D
     /// Current ICC colour-profile name per display (ColorSync), for the Colour profile row.
     @Published private(set) var colorProfileName: [DisplayRecordID: String] = [:]
     /// Whether each display exposes a ColorSync device that profile writes can target — resolved
@@ -205,7 +224,7 @@ final class AppModel: ObservableObject {
     private var ddc: [DisplayRecordID: ExternalDisplayDDC] = [:]
     /// In-flight DDC-controller constructions, so concurrent first-uses of one display await the same
     /// build instead of each spinning up (and binding) a duplicate IOAVService.
-    private var ddcBuilders: [DisplayRecordID: Task<ExternalDisplayDDC?, Never>] = [:]
+    private var ddcBuilders: [DisplayRecordID: Task<ExternalDisplayDDC.Binding, Never>] = [:]
     private var brightnessMax: [DisplayRecordID: Int] = [:]
     private var ddcTarget: [DisplayRecordID: Int] = [:]
     private var ddcWriters: [DisplayRecordID: Task<Void, Never>] = [:]
@@ -217,6 +236,12 @@ final class AppModel: ObservableObject {
     private var inputSourceWriter: [DisplayRecordID: Task<Void, Never>] = [:]
     private var colorPresetTarget: [DisplayRecordID: Int] = [:]
     private var colorPresetWriter: [DisplayRecordID: Task<Void, Never>] = [:]
+    /// Coalesced discrete-mute writes (VCP 0x8D), like every other DDC control.
+    private var muteTarget: [DisplayRecordID: Bool] = [:]
+    private var muteWriter: [DisplayRecordID: Task<Void, Never>] = [:]
+    /// Displays whose audio controls are being probed because a volume key arrived before their
+    /// DDC volume was confirmed (TB-02) — one probe at a time per display.
+    private var audioProbes: Set<DisplayRecordID> = []
     /// Per-display negative cache of VCP features that repeatedly failed to read, so refresh passes
     /// stop spending ~0.7s of retried I2C on every control the panel doesn't implement (with a
     /// periodic recheck baked into the tracker — see `DDCProbeTracker`). Dropped on disconnect.
@@ -321,7 +346,9 @@ final class AppModel: ObservableObject {
     /// One system Accessibility prompt per launch, max — reconcile runs on every toggle change and at
     /// init, and re-prompting each time would nag.
     private var promptedForAccessibility = false
-    /// Remembered pre-mute DDC volume per display, so a mute toggle can restore the prior level.
+    /// Remembered pre-mute DDC volume per display, so a zero-volume mute (monitors without a readable
+    /// discrete mute) can restore the prior level. Cleared on unmute and when the user picks a new
+    /// level; absent means unmute has nothing truthful to restore (TB-03).
     private var preMuteVolume: [DisplayRecordID: Float] = [:]
 
     /// Protected Layout (Batch-4 #A): the pure policy's threaded state — which generation the
@@ -1145,9 +1172,13 @@ final class AppModel: ObservableObject {
         if !ddcControlLevel.keys.allSatisfy(ids.contains) { ddcControlLevel = ddcControlLevel.filter { ids.contains($0.key) } }
         if !colorPreset.keys.allSatisfy(ids.contains) { colorPreset = colorPreset.filter { ids.contains($0.key) } }
         if !inputSource.keys.allSatisfy(ids.contains) { inputSource = inputSource.filter { ids.contains($0.key) } }
+        if !inputSwitch.keys.allSatisfy(ids.contains) { inputSwitch = inputSwitch.filter { ids.contains($0.key) } }
         if !colorProfileName.keys.allSatisfy(ids.contains) { colorProfileName = colorProfileName.filter { ids.contains($0.key) } }
         if !softwareDim.keys.allSatisfy(ids.contains) { softwareDim = softwareDim.filter { ids.contains($0.key) } }
         if !ddcWriteIgnored.keys.allSatisfy(ids.contains) { ddcWriteIgnored = ddcWriteIgnored.filter { ids.contains($0.key) } }
+        if !ddcBindingRefusal.keys.allSatisfy(ids.contains) { ddcBindingRefusal = ddcBindingRefusal.filter { ids.contains($0.key) } }
+        if !ddcWriteFailed.keys.allSatisfy(ids.contains) { ddcWriteFailed = ddcWriteFailed.filter { ids.contains($0.key) } }
+        if !ddcAudioMuted.keys.allSatisfy(ids.contains) { ddcAudioMuted = ddcAudioMuted.filter { ids.contains($0.key) } }
         if !colorTemperature.keys.allSatisfy(ids.contains) {
             colorTemperature = colorTemperature.filter { ids.contains($0.key) }
         }
@@ -1173,6 +1204,8 @@ final class AppModel: ObservableObject {
         for (id, task) in inputSourceWriter where !ids.contains(id) { task.cancel(); inputSourceWriter[id] = nil }
         for (id, task) in colorPresetWriter where !ids.contains(id) { task.cancel(); colorPresetWriter[id] = nil }
         for (key, task) in ddcControlWriter where !ids.contains(key.id) { task.cancel(); ddcControlWriter[key] = nil }
+        for (id, task) in muteWriter where !ids.contains(id) { task.cancel(); muteWriter[id] = nil }
+        muteTarget = muteTarget.filter { ids.contains($0.key) }
         for (id, task) in ddcBuilders where !ids.contains(id) { task.cancel(); ddcBuilders[id] = nil }
         ddc = ddc.filter { ids.contains($0.key) }
         brightnessMax = brightnessMax.filter { ids.contains($0.key) }
@@ -1305,6 +1338,8 @@ final class AppModel: ObservableObject {
             brightnessMethod[id] = .native
             return
         }
+        // An Apple display whose native read failed gets NO controller here unless the user overrode
+        // it for this display (FB-08) — it falls through to software instead of generic DDC probing.
         if observation.displayClass != .builtIn, let controller = await ddcController(for: observation) {
             // The probe tracker keeps a DDC-less external from paying the full retried read
             // (~0.7s) on every refresh before falling back to gamma — after a couple of failures
@@ -1650,17 +1685,29 @@ final class AppModel: ObservableObject {
     /// — `ExternalDisplayDDC.init` does `dlopen` + IOKit registry enumeration, which must not run on
     /// the UI thread when a display row first expands. Concurrent first-uses await one shared build,
     /// so a display can't end up with two bound IOAVService handles.
+    ///
+    /// A refused binding (Apple display without the override, or a service identity can't single
+    /// out — TR-06/FB-08) yields nil like a missing channel, so every DDC path sends nothing; the
+    /// reason is published in `ddcBindingRefusal` for the UI.
     private func ddcController(for observation: DisplayObservation) async -> ExternalDisplayDDC? {
         let id = observation.recordID
         if let existing = ddc[id] { return existing }
-        if let building = ddcBuilders[id] { return await building.value }
+        if let building = ddcBuilders[id] { return await building.value.controller }
         guard let cgID = observation.cgDisplayID else { return nil }
-        let builder = Task.detached(priority: .utility) { ExternalDisplayDDC(displayID: cgID) }
+        let allowApple = settings.ddcAppleDisplayOverrideIDs.contains(id.rawValue)
+        let builder = Task.detached(priority: .utility) {
+            ExternalDisplayDDC.bind(displayID: cgID, allowAppleDisplay: allowApple)
+        }
         ddcBuilders[id] = builder
-        let controller = await builder.value
+        let binding = await builder.value
         ddcBuilders[id] = nil
-        if let controller { ddc[id] = controller }
-        return controller
+        // Built under an Apple-display override the user has since flipped: the result answers the
+        // old question, so neither cache nor use it (FB-08 — turning the override off must stick).
+        guard settings.ddcAppleDisplayOverrideIDs.contains(id.rawValue) == allowApple else { return nil }
+        let refusal = binding.refusal
+        if ddcBindingRefusal[id] != refusal { ddcBindingRefusal[id] = refusal }
+        if let controller = binding.controller { ddc[id] = controller }
+        return binding.controller
     }
 
     private func drainDDCWrites(_ id: DisplayRecordID, _ observation: DisplayObservation) async {
@@ -1734,14 +1781,38 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Drops the "ignored" note for one feature — a verified write or a fresh successful read means
-    /// the cache reflects the panel again. Only touches the published map when there's a note to drop.
+    /// Drops the "ignored" and "write failed" notes for one feature — a verified write or a fresh
+    /// successful read means the cache reflects the panel again. Only touches a published map when
+    /// there's a note to drop.
     private func clearWriteIgnored(_ vcp: UInt8, id: DisplayRecordID) {
+        if ddcWriteFailed[id]?.contains(vcp) == true {
+            ddcWriteFailed[id]?.remove(vcp)
+            if ddcWriteFailed[id]?.isEmpty == true { ddcWriteFailed[id] = nil }
+        }
         guard ddcWriteIgnored[id]?.contains(vcp) == true else { return }
         ddcWriteIgnored[id]?.remove(vcp)
         if ddcWriteIgnored[id]?.isEmpty == true { ddcWriteIgnored[id] = nil }
     }
+
+    /// Records the transport result of a drain's LAST write next to its read-back verdict (TB-02).
+    /// Only a failed write with no read-back is a failure note: when the panel answered, its answer
+    /// (applied / ignored) is the better evidence and `noteWriteVerification` already recorded it.
+    private func noteWriteTransport(sent: Bool, outcome: DDCWriteVerification, vcp: UInt8, id: DisplayRecordID) {
+        if outcome != .unknown {
+            if ddcWriteFailed[id]?.contains(vcp) == true {
+                ddcWriteFailed[id]?.remove(vcp)
+                if ddcWriteFailed[id]?.isEmpty == true { ddcWriteFailed[id] = nil }
+            }
+        } else if !sent {
+            ddcWriteFailed[id, default: []].insert(vcp)
+        }
+    }
     #endif
+
+    /// True when the last DDC write to `vcp` on this display failed at the transport (see `ddcWriteFailed`).
+    func ddcWriteDidFail(_ vcp: UInt8, for observation: DisplayObservation) -> Bool {
+        ddcWriteFailed[observation.recordID]?.contains(vcp) == true
+    }
 
     /// True when the panel ignored the last DDC write to `vcp` on this display (see `ddcWriteIgnored`).
     func ddcWriteWasIgnored(_ vcp: UInt8, for observation: DisplayObservation) -> Bool {
@@ -1814,22 +1885,54 @@ final class AppModel: ObservableObject {
     func refreshHardwareControls(for observation: DisplayObservation) async {
         #if !PUBLIC_API_ONLY
         guard observation.displayClass != .builtIn, let controller = await ddcController(for: observation) else { return }
-        let id = observation.recordID
         for control in HardwareControl.allCases {
-            let vcp = control.vcp
-            guard ddcSupports(vcp, for: observation),
-                  ddcProbe[id, default: DDCProbeTracker()].admitProbe(vcp) else { continue }
-            if let reading = await controller.read(vcp: vcp), reading.max > 0 {
-                ddcProbe[id, default: DDCProbeTracker()].recordSuccess(vcp)
-                ddcControlLevel[id, default: [:]][vcp] = Float(reading.current) / Float(reading.max)
-                ddcControlMax[DDCControlKey(id: id, vcp: vcp)] = reading.max
-                clearWriteIgnored(vcp, id: id)
-            } else {
-                ddcProbe[id, default: DDCProbeTracker()].recordFailure(vcp)
-            }
+            await readHardwareControl(control, controller: controller, observation: observation)
         }
+        await refreshDiscreteMute(controller, observation: observation)
         #endif
     }
+
+    #if !PUBLIC_API_ONLY
+    /// One probe-gated read of a hardware control into the cache (see `refreshHardwareControls`).
+    private func readHardwareControl(_ control: HardwareControl, controller: ExternalDisplayDDC,
+                                     observation: DisplayObservation) async {
+        let id = observation.recordID
+        let vcp = control.vcp
+        guard ddcSupports(vcp, for: observation),
+              ddcProbe[id, default: DDCProbeTracker()].admitProbe(vcp) else { return }
+        if let reading = await controller.read(vcp: vcp), reading.max > 0 {
+            ddcProbe[id, default: DDCProbeTracker()].recordSuccess(vcp)
+            ddcControlLevel[id, default: [:]][vcp] = Float(reading.current) / Float(reading.max)
+            ddcControlMax[DDCControlKey(id: id, vcp: vcp)] = reading.max
+            clearWriteIgnored(vcp, id: id)
+        } else {
+            ddcProbe[id, default: DDCProbeTracker()].recordFailure(vcp)
+        }
+    }
+
+    /// Reads the monitor's discrete mute (VCP 0x8D) — only for a monitor whose volume reads, since
+    /// mute means nothing without speakers and every absent feature costs a retried read until the
+    /// probe tracker caches it. A reply that isn't 1 (muted) / 2 (unmuted) is not a usable mute
+    /// (TB-03); a failed read keeps the last known state (one flaky read isn't evidence).
+    private func refreshDiscreteMute(_ controller: ExternalDisplayDDC, observation: DisplayObservation) async {
+        let id = observation.recordID
+        let vcp = Self.ddcAudioMuteVCP
+        guard ddcControlLevel[id]?[HardwareControl.volume.vcp] != nil, muteWriter[id] == nil,
+              ddcProbe[id, default: DDCProbeTracker()].admitProbe(vcp) else { return }
+        guard let reading = await controller.read(vcp: vcp) else {
+            ddcProbe[id, default: DDCProbeTracker()].recordFailure(vcp)
+            return
+        }
+        if let muted = DDCAudioPolicy.discreteMuteState(fromVCPValue: reading.current) {
+            ddcProbe[id, default: DDCProbeTracker()].recordSuccess(vcp)
+            if ddcAudioMuted[id] != muted { ddcAudioMuted[id] = muted }
+            clearWriteIgnored(vcp, id: id)
+        } else {
+            ddcProbe[id, default: DDCProbeTracker()].recordFailure(vcp)
+            ddcAudioMuted[id] = nil
+        }
+    }
+    #endif
 
     /// Sets a DDC hardware control (0...1), updating the cache optimistically and coalescing the
     /// I2C writes the same way brightness does. `isGroupSync` marks a write this model is fanning out
@@ -1842,6 +1945,9 @@ final class AppModel: ObservableObject {
         let id = observation.recordID
         let key = DDCControlKey(id: id, vcp: control.vcp)
         ddcControlLevel[id, default: [:]][control.vcp] = value
+        // A level the user picks replaces the one a zero-volume mute remembered (TB-03): unmute must
+        // not later jump back to a stale level.
+        if control == .volume, value > 0 { preMuteVolume[id] = nil }
         ddcControlTarget[key] = Int((value * Float(ddcControlMax[key] ?? 100)).rounded())
         if ddcControlWriter[key] == nil {
             ddcControlWriter[key] = Task { [weak self] in await self?.drainHardwareWrites(key, control, observation) }
@@ -1856,10 +1962,11 @@ final class AppModel: ObservableObject {
         guard let controller = await ddcController(for: observation) else { ddcControlWriter[key] = nil; return }
         while true {
             var lastTarget: Int?
+            var lastSent = true
             while let target = ddcControlTarget[key] {
                 ddcControlTarget[key] = nil
                 lastTarget = target
-                await controller.write(vcp: key.vcp, target)
+                lastSent = await controller.write(vcp: key.vcp, target)
             }
             guard let lastTarget else { break }
             switch await readBackAfterDrain(controller, vcp: key.vcp, settleNanos: Self.continuousSettleNanos,
@@ -1870,6 +1977,7 @@ final class AppModel: ObservableObject {
                 let outcome = DDCWriteVerification.outcome(
                     target: lastTarget, readback: reading?.current, tolerance: 1)
                 noteWriteVerification(outcome, vcp: key.vcp, id: key.id)
+                noteWriteTransport(sent: lastSent, outcome: outcome, vcp: key.vcp, id: key.id)
                 // Snap the slider to where the panel actually is, so it stops showing a level the
                 // monitor isn't at (LG: contrast 40 written, panel stays at 18/70).
                 if case .ignored(let actual) = outcome, let reading, reading.max > 0 {
@@ -1899,17 +2007,24 @@ final class AppModel: ObservableObject {
         }
         ddcProbe[id, default: DDCProbeTracker()].recordSuccess(vcp)
         inputSource[id] = reading.current
+        // A fresh report supersedes the note about the last finished request; one still being
+        // written keeps its "switching…" note.
+        if let request = inputSwitch[id], request.status != .sending { inputSwitch[id] = nil }
         #endif
     }
 
     /// Switches the external display's DDC input source to `code` (e.g. HDMI/DisplayPort). User-driven.
     /// Coalesced through a single per-display writer (like brightness/contrast) so rapid selections
     /// settle the panel on the last choice and can't reorder on the shared I2C bus.
+    ///
+    /// The request is tracked in `inputSwitch`; `inputSource` (the reported input, i.e. the menu's
+    /// checkmark) is NOT set to the request (AM-05): a rejected write would otherwise look like a
+    /// confirmed switch. See `DDCInputSwitch.reportedInput` for what a finished write does to it.
     func setInputSource(_ code: Int, for observation: DisplayObservation) {
         #if !PUBLIC_API_ONLY
         guard observation.displayClass != .builtIn else { return }
         let id = observation.recordID
-        inputSource[id] = code
+        inputSwitch[id] = DDCInputSwitch(requested: code, status: .sending)
         inputSourceTarget[id] = code
         if inputSourceWriter[id] == nil {
             inputSourceWriter[id] = Task { [weak self] in await self?.drainInputSourceWrites(id, observation) }
@@ -1919,20 +2034,37 @@ final class AppModel: ObservableObject {
 
     #if !PUBLIC_API_ONLY
     private func drainInputSourceWrites(_ id: DisplayRecordID, _ observation: DisplayObservation) async {
-        guard let controller = await ddcController(for: observation) else { inputSourceWriter[id] = nil; return }
+        guard let controller = await ddcController(for: observation) else {
+            if let target = inputSourceTarget[id] { noteInputSwitch(.notSent, requested: target, id: id) }
+            inputSourceTarget[id] = nil
+            inputSourceWriter[id] = nil
+            return
+        }
         while let target = inputSourceTarget[id] {
             inputSourceTarget[id] = nil
-            await controller.write(.inputSource, target)
+            let outcome = DDCCommandOutcome(transportAccepted: await controller.write(.inputSource, target))
+            if Task.isCancelled { return }  // pruned: the display is gone, don't touch its state
+            noteInputSwitch(outcome, requested: target, id: id)
         }
         inputSourceWriter[id] = nil
+    }
+
+    /// Records a finished input write: the reported input per `DDCInputSwitch.reportedInput`, and the
+    /// request note — unless a newer request is already queued, whose "switching…" note stays.
+    private func noteInputSwitch(_ outcome: DDCCommandOutcome, requested: Int, id: DisplayRecordID) {
+        let reported = DDCInputSwitch.reportedInput(after: outcome, requested: requested,
+                                                    previouslyReported: inputSource[id])
+        if inputSource[id] != reported { inputSource[id] = reported }
+        if inputSourceTarget[id] == nil { inputSwitch[id] = DDCInputSwitch(requested: requested, outcome: outcome) }
     }
     #endif
 
     /// Fires an input-switch hotkey (todo 4: Lunar's "Input Hotkeys"). Resolves the bound display by
     /// its persistent identity, then writes the input code through the same DDC feature/controller
     /// `setInputSource` uses — hotkeys get no separate switching implementation. No-ops with a failure
-    /// notification when the display is offline or the panel rejects the write; confirms success with
-    /// the OSD, exactly like every other in-app input switch.
+    /// notification when the display is offline or the panel rejects the write; acknowledges a sent
+    /// switch with the OSD. A sent switch is recorded as a request (`inputSwitch`), not as the
+    /// monitor's reported input — nothing reads the new input back.
     func switchInputByHotkey(_ entry: InputSwitchBinding) async {
         #if !PUBLIC_API_ONLY
         guard let observation = displays.first(where: { $0.recordID == entry.displayID }) else {
@@ -1940,14 +2072,17 @@ final class AppModel: ObservableObject {
             return
         }
         guard let controller = await ddcController(for: observation) else {
+            noteInputSwitch(.notSent, requested: entry.inputCode, id: entry.displayID)
             await notifyInputSwitchFailed(entry.displayID, reason: .noDDC)
             return
         }
         guard await controller.write(.inputSource, entry.inputCode) else {
+            noteInputSwitch(.failed, requested: entry.inputCode, id: entry.displayID)
             await notifyInputSwitchFailed(entry.displayID, reason: .rejected)
             return
         }
-        inputSource[entry.displayID] = entry.inputCode
+        // Sent, not confirmed (AM-05): the switch is recorded as a request, never as the reported input.
+        noteInputSwitch(.sent, requested: entry.inputCode, id: entry.displayID)
         presentInputSwitchOSD(inputName: inputName(entry.inputCode), for: observation)
         #endif
     }
@@ -1973,19 +2108,37 @@ final class AppModel: ObservableObject {
     }
     #endif
 
-    /// Sends a DDC power-mode command (VCP 0xD6) to an external display (Issue 1). Best-effort and
-    /// fire-and-forget: the panel may NAK or ignore the write, and many displays cannot be woken back
-    /// On over DDC once powered Off — none of that is treated as an error. No-op on the built-in and in
-    /// the public-API-only build (DDC uses private SPI). The audit/safety path is untouched because a
-    /// power command doesn't alter the logical arrangement.
-    func setPowerMode(_ mode: DDCPowerMode, for observation: DisplayObservation) {
+    /// Sends a DDC power-mode command (VCP 0xD6) to an external display (Issue 1) and reports what the
+    /// transport said (AM-04/SD-03). `.sent` is NOT proof the monitor acted: many panels ignore 0xD6
+    /// or can't be woken back On over DDC, and none of that can be read back once the picture is gone.
+    /// Callers confirm Standby/Off first (`DDCPowerMode.needsConfirmation`, `ddcPowerRisk`). Returns
+    /// `.notSent` on the built-in, without a usable binding, and in the public-API-only build (DDC uses
+    /// private SPI) — whose UI doesn't offer the action. The arrangement safety path is untouched
+    /// because a power command doesn't alter the logical arrangement; the attempt is audited.
+    func setPowerMode(_ mode: DDCPowerMode, for observation: DisplayObservation) async -> DDCCommandOutcome {
         #if !PUBLIC_API_ONLY
-        guard observation.displayClass != .builtIn else { return }
-        Task { [weak self] in
-            guard let controller = await self?.ddcController(for: observation) else { return }
-            await controller.write(.power, mode.vcpValue)
-        }
+        guard observation.displayClass != .builtIn,
+              let controller = await ddcController(for: observation) else { return .notSent }
+        let outcome = DDCCommandOutcome(transportAccepted: await controller.write(.power, mode.vcpValue))
+        await appendAudit(AuditEntry(
+            timestamp: Date(), actor: .ui, command: "ddcPower:\(mode.rawValue)",
+            transactionId: "txn_ddcPower", status: outcome.auditStatus,
+            targets: [observation.recordID.rawValue]))
+        return outcome
+        #else
+        return .notSent
         #endif
+    }
+
+    /// How risky a DDC Standby/Off is for this display: whether it is the main display and whether
+    /// any other screen would still show a picture (blacked-out screens and macOS's placeholder don't
+    /// count). A DDC power command leaves the arrangement as it is, so the menu bar, Dock and the
+    /// OpenDisplay menu stay on a screen that may be dark.
+    func ddcPowerRisk(for observation: DisplayObservation) -> DDCPowerRisk {
+        let others = WakeConvergencePolicy.visibleSurfaces(in: displays).filter {
+            $0.recordID != observation.recordID && !blackedOut.contains($0.recordID)
+        }
+        return DDCPowerRisk.assess(isMain: observation.isMain, otherVisibleScreens: others.count)
     }
 
     /// Refreshes a display's cached ICC state — controllability, current profile name, and (once) the
@@ -2169,41 +2322,37 @@ final class AppModel: ObservableObject {
         #endif
     }
 
-    /// Restores the monitor's factory settings (MCCS VCP 0x04) and clears OpenDisplay's own software
-    /// layers for the display, so "Reset to defaults" means the picture really is back at baseline —
-    /// a factory-fresh panel under a leftover gamma dim or warmth would still look "wrong".
+    /// Asks the monitor to restore its factory settings (MCCS VCP 0x04) and reports what the
+    /// transport said. Hardware only (AM-06): OpenDisplay's own software dim and colour temperature
+    /// are a separate choice (`resetSoftwareAdjustments`) the UI offers after a reset that went
+    /// through — a failed reset must not silently wipe them, and a successful one doesn't decide
+    /// for the user whether the app's layers should go too.
     ///
     /// Order matters: queued coalesced writes are dropped FIRST so a drag still draining can't land
     /// on top of the reset; the re-read waits ~2 s because panels take a moment to reload defaults
     /// (and some NAK reads meanwhile); the probe cache is forgotten before re-reading so a feature
     /// that had been negatively cached (e.g. one the old picture mode locked) gets probed again.
     /// External displays only — the built-in has no DDC.
-    func resetToDefaults(for observation: DisplayObservation) async {
+    func resetToDefaults(for observation: DisplayObservation) async -> DDCCommandOutcome {
         #if !PUBLIC_API_ONLY
-        guard observation.displayClass != .builtIn, let cgID = observation.cgDisplayID,
-              let controller = await ddcController(for: observation) else { return }
+        guard observation.displayClass != .builtIn,
+              let controller = await ddcController(for: observation) else { return .notSent }
         let id = observation.recordID
         ddcTarget[id] = nil
         colorPresetTarget[id] = nil
         inputSourceTarget[id] = nil
+        if inputSwitch[id]?.status == .sending { inputSwitch[id] = nil }  // its queued write was just dropped
         ddcControlTarget = ddcControlTarget.filter { $0.key.id != id }
-        let sent = await controller.write(.restoreFactoryDefaults, 1)
-
-        // OpenDisplay's software layers: dim (gamma + overlay) and colour temperature. Cleared in the
-        // cache first so `writeGamma` re-expresses a neutral slot. Under Black Out the panel is held
-        // at gamma 0 on purpose — the cache still resets, and lifting the blackout restores neutral.
-        softwareDim[id] = nil
-        colorTemperature[id] = nil
-        if !blackedOut.contains(id) {
-            writeGamma(level: 1.0, id: id, cgID: cgID)
-            dimOverlay.remove(for: cgID)
-        }
-        ddcWriteIgnored[id] = nil
+        let outcome = DDCCommandOutcome(transportAccepted: await controller.write(.restoreFactoryDefaults, 1))
 
         await appendAudit(AuditEntry(
             timestamp: Date(), actor: .ui, command: "factoryReset",
-            transactionId: "txn_factoryReset", status: sent ? "sent" : "failed",
+            transactionId: "txn_factoryReset", status: outcome.auditStatus,
             targets: [id.rawValue]))
+        // Not sent → nothing on the panel changed, so neither do the caches describing it.
+        guard outcome == .sent else { return outcome }
+        ddcWriteIgnored[id] = nil
+        ddcWriteFailed[id] = nil
 
         try? await Task.sleep(nanoseconds: 2_000_000_000)
         resetDDCProbeCache(for: id)
@@ -2211,7 +2360,36 @@ final class AppModel: ObservableObject {
         await refreshHardwareControls(for: observation)
         await refreshColorPreset(for: observation)
         await refreshInputSource(for: observation)
+        return outcome
+        #else
+        return .notSent
         #endif
+    }
+
+    /// Whether OpenDisplay itself is dimming or tinting this display (software dim or temperature) —
+    /// what `resetSoftwareAdjustments` would undo.
+    func hasSoftwareAdjustments(_ observation: DisplayObservation) -> Bool {
+        let id = observation.recordID
+        return (softwareDim[id].map { $0 < 1 } ?? false) || colorTemperature[id] != nil
+    }
+
+    /// Returns OpenDisplay's own software layers for a display — dim (gamma + overlay) and colour
+    /// temperature — to neutral. Independent of the monitor's factory reset (AM-06): the user picks it
+    /// separately, so a monitor reset that failed (or a user who wants to keep the app's evening
+    /// warmth) leaves them alone. Cleared in the cache first so `writeGamma` re-expresses a neutral
+    /// slot. Under Black Out the panel is held at gamma 0 on purpose — the cache still resets, and
+    /// lifting the blackout restores neutral.
+    func resetSoftwareAdjustments(for observation: DisplayObservation) async {
+        guard let cgID = observation.cgDisplayID else { return }
+        let id = observation.recordID
+        softwareDim[id] = nil
+        colorTemperature[id] = nil
+        if !blackedOut.contains(id) {
+            writeGamma(level: 1.0, id: id, cgID: cgID)
+            dimOverlay.remove(for: cgID)
+        }
+        // A software-brightness display's slider IS the dim level — re-derive it.
+        await refreshBrightness(for: observation)
     }
 
     #if !PUBLIC_API_ONLY
@@ -4256,9 +4434,14 @@ final class AppModel: ObservableObject {
         let audioTarget = action.isVolume ? audioOutputDisplayID() : nil
         guard let target = MediaKeyTargetPolicy.target(
             for: action, in: displays, cursor: cursorInCGCoordinates(),
-            mode: settings.mediaKeyTargetMode, volumeCapable: volumeCapableDisplayIDs(),
+            mode: settings.mediaKeyTargetMode, volumeCapable: volumeCapableDisplayIDs(for: action),
             audioTarget: audioTarget)
-        else { return false }
+        else {
+            // The sound goes to a display whose DDC audio isn't confirmed: macOS handles this key,
+            // and a background read establishes whether the next one can be taken (TB-02).
+            if let audioTarget { probeAudioControls(for: audioTarget) }
+            return false
+        }
         let id = target.recordID
 
         switch action {
@@ -4267,36 +4450,144 @@ final class AppModel: ObservableObject {
             setBrightness(min(1, max(0, current + action.signedDelta(fineStep: fineStep))), for: target,
                           origin: .keys)
         case .volumeUp, .volumeDown:
-            let current = ddcControl(.volume, for: target) ?? 0.5
+            // Eligibility guarantees a read-back level; nothing is invented here.
+            guard let current = ddcControl(.volume, for: target) else { return false }
             setHardwareControl(.volume, min(1, max(0, current + action.signedDelta(fineStep: fineStep))),
                                for: target)
         case .muteToggle:
-            toggleMute(for: target)
+            return toggleMute(for: target)
         }
         return true
     }
 
-    /// Mute toggle shared by the mute key and the menu's speaker icon. A volume of 0 already renders
-    /// the speaker-slash glyph, so "mute" is volume 0 with the prior level remembered for unmute.
-    func toggleMute(for observation: DisplayObservation) {
-        let id = observation.recordID
-        let current = ddcControl(.volume, for: observation) ?? 0
-        if current > 0 {
-            preMuteVolume[id] = current
-            setHardwareControl(.volume, 0, for: observation)
-        } else {
-            setHardwareControl(.volume, preMuteVolume[id] ?? 0.5, for: observation)
-        }
+    /// How a mute toggle would be carried out on this display right now (TB-03): the monitor's own
+    /// mute when it reads back, else volume 0 (remembering the level), else nothing.
+    func muteAction(for observation: DisplayObservation) -> DDCAudioPolicy.MuteAction {
+        DDCAudioPolicy.muteAction(audioCapability(for: observation), remembered: preMuteVolume[observation.recordID])
     }
 
-    /// External displays that can take DDC audio (VCP 0x62) — the only valid volume-key targets. The
-    /// built-in is never included, so its volume keys pass through to system volume. Fail-open: an
-    /// external whose capabilities haven't been read yet is treated as capable (`ddcSupports`).
-    private func volumeCapableDisplayIDs() -> Set<DisplayRecordID> {
-        Set(displays
-            .filter { $0.displayClass != .builtIn && ddcSupports(HardwareControl.volume.vcp, for: $0) }
-            .map(\.recordID))
+    /// Mute toggle shared by the mute key and the menu's speaker icon. Returns whether anything was
+    /// done, so the key passes to macOS when there is nothing truthful to do (TB-03): no working
+    /// audio control, or volume already 0 with no remembered level — an unmute never invents one.
+    @discardableResult
+    func toggleMute(for observation: DisplayObservation) -> Bool {
+        let id = observation.recordID
+        switch muteAction(for: observation) {
+        case .discrete(let mute):
+            setDiscreteMute(mute, for: observation)
+        case .zeroVolume(let level):
+            preMuteVolume[id] = level
+            setHardwareControl(.volume, 0, for: observation)
+        case .restore(let level):
+            setHardwareControl(.volume, level, for: observation)  // clears `preMuteVolume`
+            preMuteVolume[id] = nil
+        case .unavailable:
+            return false
+        }
+        return true
     }
+
+    /// What the app knows about a display's DDC audio, for `DDCAudioPolicy`.
+    private func audioCapability(for observation: DisplayObservation) -> DDCAudioPolicy.Capability {
+        let id = observation.recordID
+        let volumeVCP = HardwareControl.volume.vcp
+        return DDCAudioPolicy.Capability(
+            volume: ddcControl(.volume, for: observation),
+            volumeAdvertised: ddcSupports(volumeVCP, for: observation),
+            volumeWriteFailed: ddcWriteFailed[id]?.contains(volumeVCP) == true,
+            discreteMuted: ddcAudioMuted[id],
+            muteWriteFailed: ddcWriteFailed[id]?.contains(Self.ddcAudioMuteVCP) == true)
+    }
+
+    /// External displays the volume/mute keys may be consumed for (TB-02). Requires a CONFIRMED DDC
+    /// audio control — a read-back volume (or discrete mute, for the mute key) whose last write didn't
+    /// fail — not merely "capabilities unread, so maybe": the tap swallows a consumed key, so a
+    /// guessed target would leave the user with no volume control at all. The built-in is never
+    /// included, so its keys always reach macOS.
+    private func volumeCapableDisplayIDs(for action: MediaKeyAction) -> Set<DisplayRecordID> {
+        Set(displays.filter { observation in
+            guard observation.displayClass != .builtIn else { return false }
+            let capability = audioCapability(for: observation)
+            return action == .muteToggle
+                ? DDCAudioPolicy.muteKeyUsable(capability, remembered: preMuteVolume[observation.recordID])
+                : DDCAudioPolicy.volumeKeysUsable(capability)
+        }.map(\.recordID))
+    }
+
+    /// Starts a background read of a display's volume and mute when a key arrived for it before
+    /// they were confirmed. Goes through the probe tracker, so a monitor without DDC audio is not
+    /// re-read on every key press, and skips displays OpenDisplay refuses to talk DDC to.
+    private func probeAudioControls(for id: DisplayRecordID) {
+        #if !PUBLIC_API_ONLY
+        guard !audioProbes.contains(id), ddcBindingRefusal[id] == nil,
+              ddcProbe[id]?.unsupportedCodes.contains(HardwareControl.volume.vcp) != true,
+              let observation = displays.first(where: {
+                  $0.recordID == id && $0.isActive && $0.displayClass != .builtIn
+              }) else { return }
+        audioProbes.insert(id)
+        Task { [weak self] in
+            guard let self else { return }
+            if let controller = await self.ddcController(for: observation) {
+                await self.readHardwareControl(.volume, controller: controller, observation: observation)
+                await self.refreshDiscreteMute(controller, observation: observation)
+            }
+            self.audioProbes.remove(id)
+        }
+        #endif
+    }
+
+    /// Requests the monitor's own mute state (VCP 0x8D) through a coalescing writer. The cached state
+    /// flips at once — like every DDC control's cache — and the drain's read-back corrects it.
+    private func setDiscreteMute(_ mute: Bool, for observation: DisplayObservation) {
+        #if !PUBLIC_API_ONLY
+        let id = observation.recordID
+        ddcAudioMuted[id] = mute
+        muteTarget[id] = mute
+        if muteWriter[id] == nil {
+            muteWriter[id] = Task { [weak self] in await self?.drainMuteWrites(id, observation) }
+        }
+        #endif
+    }
+
+    #if !PUBLIC_API_ONLY
+    private func drainMuteWrites(_ id: DisplayRecordID, _ observation: DisplayObservation) async {
+        let vcp = Self.ddcAudioMuteVCP
+        guard let controller = await ddcController(for: observation) else {
+            // Nothing was sent: the monitor is where it was before the toggle.
+            if let target = muteTarget[id] { ddcAudioMuted[id] = !target }
+            muteTarget[id] = nil
+            muteWriter[id] = nil
+            return
+        }
+        while true {
+            var lastTarget: Bool?
+            var lastSent = true
+            while let target = muteTarget[id] {
+                muteTarget[id] = nil
+                lastTarget = target
+                lastSent = await controller.write(vcp: vcp, DDCAudioPolicy.discreteMuteValue(mute: target))
+            }
+            guard let lastTarget else { break }
+            switch await readBackAfterDrain(controller, vcp: vcp, settleNanos: Self.continuousSettleNanos,
+                                            superseded: { [weak self] in self?.muteTarget[id] != nil }) {
+            case .cancelled: return
+            case .superseded: continue
+            case .reading(let reading):
+                let outcome = DDCWriteVerification.outcome(
+                    target: DDCAudioPolicy.discreteMuteValue(mute: lastTarget), readback: reading?.current)
+                noteWriteVerification(outcome, vcp: vcp, id: id)
+                noteWriteTransport(sent: lastSent, outcome: outcome, vcp: vcp, id: id)
+                switch outcome {
+                case .applied: ddcAudioMuted[id] = lastTarget
+                case .ignored(let actual): ddcAudioMuted[id] = DDCAudioPolicy.discreteMuteState(fromVCPValue: actual)
+                case .unknown: if !lastSent { ddcAudioMuted[id] = !lastTarget }  // never reached the panel
+                }
+            }
+            break
+        }
+        muteWriter[id] = nil
+    }
+    #endif
 
     /// The display the system's default audio output is routing through, or nil when the sound isn't
     /// going to a display (built-in speakers, AirPods, USB DAC, aggregate) or can't be matched to one.
@@ -4398,6 +4689,42 @@ final class AppModel: ObservableObject {
             settings.softwareBrightnessDisplayIDs.remove(id.rawValue)
         }
         persistSettings()
+        await refreshBrightness(for: observation)
+    }
+
+    /// Whether an external display is Apple-made — generic DDC is withheld from those unless the
+    /// user turned on `setAppleDisplayDDCOverride` for that display (FB-08).
+    func isAppleDisplay(_ observation: DisplayObservation) -> Bool {
+        guard observation.displayClass != .builtIn, let cgID = observation.cgDisplayID else { return false }
+        return DDCEligibility.isAppleDisplay(vendorNumber: Int(CGDisplayVendorNumber(cgID)))
+    }
+
+    func appleDisplayDDCOverride(for observation: DisplayObservation) -> Bool {
+        settings.ddcAppleDisplayOverrideIDs.contains(observation.recordID.rawValue)
+    }
+
+    /// Expert override (FB-08): let generic DDC reach this one Apple display. Scoped to the display's
+    /// record, never to Apple displays in general. Either way the cached binding and DDC state for
+    /// the display are dropped, so turning it off stops DDC traffic at once instead of after the next
+    /// replug, and turning it on probes from scratch.
+    func setAppleDisplayDDCOverride(_ allowed: Bool, for observation: DisplayObservation) async {
+        let id = observation.recordID
+        if allowed {
+            settings.ddcAppleDisplayOverrideIDs.insert(id.rawValue)
+        } else {
+            settings.ddcAppleDisplayOverrideIDs.remove(id.rawValue)
+        }
+        persistSettings()
+        #if !PUBLIC_API_ONLY
+        pruneDDCCaches(to: Set(displays.map(\.recordID)).subtracting([id]))
+        #endif
+        ddcControlLevel[id] = nil
+        colorPreset[id] = nil
+        inputSource[id] = nil
+        ddcWriteIgnored[id] = nil
+        ddcWriteFailed[id] = nil
+        ddcAudioMuted[id] = nil
+        brightnessMethod[id] = nil
         await refreshBrightness(for: observation)
     }
 

@@ -334,12 +334,15 @@ private struct TrayVolumeControl: View {
 
     var body: some View {
         let level = Double(model.ddcControl(.volume, for: display) ?? 0)
-        TraySlider(value: level, icon: level <= 0 ? "speaker.slash.fill" : "speaker.wave.2.fill",
+        let muted = model.ddcAudioMuted[display.recordID] == true || level <= 0
+        // TB-03: the icon is a button only when a mute toggle has something truthful to do.
+        let mute = model.muteAction(for: display)
+        TraySlider(value: level, icon: muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                    valueText: "\(Int((level * 100).rounded()))%", accessibilityLabel: String(localized: "Volume"),
-                   leadingAction: { model.toggleMute(for: display) }) {
+                   leadingAction: mute == .unavailable ? nil : { model.toggleMute(for: display) }) {
             model.setHardwareControl(.volume, Float($0), for: display, showsOSD: false)
         }
-        .help("Monitor volume over DDC. Click the icon to mute or unmute")
+        .help(DDCStatusText.volumeHelp(mute))
     }
 }
 
@@ -447,7 +450,8 @@ private struct TrayFeatureList: View {
                         model.inputSource[display.recordID].map { model.inputName($0) }) {
                     TrayInputList(display: display)
                 }
-                feature("colorMode", "paintpalette", String(localized: "Monitor color mode"),
+                // TR-07: the monitor's own picture preset (VCP 0x14), not a connection colour format.
+                feature("colorMode", "paintpalette", String(localized: "Monitor color preset"),
                         model.colorPreset[display.recordID].map { model.presetName($0) }) {
                     TrayColorPresetList(display: display)
                 }
@@ -496,6 +500,7 @@ private struct TrayFeatureList: View {
             TrayRow(icon: icon, title: title, detail: summary, disclosure: isOpen ? .open : .closed,
                     identifier: "tray.feature.\(id)") {
                 ui.resetConfirm = nil
+                ui.powerConfirm = nil
                 ui.toggle(\.openFeatures, fullID)
             }
             if isOpen {
@@ -684,11 +689,34 @@ private struct TrayDeviceControl: View {
     @EnvironmentObject private var ui: TrayUIState
     let display: DisplayObservation
     @State private var resetting = false
+    @State private var sendingPower = false
+    @State private var powerResult: PowerResult?
+    @State private var resetResult: DDCCommandOutcome?
+
+    /// What the last power command from this card reported (never a confirmed effect).
+    private struct PowerResult { let mode: DDCPowerMode; let outcome: DDCCommandOutcome }
+
+    /// The power command awaiting its second click on this display, if any.
+    private var pendingPower: DDCPowerMode? {
+        guard let pending = ui.powerConfirm else { return nil }
+        let parts = pending.split(separator: "|", maxSplits: 1).map(String.init)
+        guard parts.count == 2, parts[0] == display.recordID.rawValue else { return nil }
+        return DDCPowerMode(rawValue: parts[1])
+    }
+
+    private func askPower(_ mode: DDCPowerMode) {
+        powerResult = nil
+        ui.powerConfirm = "\(display.recordID.rawValue)|\(mode.rawValue)"
+    }
 
     var body: some View {
         let controls = HardwareControl.allCases.filter { model.ddcControl($0, for: display) != nil }
         VStack(alignment: .leading, spacing: 8) {
-            if controls.isEmpty {
+            if let refusal = model.ddcBindingRefusal[display.recordID] {
+                // Deliberately not talking DDC (TR-06/FB-08) — "didn't respond" would send the user
+                // power-cycling a monitor that was never asked anything.
+                TrayNote(DDCStatusText.refusal(refusal), tint: ODColor.caution)
+            } else if controls.isEmpty {
                 TrayNote(String(localized: "The monitor didn't respond over DDC. If control worked before, turn the monitor off and on with its power button and retry."))
                 TrayPillButton(String(localized: "Retry DDC probe")) {
                     model.retryDDCDiscoveryIfDead(for: display)
@@ -700,36 +728,78 @@ private struct TrayDeviceControl: View {
                 TrayLabeled(control.label, value: "\(Int((value * 100).rounded()))%") {
                     TraySlider(value: value, icon: control.icon, valueText: "", accessibilityLabel: control.label,
                                showsValue: false,
-                               leadingAction: control == .volume ? { model.toggleMute(for: display) } : nil) {
+                               leadingAction: control == .volume && model.muteAction(for: display) != .unavailable
+                                   ? { model.toggleMute(for: display) } : nil) {
                         model.setHardwareControl(control, Float($0), for: display, showsOSD: false)
                     }
                 }
                 if model.ddcWriteWasIgnored(control.vcp, for: display) {
                     TrayNote(String(localized: "The monitor didn't apply the change — its current picture mode may be blocking it."))
+                } else if model.ddcWriteDidFail(control.vcp, for: display) {
+                    TrayNote(DDCStatusText.writeFailed, tint: ODColor.caution)
                 }
             }
             TraySubheader(String(localized: "Power"))
-            HStack(spacing: 6) {
-                TrayPillButton(String(localized: "Standby")) { model.setPowerMode(.standby, for: display) }
-                TrayPillButton(String(localized: "Turn off")) { model.setPowerMode(.off, for: display) }
+            // Two-step like factory reset (AM-04): the first click only explains what a DDC power
+            // command does here and how to recover; nothing is sent until the second click.
+            if let mode = pendingPower {
+                let risk = model.ddcPowerRisk(for: display)
+                TrayNote(DDCStatusText.powerWarning(mode, risk: risk),
+                         tint: risk == .otherScreensRemain ? .secondary : ODColor.caution)
+                HStack(spacing: 6) {
+                    TrayPillButton(sendingPower ? String(localized: "Sending…") : DDCStatusText.powerConfirmButton(mode),
+                                   destructive: true) {
+                        guard !sendingPower else { return }
+                        sendingPower = true
+                        Task {
+                            let outcome = await model.setPowerMode(mode, for: display)
+                            powerResult = PowerResult(mode: mode, outcome: outcome)
+                            sendingPower = false
+                            ui.powerConfirm = nil
+                        }
+                    }
+                    TrayPillButton(String(localized: "Cancel")) { ui.powerConfirm = nil }
+                }
+            } else {
+                HStack(spacing: 6) {
+                    TrayPillButton(String(localized: "Standby…")) { askPower(.standby) }
+                    TrayPillButton(String(localized: "Turn off…")) { askPower(.off) }
+                }
+                TrayNote(String(localized: "Some monitors can't be woken over DDC — turn them on with the power button."))
             }
-            TrayNote(String(localized: "Some monitors can't be woken over DDC — turn them on with the power button."))
+            if let powerResult {
+                TrayNote(DDCStatusText.powerOutcome(powerResult.outcome, mode: powerResult.mode),
+                         tint: powerResult.outcome == .sent ? .secondary : ODColor.caution)
+            }
             TraySubheader(String(localized: "Reset"))
             if ui.resetConfirm == display.recordID.rawValue {
                 HStack(spacing: 6) {
                     TrayPillButton(resetting ? String(localized: "Resetting…") : String(localized: "Reset monitor"), destructive: true) {
+                        guard !resetting else { return }
                         resetting = true
+                        resetResult = nil
                         Task {
-                            await model.resetToDefaults(for: display)
+                            resetResult = await model.resetToDefaults(for: display)
                             resetting = false
                             ui.resetConfirm = nil
                         }
                     }
                     TrayPillButton(String(localized: "Cancel")) { ui.resetConfirm = nil }
                 }
-                TrayNote(String(localized: "The monitor will restore its factory brightness, contrast, color mode, and everything else."))
+                TrayNote(String(localized: "The monitor is asked to restore its factory settings — brightness, contrast, color preset and whatever else it resets. OpenDisplay's own dimming and color temperature stay as they are."))
             } else {
                 TrayPillButton(String(localized: "Factory reset…")) { ui.resetConfirm = display.recordID.rawValue }
+            }
+            if let resetResult {
+                TrayNote(DDCStatusText.resetOutcome(resetResult),
+                         tint: resetResult == .sent ? .secondary : ODColor.caution)
+                // AM-06: the app's own layers are a separate, explicit choice — offered only once the
+                // monitor reset actually went through, and only if there is something to undo.
+                if resetResult == .sent, model.hasSoftwareAdjustments(display) {
+                    TrayPillButton(String(localized: "Also reset OpenDisplay's dimming and temperature")) {
+                        Task { await model.resetSoftwareAdjustments(for: display) }
+                    }
+                }
             }
         }
         .task(id: display.recordID) { await model.refreshHardwareControls(for: display) }
@@ -742,11 +812,16 @@ private struct TrayInputList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
+            // The checkmark is the input the MONITOR reported (AM-05); a request is only a note below.
             ForEach(AppModel.standardInputs, id: \.code) { input in
                 TrayChoiceRow(selected: model.inputSource[display.recordID] == input.code,
                               action: { model.setInputSource(input.code, for: display) }) {
                     Text(input.name).font(.system(size: 12))
                 }
+            }
+            if let request = model.inputSwitch[display.recordID] {
+                TrayNote(DDCStatusText.inputSwitch(request, inputName: model.inputName(request.requested)),
+                         tint: request.status == .failed || request.status == .notSent ? ODColor.caution : .secondary)
             }
             TrayNote(String(localized: "After switching, the monitor shows the other input — switch back with the monitor's buttons."))
         }
@@ -769,10 +844,10 @@ private struct TrayColorPresetList: View {
                 }
             }
             if model.ddcWriteWasIgnored(0x14, for: display), let current = model.colorPreset[display.recordID] {
-                TrayNote(String(localized: "The monitor kept the “\(model.presetName(current))” mode."), tint: ODColor.caution)
+                TrayNote(String(localized: "The monitor kept the “\(model.presetName(current))” preset."), tint: ODColor.caution)
             }
             if model.ddcCapabilities[display.recordID] == nil {
-                TrayPillButton(detecting ? String(localized: "Detecting…") : String(localized: "Detect supported modes")) {
+                TrayPillButton(detecting ? String(localized: "Detecting…") : String(localized: "Detect supported presets")) {
                     detecting = true
                     Task {
                         await model.refreshCapabilities(for: display)
