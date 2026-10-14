@@ -1,5 +1,6 @@
 #if os(macOS)
 import CoreGraphics
+import CoreGraphicsProvider
 import DisplayDomain
 import Foundation
 
@@ -7,32 +8,14 @@ import Foundation
 /// expects, plus the native/default markers the display reports (see `DisplayModeOption`).
 typealias TrayModeOption = DisplayModeOption
 
-/// Reads the display's modes straight from Core Graphics so the tray can mark native/default modes
-/// and drop the ones macOS flags as unusable for a desktop. `AppModel.allModes` keeps every mode
-/// (including the "not usable for desktop GUI" ones an external monitor advertises), which put
-/// low-quality modes into the old resolution list.
+/// The tray's modes come from `DisplayModeReader`, the enumeration Settings and the information
+/// report share, minus the ones macOS marks as not usable for a desktop: a tray click applies at
+/// once, so those stay behind Settings' explicit "all modes" filter, which applies only through
+/// Apply. `AppModel.allModes` keeps every mode unmarked, which once put low-quality modes into
+/// the old resolution list.
 enum TrayModeCatalog {
-    // IOGraphicsTypes.h: kDisplayModeNativeFlag / kDisplayModeDefaultFlag (public IOKit constants).
-    private static let nativeFlag: UInt32 = 0x0200_0000
-    private static let defaultFlag: UInt32 = 0x0000_0004
-
     static func options(for cgID: CGDirectDisplayID) -> [TrayModeOption] {
-        let query = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
-        guard let modes = CGDisplayCopyAllDisplayModes(cgID, query) as? [CGDisplayMode] else { return [] }
-        var seen = Set<String>()
-        var result: [TrayModeOption] = []
-        for cg in modes where cg.isUsableForDesktopGUI() {
-            // Built exactly like CoreGraphicsProvider does, so `DisplayModeChoices.matches` accepts it.
-            let mode = DisplayMode(pixelWidth: cg.pixelWidth, pixelHeight: cg.pixelHeight,
-                                   pointWidth: cg.width, pointHeight: cg.height,
-                                   refreshHz: cg.refreshRate, isHiDPI: cg.pixelWidth > cg.width)
-            guard DisplayModeChoices.isValid(mode) else { continue }
-            let option = TrayModeOption(mode: mode,
-                                        isNative: cg.ioFlags & nativeFlag != 0,
-                                        isDefault: cg.ioFlags & defaultFlag != 0)
-            if seen.insert(option.id).inserted { result.append(option) }
-        }
-        return result.sorted(by: order)
+        DisplayModeReader.options(for: cgID).filter(\.isOrdinary).sorted(by: order)
     }
 
     /// Largest point size first (like System Settings), then HiDPI before LoDPI, then refresh.
