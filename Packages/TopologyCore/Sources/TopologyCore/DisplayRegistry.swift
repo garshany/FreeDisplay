@@ -298,6 +298,19 @@ public actor DisplayRegistry {
         try? await mutate(id) { $0.pairingConfirmed = true }
     }
 
+    /// The persisted state as it stands — what a settings export carries (SO-11). Provisional
+    /// records are left out: they answer a question about the live topology, not a memory.
+    public func currentState() -> RegistryState { state }
+
+    /// Replaces everything remembered with `newState` and persists it — a settings import or
+    /// reset (SO-11). Provisional answers about the old state are dropped with it; the next
+    /// resolve works from the new records.
+    public func replaceState(_ newState: RegistryState) async {
+        state = newState
+        provisional.removeAll()
+        await persist()
+    }
+
     // MARK: - Private
 
     private enum RegistryError: Error { case unknownRecord }

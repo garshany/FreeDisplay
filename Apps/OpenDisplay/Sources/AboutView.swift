@@ -60,6 +60,12 @@ struct AboutView: View {
                 .padding(.top, 2)
             UpdateCheckStatusView()
 
+            // SO-40: build, macOS and architecture, selectable and copyable for a bug report.
+            BuildMetadataView()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, ODSpacing.lg)
+                .padding(.top, ODSpacing.xs)
+
             Divider().padding(.vertical, ODSpacing.xs)
 
             VStack(alignment: .leading, spacing: ODSpacing.sm) {

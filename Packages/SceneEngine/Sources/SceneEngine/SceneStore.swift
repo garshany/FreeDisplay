@@ -75,4 +75,10 @@ public actor SceneLibrary {
         scenes.removeAll { $0.id == id }
         await store.save(scenes)
     }
+
+    /// Replaces the whole library with `newScenes` and persists it — a settings import or reset.
+    public func replaceAll(with newScenes: [Scene]) async {
+        scenes = newScenes
+        await store.save(scenes)
+    }
 }

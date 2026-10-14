@@ -164,6 +164,16 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// group claims. Only its switches and mode are stored — membership is live
     /// (`DisplayGroupStore.resolvedDefaultGroup`). Off by default, so nothing syncs until asked.
     public var defaultDisplayGroup: DisplayGroup
+    /// How event notices are shown while `displayNotificationsEnabled` is on (SO-12): through macOS
+    /// Notification Center (the default) or in OpenDisplay's own notice window, which needs no
+    /// permission. Switching style never touches action confirmations or the OSD.
+    public var notificationStyle: NotificationStyle
+    /// Routine configuration-protection notices ("Restored your protected layout"). Off mutes only
+    /// those: protection keeps restoring, and its failure notices still arrive (FA-16). Default on.
+    public var routineProtectionNoticesEnabled: Bool
+    /// When the app shows a Dock icon (SO-13/FB-15). The bundle stays a menu-bar agent; this only
+    /// changes the running app's activation policy. Default: while Settings is open.
+    public var dockIconPolicy: DockIconPolicy
 
     public init(
         persistencePolicy: PersistencePolicy = .reconnectOnQuit,
@@ -214,7 +224,10 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         layoutProtectionEnabled: Bool = false,
         protectedLayouts: [String: ProtectedConfig] = [:],
         displayGroups: [DisplayGroup] = [],
-        defaultDisplayGroup: DisplayGroup = .defaultGroup
+        defaultDisplayGroup: DisplayGroup = .defaultGroup,
+        notificationStyle: NotificationStyle = .notificationCenter,
+        routineProtectionNoticesEnabled: Bool = true,
+        dockIconPolicy: DockIconPolicy = .whileSettingsOpen
     ) {
         self.persistencePolicy = persistencePolicy
         self.confirmationCountdownSeconds = confirmationCountdownSeconds
@@ -265,6 +278,9 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.protectedLayouts = protectedLayouts
         self.displayGroups = displayGroups
         self.defaultDisplayGroup = defaultDisplayGroup
+        self.notificationStyle = notificationStyle
+        self.routineProtectionNoticesEnabled = routineProtectionNoticesEnabled
+        self.dockIconPolicy = dockIconPolicy
     }
 
     public static let `default` = OpenDisplaySettings()
@@ -317,6 +333,9 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case protectedLayouts
         case displayGroups
         case defaultDisplayGroup
+        case notificationStyle
+        case routineProtectionNoticesEnabled
+        case dockIconPolicy
     }
 
     /// Tolerant decoder: every missing OR undecodable key falls back to its default and unknown
@@ -433,6 +452,12 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             defaultGroup.brightnessMode = DisplayGroup.defaultGroup.brightnessMode
         }
         defaultDisplayGroup = defaultGroup
+        notificationStyle = container.lenient(NotificationStyle.self, forKey: .notificationStyle)
+            ?? defaults.notificationStyle
+        routineProtectionNoticesEnabled = container.lenient(Bool.self, forKey: .routineProtectionNoticesEnabled)
+            ?? defaults.routineProtectionNoticesEnabled
+        dockIconPolicy = container.lenient(DockIconPolicy.self, forKey: .dockIconPolicy)
+            ?? defaults.dockIconPolicy
     }
 }
 

@@ -434,6 +434,13 @@ final class AppModel: ObservableObject {
     /// The same, for putting a relit display back off once a real screen is available to cover it.
     private let offlineIntentRecheck = RecheckTimer()
 
+    /// Safe startup (FA-09): Shift was held at launch, or the app was started with `--safe-mode`.
+    /// For this whole session OpenDisplay changes nothing on its own (`SafeStartup`); explicit
+    /// requests and the recovery safety nets still work, and no setting is altered, so an ordinary
+    /// relaunch is all it takes to resume. Read once, here: the key state is only meaningful at launch.
+    let safeStartup = SafeStartup.isRequested(arguments: ProcessInfo.processInfo.arguments,
+                                              shiftHeld: NSEvent.modifierFlags.contains(.shift))
+
     init() {
         let observer = CoreGraphicsProvider()
         self.observer = observer
@@ -475,7 +482,10 @@ final class AppModel: ObservableObject {
         observeSleepAndWake()  // re-assert what the user turned off once macOS has woken the desk
         reconcileMediaKeyTap()  // Batch-3 #3: arm the media-key tap if enabled + Accessibility granted
         reconcileXDRPowerAutomation()  // Issue #35: watch power only if an XDR battery rule is armed
-        if settings.displayNotificationsEnabled { NotificationDelivery.requestAuthorization() }  // Batch-2 #5
+        NotificationDelivery.style = settings.notificationStyle  // SO-12: where notices go
+        if settings.displayNotificationsEnabled, settings.notificationStyle == .notificationCenter {
+            NotificationDelivery.requestAuthorization()  // Batch-2 #5
+        }
         #if DEBUG
         FileHandle.standardError.write(Data("Global hotkeys registered: \(hotKeys.count)\n".utf8))
         #endif
@@ -485,13 +495,15 @@ final class AppModel: ObservableObject {
             await loadManagedOffline()
             logDisplayEvent("launch")
             await refresh()
-            await restoreOwedFaceLightState()  // crash-safe recovery: relaunching mid-FaceLight restores it
+            // Safe startup (FA-09) leaves owed restores in their ledgers rather than writing to the
+            // displays unasked; quitting still pays them, as every quit does (`teardownForQuit`).
+            if !safeStartup { await restoreOwedFaceLightState() }  // crash-safe: relaunching mid-FaceLight restores it
             await enforceActiveSurfaceInvariant()  // recover if we launched into a stranded (0-active) state
             await reassertManagedOfflineIntent()  // a stamped owed-"off" survives a relaunch; pay it if covered
             reconcileDisplaySleepGuard()  // hold/release the keep-awake assertion for the launch topology
             #if !PUBLIC_API_ONLY
             reconcileAdaptiveLoop()  // start adaptive brightness/warmth if enabled for this topology
-            await restoreOwedAppPresetState()  // crash-safe: relaunch mid-app-preset restores the baseline
+            if !safeStartup { await restoreOwedAppPresetState() }  // crash-safe: relaunch mid-app-preset restores the baseline
             reconcileAppPresetObserver()  // observe the frontmost app if App Presets is enabled
             #endif
             autoDisconnectPolicy.seed(externalPresent: hasExternalDisplay)  // don't treat a pre-attached external as an arrival
@@ -1864,7 +1876,8 @@ final class AppModel: ObservableObject {
         let active = Set(displays.filter { $0.isActive && isBrightnessGroupGoverned($0.recordID) }
             .map(\.recordID))
         nativeMonitors = nativeMonitors.filter { active.contains($0.key) || nativeWriters[$0.key] != nil }
-        guard !active.isEmpty else {
+        // Safe startup (FA-09) fans nothing out, so there is nothing for the poll to feed.
+        guard !active.isEmpty, !safeStartup else {
             groupBrightnessLoop?.cancel()
             groupBrightnessLoop = nil
             return
@@ -1951,6 +1964,9 @@ final class AppModel: ObservableObject {
                                      from observation: DisplayObservation,
                                      token: GroupSyncPolicy.SyncEcho.Token?,
                                      origin: GroupSyncPolicy.ManualWrite.Origin, bypass: Bool) {
+        // Safe startup (FA-09): the display the user (or macOS) changed changes; the rest of its
+        // group is left alone, and no offset is learned from it.
+        guard !safeStartup else { return }
         let leader = observation.recordID
         guard let group = brightnessSyncGroup(containing: leader) else { return }
         let write = GroupSyncPolicy.ManualWrite(value: value, display: leader, token: token,
@@ -2068,6 +2084,7 @@ final class AppModel: ObservableObject {
     /// (`GroupSyncPolicy.contrastFanOut`), skipping members whose panel reports no contrast channel.
     private func syncGroupContrast(_ value: Float, from observation: DisplayObservation) {
         #if !PUBLIC_API_ONLY
+        guard !safeStartup else { return }  // FA-09, as for brightness above
         let leader = observation.recordID
         guard let group = DisplayGroupStore.group(containing: leader, in: settings.displayGroups)
         else { return }
@@ -2930,7 +2947,7 @@ final class AppModel: ObservableObject {
     func reconcileAdaptiveLoop() {
         let anyModeOn = settings.adaptiveBrightnessSyncEnabled || settings.adaptiveWarmthEnabled
             || settings.clockScheduleEnabled || settings.adaptiveLocationModeEnabled
-        let wantRunning = anyModeOn
+        let wantRunning = anyModeOn && !safeStartup  // FA-09: no automatic brightness in safe startup
             && displays.contains { $0.isActive && $0.displayClass != .builtIn }
         if wantRunning {
             guard adaptiveLoop == nil else { return }
@@ -3344,7 +3361,7 @@ final class AppModel: ObservableObject {
     /// Starts or stops the frontmost-app observer — running only while App Presets is on with at least
     /// one preset (mirrors `reconcileAdaptiveLoop`). Idempotent.
     func reconcileAppPresetObserver() {
-        let wantRunning = settings.appPresetsEnabled && !settings.appPresets.isEmpty
+        let wantRunning = settings.appPresetsEnabled && !settings.appPresets.isEmpty && !safeStartup  // FA-09
         guard wantRunning else {
             stopAppPresetObserver()
             return
@@ -3371,7 +3388,7 @@ final class AppModel: ObservableObject {
     /// caches, then resolve and apply the pure policy's decision. Kicked by the frontmost-app observer,
     /// a live settings edit, a topology change, and the debounce re-check timer.
     func evaluateAppPresets() {
-        guard settings.appPresetsEnabled, !settings.appPresets.isEmpty else { return }
+        guard settings.appPresetsEnabled, !settings.appPresets.isEmpty, !safeStartup else { return }
         let frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         Task { [weak self] in
             guard let self else { return }
@@ -4248,7 +4265,34 @@ final class AppModel: ObservableObject {
         guard settings.displayNotificationsEnabled != enabled else { return }
         settings.displayNotificationsEnabled = enabled
         persistSettings()
-        if enabled { NotificationDelivery.requestAuthorization() }
+        if enabled, settings.notificationStyle == .notificationCenter { NotificationDelivery.requestAuthorization() }
+    }
+
+    /// Where notices go (SO-12). Choosing Notification Center while notices are on asks for the
+    /// permission it needs; OpenDisplay's own window needs none. Confirmations and the OSD are
+    /// separate presentations and don't follow this.
+    func setNotificationStyle(_ style: NotificationStyle) {
+        guard settings.notificationStyle != style else { return }
+        settings.notificationStyle = style
+        NotificationDelivery.style = style
+        persistSettings()
+        if settings.displayNotificationsEnabled, style == .notificationCenter {
+            NotificationDelivery.requestAuthorization()
+        }
+    }
+
+    /// Routine protection notices on/off (FA-16). Protection and its failure notices are unaffected.
+    func setRoutineProtectionNoticesEnabled(_ enabled: Bool) {
+        guard settings.routineProtectionNoticesEnabled != enabled else { return }
+        settings.routineProtectionNoticesEnabled = enabled
+        persistSettings()
+    }
+
+    /// Dock icon policy (SO-13). The app delegate observes `settings` and applies it at once.
+    func setDockIconPolicy(_ policy: DockIconPolicy) {
+        guard settings.dockIconPolicy != policy else { return }
+        settings.dockIconPolicy = policy
+        persistSettings()
     }
 
     /// True when at least one REAL external display is currently present. The `.virtual` exclusion
@@ -4272,7 +4316,9 @@ final class AppModel: ObservableObject {
             enabled: settings.autoDisconnectBuiltInOnExternal,
             externalPresent: hasExternalDisplay
         )
-        guard fire, !busy,
+        // The edge detector above still runs in safe startup (FA-09), so its view of "an external
+        // just arrived" stays right; only the action is held back.
+        guard fire, !safeStartup, !busy,
               let builtIn = displays.first(where: { $0.displayClass == .builtIn && $0.isActive })
         else { return false }
         #if DEBUG
@@ -4549,6 +4595,9 @@ final class AppModel: ObservableObject {
     /// of times, so the safety net's guarantee is never the thing being argued with.
     private func reassertManagedOfflineIntent() async {
         offlineIntentRecheck.cancel()
+        // Safe startup (FA-09): nothing is turned off automatically. The ledger itself is left as
+        // it is, so the off cards stay and switching a display back on by hand works as usual.
+        guard !safeStartup else { return }
         let intent = WakeConvergencePolicy.offlineIntent(wakeConvergenceContext())
         // "Ask again" either because the policy said so (nothing lit yet to take over) or because a
         // write is already in flight — an owed "off" must never be dropped on the floor for want of
@@ -4672,7 +4721,9 @@ final class AppModel: ObservableObject {
         // Republish only on a real change: this runs on every topology event, and reassigning a
         // @Published value re-evaluates every observing view.
         if currentLayoutFingerprint != fingerprint { currentLayoutFingerprint = fingerprint }
-        guard settings.layoutProtectionEnabled else { return }
+        // Safe startup (FA-09) still tracks which display set is on the desk — the Arrange card
+        // needs it — but restores nothing.
+        guard settings.layoutProtectionEnabled, !safeStartup else { return }
         let protected = settings.protectedLayouts[currentLayoutFingerprint]
         let evaluation = LayoutProtectionPolicy.decide(
             current: snapshot, protected: protected, trigger: trigger,
@@ -4750,8 +4801,11 @@ final class AppModel: ObservableObject {
             protected: config.snapshot, current: settled, context: layoutProtectionContext())
         let restored = !(residual?.hasDrifted ?? false)
         await appendLayoutProtectionAudit(status: restored ? "committed" : "partial", analysis: analysis)
+        // A successful restore is a routine protection notice — the one kind the user can mute
+        // without losing failure notices (FA-16); the failure path above is never muted that way.
         guard restored, let note = NotificationDelivery.layoutRestoreNotification(
-            for: analysis, names: layoutProtectionDisplayNames(), enabled: settings.displayNotificationsEnabled)
+            for: analysis, names: layoutProtectionDisplayNames(),
+            enabled: NotificationPolicy.shouldDeliver(.routineProtection, settings: settings))
         else { return }
         NotificationDelivery.post(note)
     }
@@ -4923,6 +4977,146 @@ final class AppModel: ObservableObject {
         xdrPowerAutomation.noteUserSet(fraction: 0, at: Date())
         reconcileXDRPowerAutomation()
         sleepGuard.releaseAll()
+    }
+
+    // MARK: - App settings archive (SO-11/FA-10): export, import, reset
+
+    /// What an import confirmation shows, worked out before anything changes.
+    struct SettingsImportPreview: Identifiable {
+        let id = UUID()
+        let fileName: String
+        let archive: SettingsArchive
+        /// Displays the archive's preferences are keyed to that this Mac doesn't know (yet).
+        let unmatchedDisplays: [SettingsArchive.ArchivedDisplay]
+    }
+
+    /// Where every import and reset writes its backup first.
+    var settingsBackupDirectory: URL? { try? SettingsBackupStore.defaultDirectory() }
+
+    /// The app's configuration as it stands, as an archive: what Export writes and what a backup
+    /// holds. Taken from the live model (a pending group-offset write is flushed first), falling
+    /// back to the files when the registry or scene library hasn't finished loading.
+    func currentSettingsArchive() async -> SettingsArchive {
+        flushPendingGroupPersist()
+        let registryState: RegistryState
+        if let registry {
+            registryState = await registry.currentState()
+        } else if let directory = try? DiskRegistryStore.defaultDirectory() {
+            registryState = await DiskRegistryStore(directory: directory).load()
+        } else {
+            registryState = RegistryState()
+        }
+        let savedScenes: [Scene]
+        if let sceneLibrary {
+            savedScenes = await sceneLibrary.all()
+        } else if let directory = try? DiskSceneStore.defaultDirectory() {
+            savedScenes = await DiskSceneStore(directory: directory).load()
+        } else {
+            savedScenes = []
+        }
+        return SettingsArchive(
+            createdAt: Date(), appVersion: Self.archiveAppVersion, settings: settings, favorites: favorites,
+            registry: registryState, scenes: savedScenes,
+            defaults: ArchivedDefaults(experimentalRotationEnabled: experimentalRotationEnabled))
+    }
+
+    /// Writes the current configuration to `url` (a user-chosen file).
+    func exportSettings(to url: URL) async throws {
+        try await currentSettingsArchive().write(to: url)
+    }
+
+    /// Reads and validates `url` and lists the displays its settings point at that this Mac
+    /// doesn't remember. Changes nothing; throws `SettingsArchiveError` for a refused file.
+    func previewSettingsImport(from url: URL) async throws -> SettingsImportPreview {
+        let archive = try SettingsArchive.read(from: url)
+        await refreshRegistryKnownRecords()
+        let known = Set(registryKnownRecords.keys)
+            .union(displays.map(\.recordID))
+            .union(managedOffline.map(\.recordID))
+        return SettingsImportPreview(fileName: url.lastPathComponent, archive: archive,
+                                     unmatchedDisplays: archive.unmatchedDisplays(known: known))
+    }
+
+    /// Replaces OpenDisplay's configuration with `incoming` — an imported archive, or the factory
+    /// defaults for a reset — after writing a backup of the current one, and returns the backup's
+    /// location. Throws, changing nothing, if the backup can't be written. Only app-owned stores
+    /// change: the macOS display configuration, the managed-offline list, checkpoints and logs are
+    /// not written, and the restore ledgers carry over so a display FaceLight or a preset holds is
+    /// still owed its values. The caller relaunches afterwards, which is what re-arms hotkeys,
+    /// loops and observers from the new settings — and, being a quit, reconnects the displays the
+    /// app turned off, as every quit does.
+    func replaceSettings(with incoming: SettingsArchive) async throws -> URL {
+        let current = await currentSettingsArchive()
+        let replacement: SettingsBackupStore.Replacement
+        do {
+            let backups = SettingsBackupStore(directory: try SettingsBackupStore.defaultDirectory())
+            replacement = try backups.prepareReplacement(current: current, live: settings, incoming: incoming)
+        } catch {
+            throw SettingsReplaceError.backupFailed(underlying: error)
+        }
+        do {
+            try await install(replacement.archive)
+        } catch {
+            throw SettingsReplaceError.installFailed(underlying: error, backup: replacement.backupURL)
+        }
+        return replacement.backupURL
+    }
+
+    /// Which half of `replaceSettings` failed: before anything changed, or part-way through
+    /// writing — when the backup is the way back.
+    enum SettingsReplaceError: Error {
+        case backupFailed(underlying: Error)
+        case installFailed(underlying: Error, backup: URL)
+    }
+
+    /// The archive used for "Reset to Defaults".
+    func factoryDefaultSettingsArchive() -> SettingsArchive {
+        .factoryDefaults(createdAt: Date(), appVersion: Self.archiveAppVersion)
+    }
+
+    /// Puts `archive` into memory and on disk together. The in-memory half matters as much as the
+    /// files: anything that saves before the relaunch (the quit-time group flush, a topology event
+    /// re-resolving the registry) must save the new state, not write the old one back.
+    private func install(_ archive: SettingsArchive) async throws {
+        groupPersistTask?.cancel()
+        groupPersistTask = nil
+        // The loops and observers were armed from the old settings; stop them rather than let one
+        // act on the new ones in the moment before the relaunch re-arms everything properly. Owed
+        // restores stay in their ledgers, which the quit pays as always.
+        layoutProtectionRecheck.cancel()
+        #if !PUBLIC_API_ONLY
+        adaptiveLoop?.cancel()
+        adaptiveLoop = nil
+        stopAppPresetObserver()  // and its debounce re-check
+        groupBrightnessLoop?.cancel()
+        groupBrightnessLoop = nil
+        #endif
+        settings = archive.settings
+        NotificationDelivery.style = settings.notificationStyle
+        try settingsStore?.save(settings)
+        favorites = archive.favorites
+        try favoritesStore?.save(favorites)
+        if let registry {
+            await registry.replaceState(archive.registry)
+        } else if let directory = try? DiskRegistryStore.defaultDirectory() {
+            await DiskRegistryStore(directory: directory).save(archive.registry)
+        }
+        if let sceneLibrary {
+            await sceneLibrary.replaceAll(with: archive.scenes)
+            scenes = await sceneLibrary.all()
+        } else if let directory = try? DiskSceneStore.defaultDirectory() {
+            await DiskSceneStore(directory: directory).save(archive.scenes)
+        }
+        experimentalRotationEnabled = archive.defaults.experimentalRotationEnabled
+        await refreshRegistryKnownRecords()
+    }
+
+    /// "0.11.5 (24)" — the version an archive records as its writer.
+    private static var archiveAppVersion: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (\(build))"
     }
 
     // MARK: - Global keyboard shortcuts (Batch-2 #4)

@@ -72,6 +72,14 @@ private struct TrayNotices: View {
     @EnvironmentObject private var ui: TrayUIState
 
     var body: some View {
+        // FA-09: Settings carries the full explanation; the tray only has to say it's in effect.
+        if model.safeStartup {
+            TrayRow(icon: "shield.lefthalf.filled", iconTint: ODColor.caution,
+                    title: String(localized: "Safe startup: automatic changes paused"),
+                    detail: String(localized: "Details")) {
+                ui.openSettings(.health)
+            }
+        }
         if model.isDegraded {
             TrayRow(icon: "exclamationmark.triangle", iconTint: ODColor.caution,
                     title: String(localized: "Some features are unavailable"), detail: SettingsSection.health.title) {
