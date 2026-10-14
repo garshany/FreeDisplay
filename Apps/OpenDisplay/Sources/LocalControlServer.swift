@@ -19,7 +19,8 @@ final class LocalControlServer {
 
     typealias Handler = @MainActor @Sendable (LocalHTTPControl.ParseResult) async -> Data
 
-    func start(gateway: CommandGateway, handler: @escaping Handler) throws {
+    /// Every authenticated route goes to `handler`, which runs against the app's live model.
+    func start(handler: @escaping Handler) throws {
         guard listener == nil else { return }
         var random = [UInt8](repeating: 0, count: 32)
         guard SecRandomCopyBytes(kSecRandomDefault, random.count, &random) == errSecSuccess else {
@@ -55,7 +56,7 @@ final class LocalControlServer {
                     guard !Task.isCancelled else { return }
                     self?.finish(id)
                 }
-                self.receive(connection, id: id, data: Data(), token: secret, gateway: gateway, handler: handler)
+                self.receive(connection, id: id, data: Data(), token: secret, handler: handler)
             }
         }
         newListener.start(queue: .main)
@@ -79,7 +80,7 @@ final class LocalControlServer {
     }
 
     private func receive(_ connection: NWConnection, id: UUID, data: Data,
-                         token: String, gateway: CommandGateway, handler: @escaping Handler) {
+                         token: String, handler: @escaping Handler) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 8193 - data.count) {
             [weak self] chunk, _, complete, error in
             Task { @MainActor in
@@ -92,18 +93,14 @@ final class LocalControlServer {
                     switch parsed {
                     case .incomplete:
                         if complete || error != nil { self.finish(id) }
-                        else { self.receive(connection, id: id, data: accumulated, token: token, gateway: gateway, handler: handler) }
+                        else { self.receive(connection, id: id, data: accumulated, token: token, handler: handler) }
                     case .rejected(let status):
                         self.send(LocalHTTPControl.response(status: status), connection: connection, id: id)
-                    case .displays, .brightness:
+                    case .displays, .brightness, .reconnectAll:
+                        // Reconnect-all goes to the live model too: a gateway composed here would
+                        // never see the app's managed-offline ledger and always answer noOp.
                         let body = await handler(parsed)
                         guard !Task.isCancelled, self.connections[id] != nil else { return }
-                        self.send(LocalHTTPControl.response(status: 200, body: body), connection: connection, id: id)
-                    case .reconnectAll:
-                        // Uses existing safety, verification and audit path. No arbitrary dispatch.
-                        let result = await gateway.reconnectAll(actor: .httpAPI)
-                        guard !Task.isCancelled, self.connections[id] != nil else { return }
-                        let body = (try? JSONEncoder().encode(result)) ?? Data("{}".utf8)
                         self.send(LocalHTTPControl.response(status: 200, body: body), connection: connection, id: id)
                     }
                 }

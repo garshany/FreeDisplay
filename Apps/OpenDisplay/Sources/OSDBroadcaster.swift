@@ -13,9 +13,10 @@ enum OSDBroadcaster {
     static func publish(kind: OSDContent.Kind, value: Double, displayID: String,
                         displayName: String?, source: String, now: Date = Date()) {
         guard let broadcastKind = broadcastKind(kind) else { return }
+        // Levels are normalized; saying so lets a receiver scale without assuming (FA-06).
         let broadcast = OSDBroadcast(
-            kind: broadcastKind, value: value, displayID: displayID, displayName: displayName,
-            source: source, timestamp: now.timeIntervalSince1970)
+            kind: broadcastKind, value: value, maxValue: 1, displayID: displayID,
+            displayName: displayName, source: source, timestamp: now.timeIntervalSince1970)
         DistributedNotificationCenter.default().postNotificationName(
             NSNotification.Name(OSDBroadcast.notificationName),
             object: nil, userInfo: broadcast.userInfo, deliverImmediately: true)
