@@ -2,6 +2,7 @@
 import AutomationSchema
 import DisplayDomain
 import Foundation
+import TopologyCore
 
 /// User-facing wording for DDC safety states, shared by the tray and the Settings detail pane so
 /// both surfaces describe the same state in the same words. Whole sentences per case: a status
@@ -86,6 +87,25 @@ enum DDCStatusText {
         case .notSent:
             return notSent
         }
+    }
+
+    // MARK: - Volume and mute (TB-02 / TB-03)
+
+    /// Tooltip of a monitor volume slider, saying what its speaker icon really does.
+    static func volumeHelp(_ mute: DDCAudioPolicy.MuteAction) -> String {
+        switch mute {
+        case .discrete:
+            return String(localized: "Monitor volume over DDC. Click the icon to mute or unmute the monitor.")
+        case .zeroVolume, .restore:
+            return String(localized: "Monitor volume over DDC. This monitor has no readable mute, so the icon sets the volume to 0 and back to the previous level.")
+        case .unavailable:
+            return String(localized: "Monitor volume over DDC. There's no earlier level to restore — raise the volume with the slider.")
+        }
+    }
+
+    /// Shown under a control whose last write never reached the monitor.
+    static var writeFailed: String {
+        String(localized: "The last change didn't reach the monitor (DDC write failed).")
     }
 
     // MARK: - Input source (AM-05)

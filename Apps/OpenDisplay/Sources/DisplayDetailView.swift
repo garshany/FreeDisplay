@@ -447,7 +447,11 @@ struct ControlsCard: View {
                             model.setHardwareControl(control, value, for: display)
                         }
                     }
-                    if model.ddcWriteWasIgnored(control.vcp, for: display) { ignoredCaption(Self.ignoredNote) }
+                    if model.ddcWriteWasIgnored(control.vcp, for: display) {
+                        ignoredCaption(Self.ignoredNote)
+                    } else if model.ddcWriteDidFail(control.vcp, for: display) {
+                        ignoredCaption(DDCStatusText.writeFailed)
+                    }
                 }
             }
             if let caption = model.groupSyncCaption(for: display) {

@@ -334,12 +334,15 @@ private struct TrayVolumeControl: View {
 
     var body: some View {
         let level = Double(model.ddcControl(.volume, for: display) ?? 0)
-        TraySlider(value: level, icon: level <= 0 ? "speaker.slash.fill" : "speaker.wave.2.fill",
+        let muted = model.ddcAudioMuted[display.recordID] == true || level <= 0
+        // TB-03: the icon is a button only when a mute toggle has something truthful to do.
+        let mute = model.muteAction(for: display)
+        TraySlider(value: level, icon: muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                    valueText: "\(Int((level * 100).rounded()))%", accessibilityLabel: String(localized: "Volume"),
-                   leadingAction: { model.toggleMute(for: display) }) {
+                   leadingAction: mute == .unavailable ? nil : { model.toggleMute(for: display) }) {
             model.setHardwareControl(.volume, Float($0), for: display, showsOSD: false)
         }
-        .help("Monitor volume over DDC. Click the icon to mute or unmute")
+        .help(DDCStatusText.volumeHelp(mute))
     }
 }
 
@@ -725,12 +728,15 @@ private struct TrayDeviceControl: View {
                 TrayLabeled(control.label, value: "\(Int((value * 100).rounded()))%") {
                     TraySlider(value: value, icon: control.icon, valueText: "", accessibilityLabel: control.label,
                                showsValue: false,
-                               leadingAction: control == .volume ? { model.toggleMute(for: display) } : nil) {
+                               leadingAction: control == .volume && model.muteAction(for: display) != .unavailable
+                                   ? { model.toggleMute(for: display) } : nil) {
                         model.setHardwareControl(control, Float($0), for: display, showsOSD: false)
                     }
                 }
                 if model.ddcWriteWasIgnored(control.vcp, for: display) {
                     TrayNote(String(localized: "The monitor didn't apply the change — its current picture mode may be blocking it."))
+                } else if model.ddcWriteDidFail(control.vcp, for: display) {
+                    TrayNote(DDCStatusText.writeFailed, tint: ODColor.caution)
                 }
             }
             TraySubheader(String(localized: "Power"))
