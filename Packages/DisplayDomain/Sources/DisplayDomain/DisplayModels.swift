@@ -153,6 +153,12 @@ public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
     public var displayClass: DisplayClass
     public var lastSeen: Date?
     public var pairingConfirmed: Bool
+    /// Set only on a *provisional* record: the registry could not tell this live display apart from
+    /// these remembered records (a shared serial, a tied score, or two displays present at once
+    /// claiming one record), so it attached none of their alias, tags or pairing to it. Never
+    /// persisted — the record exists only until the user names, tags or pairs the display, which
+    /// makes it a display of its own (`DisplayRegistry`).
+    public var unresolvedCandidates: [DisplayRecordID]?
 
     public init(
         id: DisplayRecordID,
@@ -161,7 +167,8 @@ public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
         fingerprint: DisplayFingerprint,
         displayClass: DisplayClass = .unknown,
         lastSeen: Date? = nil,
-        pairingConfirmed: Bool = false
+        pairingConfirmed: Bool = false,
+        unresolvedCandidates: [DisplayRecordID]? = nil
     ) {
         self.id = id
         self.alias = alias
@@ -170,7 +177,12 @@ public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
         self.displayClass = displayClass
         self.lastSeen = lastSeen
         self.pairingConfirmed = pairingConfirmed
+        self.unresolvedCandidates = unresolvedCandidates
     }
+
+    /// True when automatic recognition was ambiguous and this record is the registry's explicit
+    /// "can't tell which one" answer rather than a remembered display.
+    public var isProvisional: Bool { unresolvedCandidates != nil }
 
     /// A user-facing name: the explicit alias if set, otherwise the model name, otherwise the ID.
     public var displayName: String {
