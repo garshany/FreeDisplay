@@ -30,10 +30,11 @@ enum DDCStatusText {
         }
     }
 
-    /// Label of the button that confirms and sends the command.
+    /// Label of the button that confirms and sends the command. Not plain "Turn Off": that string
+    /// already names the logical disconnect elsewhere, which this command is not.
     static func powerConfirmButton(_ mode: DDCPowerMode) -> String {
         switch mode {
-        case .off: return String(localized: "Turn Off")
+        case .off: return String(localized: "Turn Off Monitor")
         case .standby, .on: return String(localized: "Put in Standby")
         }
     }

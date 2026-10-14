@@ -227,6 +227,11 @@ public actor ExternalDisplayDDC {
     /// checksummed frame is found: some panels ship malformed length bytes or wrong checksums, and
     /// those exact replies were accepted by every previous version of this reader — the stricter
     /// validation must only ever ADD recoveries, never regress a panel that used to work.
+    ///
+    /// Known gap (backlog SD-04, owner decision pending): this relaxation applies to every panel,
+    /// not to an explicit per-device compatibility list. It is kept unconditional on purpose until
+    /// there is hardware evidence of which panels rely on it — defaulting to strict without that list
+    /// would silently turn working DDC controls into "no response" on exactly those panels.
     private static func scanReply(in buffer: [UInt8], vcp code: UInt8) -> (current: Int, max: Int)? {
         guard buffer.count >= 11 else { return nil }
         for offset in 0...(buffer.count - 11) {
