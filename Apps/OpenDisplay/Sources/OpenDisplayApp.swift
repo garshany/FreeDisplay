@@ -104,6 +104,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self, selector: #selector(showSettings), name: .openDisplayShowSettings, object: nil)
         NotificationCenter.default.addObserver(
             self, selector: #selector(showAbout), name: .openDisplayShowAbout, object: nil)
+        // Settings → Menu can open the panel itself: the way in when macOS hides the icon (FA-15).
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(showTrayPanel), name: .openDisplayShowTray, object: nil)
 
         // ⌘, is registered by the placeholder SwiftUI `Settings` scene, whose window is not the real
         // settings UI. Intercept the shortcut before the scene sees it and open OUR Settings window —
@@ -166,6 +169,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func dismissPopover() {
         tray.close()
+    }
+
+    /// Opens the tray without a click on the icon. Anchored under the icon when macOS shows it;
+    /// otherwise the panel controller places it where the icon would be.
+    @objc private func showTrayPanel() {
+        guard !tray.isShown else { return }
+        tray.show(from: statusItem?.button)
     }
 
     /// Opening the app while it is already running (Finder, Spotlight, Launchpad) opens Settings.

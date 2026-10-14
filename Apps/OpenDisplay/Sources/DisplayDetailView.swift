@@ -704,11 +704,29 @@ private struct IdentityCard: View {
     @State private var alias = ""
 
     var body: some View {
-        ODCard(title: String(localized: "Name")) {
+        // Menu presentation (SD-11) is written under every id this display is remembered by, so it
+        // follows the display to whichever port it turns up on next.
+        let menuIDs = model.menuPreferenceIDs(for: display.recordID)
+        ODCard(title: String(localized: "Name"),
+               footnote: String(localized: "Order, and what the menu shows, are in Settings → Menu. Hiding a display there or here only takes it out of the menu.")) {
             ODRow(String(localized: "Display name")) {
                 TextField(model.displayName(for: display), text: $alias)
                     .textFieldStyle(.roundedBorder).frame(width: 200)
                     .onSubmit { Task { await model.setAlias(alias, for: display) } }
+            }
+            ODDivider()
+            ODRow(String(localized: "Icon in the menu")) {
+                DisplaySymbolButton(symbol: menuIDs.lazy.compactMap { model.menuLayout.iconSymbol(for: $0) }.first,
+                                    fallback: trayGlyph(display.displayClass)) { symbol in
+                    model.setMenuIcon(symbol, for: menuIDs)
+                }
+            }
+            ODDivider()
+            ODRow(String(localized: "Show in the menu")) {
+                Toggle("", isOn: Binding(
+                    get: { !menuIDs.contains { model.menuLayout.isHidden($0) } },
+                    set: { model.setHiddenInMenu(!$0, for: menuIDs) }))
+                    .toggleStyle(.switch).labelsHidden()
             }
         }
         // Re-seed when the segmented picker switches displays: the view keeps its identity, so an

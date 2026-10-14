@@ -36,6 +36,7 @@ struct SettingsView: View {
         } detail: {
             switch section ?? .displays {
             case .displays: DisplaysSection()
+            case .menu: MenuSettingsView()
             case .arrange: ArrangeSection()
             case .scenes: ScenesSection()
             case .capture: CapturePanel().navigationTitle("Screen Capture")
@@ -83,7 +84,7 @@ struct SettingsView: View {
 }
 
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
-    case displays, arrange, scenes, virtual, capture, advanced, automation, health, about
+    case displays, menu, arrange, scenes, virtual, capture, advanced, automation, health, about
     var id: String { rawValue }
 
     /// The section a newly created Settings window starts on (see the launch argument above).
@@ -93,6 +94,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .displays: return String(localized: "Displays")
+        case .menu: return String(localized: "Menu")
         case .arrange: return String(localized: "Arrange")
         case .scenes: return String(localized: "Scenes")
         case .virtual: return String(localized: "Virtual Displays")
@@ -106,6 +108,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     var icon: String {
         switch self {
         case .displays: return "display"
+        case .menu: return "menubar.rectangle"
         case .arrange: return "rectangle.3.group"
         case .scenes: return "square.stack.3d.up"
         case .virtual: return "display.2"
@@ -122,6 +125,8 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
 
 private struct DisplaysSection: View {
     @EnvironmentObject private var model: AppModel
+    /// The last segment: every display OpenDisplay remembers, connected or not (SD-09).
+    @State private var showingRemembered = false
 
     private var selected: DisplayObservation? {
         model.displays.first { $0.recordID == model.selectedDisplayID }
@@ -129,29 +134,50 @@ private struct DisplaysSection: View {
             ?? model.displays.first
     }
 
+    /// Segment tag for the remembered list; a display's tag is its record id.
+    private static let rememberedTag = "remembered"
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if model.displays.isEmpty {
-                ContentUnavailableView("No Displays Found", systemImage: "display.trianglebadge.exclamationmark")
-            } else {
-                if model.displays.count > 1 {
-                    Picker("", selection: Binding(
-                        get: { selected?.recordID ?? model.displays.first?.recordID },
-                        set: { model.selectedDisplayID = $0 })) {
-                        ForEach(model.displays, id: \.recordID) { display in
-                            Text(model.displayName(for: display)).tag(Optional(display.recordID))
-                        }
+            Picker("", selection: Binding(
+                get: { showingRemembered || selected == nil ? Self.rememberedTag : selected?.recordID.rawValue },
+                set: { value in
+                    if value == Self.rememberedTag {
+                        showingRemembered = true
+                    } else {
+                        showingRemembered = false
+                        model.rememberedDisplayFocus = nil
+                        model.selectedDisplayID = value.map(DisplayRecordID.init(rawValue:))
                     }
-                    .pickerStyle(.segmented).labelsHidden()
-                    .padding(.horizontal, 16).padding(.top, 16)
+                })) {
+                ForEach(model.displays, id: \.recordID) { display in
+                    Text(model.displayName(for: display)).tag(Optional(display.recordID.rawValue))
                 }
-                if let display = selected {
-                    DisplayDetailView(display: display)
+                Text("Remembered").tag(Optional(Self.rememberedTag))
+            }
+            .pickerStyle(.segmented).labelsHidden()
+            .padding(.horizontal, 16).padding(.top, 16)
+            if showingRemembered || model.displays.isEmpty {
+                RememberedDisplaysView { id in
+                    model.selectedDisplayID = id
+                    showingRemembered = false
                 }
+            } else if let display = selected {
+                DisplayDetailView(display: display)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("Displays")
+        // The tray's "didn't reconnect · Forget…" link lands here.
+        .onChange(of: model.rememberedDisplayFocus, initial: true) { _, focus in
+            if focus != nil { showingRemembered = true }
+        }
+        // "All settings…" from the tray (or a row here) picks a connected display.
+        .onChange(of: model.selectedDisplayID) { _, id in
+            guard id != nil else { return }
+            showingRemembered = false
+            model.rememberedDisplayFocus = nil
+        }
     }
 }
 

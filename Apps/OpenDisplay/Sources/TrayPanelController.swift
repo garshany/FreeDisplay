@@ -3,24 +3,42 @@ import AppKit
 import Combine
 import DisplayDomain
 import SwiftUI
+import TopologyCore
 
 /// UI-only state of the tray panel: which sections are open. Display data stays in `AppModel`.
-/// Device collapse state is remembered across launches (like BetterDisplay); the inline "more" lists,
-/// features and tools collapse every time the panel closes so it always opens compact.
+/// Device collapse state is remembered across launches (like BetterDisplay). The inline "more"
+/// lists, features and tools collapse every time the panel closes so it opens compact — unless
+/// Settings → Menu asks to remember them, in which case they persist across closing and relaunch.
 @MainActor
 final class TrayUIState: ObservableObject {
     private static let collapsedKey = "OpenDisplayTrayCollapsedDevices"
+    private static let moreKey = "OpenDisplayTrayOpenMore"
+    private static let featuresKey = "OpenDisplayTrayOpenFeatures"
+    private static let toolsOpenKey = "OpenDisplayTrayToolsOpen"
+    private static let openToolsKey = "OpenDisplayTrayOpenTools"
 
     @Published var collapsedDevices: Set<String> {
         didSet { UserDefaults.standard.set(Array(collapsedDevices), forKey: Self.collapsedKey) }
     }
     /// Devices (record ids) whose "More" list is open.
-    @Published var moreOpen: Set<String> = []
-    /// Open features, as "<device>|<feature>". Several may be open at once — opening one never
-    /// closes another, so nothing above the clicked row moves.
-    @Published var openFeatures: Set<String> = []
-    @Published var toolsOpen = false
-    @Published var openTools: Set<String> = []
+    @Published var moreOpen: Set<String> = [] {
+        didSet { if layout.rememberExpandedSections { UserDefaults.standard.set(Array(moreOpen), forKey: Self.moreKey) } }
+    }
+    /// Open features, as "<device>|<feature>". By default several may be open at once — opening one
+    /// never closes another, so nothing above the clicked row moves; Settings → Menu can ask for one
+    /// at a time per display instead.
+    @Published var openFeatures: Set<String> = [] {
+        didSet { if layout.rememberExpandedSections { UserDefaults.standard.set(Array(openFeatures), forKey: Self.featuresKey) } }
+    }
+    @Published var toolsOpen = false {
+        didSet { if layout.rememberExpandedSections { UserDefaults.standard.set(toolsOpen, forKey: Self.toolsOpenKey) } }
+    }
+    @Published var openTools: Set<String> = [] {
+        didSet { if layout.rememberExpandedSections { UserDefaults.standard.set(Array(openTools), forKey: Self.openToolsKey) } }
+    }
+    /// The menu-layout preferences the expansion rules follow, kept in step by the panel controller.
+    private(set) var layout = MenuLayoutSettings.default
+    private var notificationObservers: [NSObjectProtocol] = []
     /// Devices whose mode list shows every variant instead of one row per size.
     @Published var showAllModes: Set<String> = []
     /// Device waiting for the second click of "factory reset".
@@ -43,21 +61,99 @@ final class TrayUIState: ObservableObject {
 
     init() {
         collapsedDevices = Set(UserDefaults.standard.stringArray(forKey: Self.collapsedKey) ?? [])
+        let center = NotificationCenter.default
+        // Forgetting or resetting a display drops what the tray remembered about it, so a display
+        // seen again later starts out like a new one.
+        notificationObservers.append(center.addObserver(forName: .openDisplayForgetTrayState, object: nil,
+                                                        queue: .main) { [weak self] note in
+            let devices = Set(note.object as? [String] ?? [])
+            MainActor.assumeIsolated { self?.forget(devices) }
+        })
+        // "Reset menu layout" closes every expanded section.
+        notificationObservers.append(center.addObserver(forName: .openDisplayCollapseTray, object: nil,
+                                                        queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.closeExpandedSections() }
+        })
     }
 
+    /// Takes on new menu-layout preferences. Switching "remember expanded sections" on starts saving
+    /// what is open from now on (and, at launch, brings back what was saved); switching it off
+    /// forgets the saved state so the next opening is compact again.
+    func apply(_ newLayout: MenuLayoutSettings) {
+        let wasRemembering = layout.rememberExpandedSections
+        layout = newLayout
+        TrayMotion.animates = newLayout.animateMenu
+        guard wasRemembering != newLayout.rememberExpandedSections else { return }
+        let defaults = UserDefaults.standard
+        if newLayout.rememberExpandedSections {
+            if defaults.object(forKey: Self.moreKey) != nil {
+                moreOpen = Set(defaults.stringArray(forKey: Self.moreKey) ?? [])
+                openFeatures = Set(defaults.stringArray(forKey: Self.featuresKey) ?? [])
+                toolsOpen = defaults.bool(forKey: Self.toolsOpenKey)
+                openTools = Set(defaults.stringArray(forKey: Self.openToolsKey) ?? [])
+            } else {
+                saveExpansion()
+            }
+        } else {
+            for key in [Self.moreKey, Self.featuresKey, Self.toolsOpenKey, Self.openToolsKey] {
+                defaults.removeObject(forKey: key)
+            }
+        }
+    }
+
+    /// Called as the panel opens and after it closes. Pending confirmations never outlive the panel;
+    /// expanded sections do only when the user asked the tray to remember them.
     func resetTransient() {
+        resetConfirm = nil
+        powerConfirm = nil
+        guard !layout.rememberExpandedSections else { return }
         moreOpen = []
         openFeatures = []
         toolsOpen = false
         openTools = []
+    }
+
+    /// Closes every «More», feature and Tools section — and the saved copies of them.
+    func closeExpandedSections() {
+        moreOpen = []
+        openFeatures = []
+        toolsOpen = false
+        openTools = []
+        showAllModes = []
         resetConfirm = nil
         powerConfirm = nil
     }
 
-    /// Opens or closes one expandable item with the shared tray animation.
+    private func forget(_ devices: Set<String>) {
+        guard !devices.isEmpty else { return }
+        collapsedDevices = MenuExpansionPolicy.forgetting(collapsedDevices, devices: devices)
+        moreOpen = MenuExpansionPolicy.forgetting(moreOpen, devices: devices)
+        openFeatures = MenuExpansionPolicy.forgetting(openFeatures, devices: devices)
+        showAllModes = MenuExpansionPolicy.forgetting(showAllModes, devices: devices)
+    }
+
+    private func saveExpansion() {
+        let defaults = UserDefaults.standard
+        defaults.set(Array(moreOpen), forKey: Self.moreKey)
+        defaults.set(Array(openFeatures), forKey: Self.featuresKey)
+        defaults.set(toolsOpen, forKey: Self.toolsOpenKey)
+        defaults.set(Array(openTools), forKey: Self.openToolsKey)
+    }
+
+    /// Opens or closes one expandable item with the shared tray animation, following the layout's
+    /// one-at-a-time preferences for «More» sections and features.
     func toggle(_ set: ReferenceWritableKeyPath<TrayUIState, Set<String>>, _ id: String) {
         withAnimation(TrayMotion.expand) {
-            if self[keyPath: set].contains(id) { self[keyPath: set].remove(id) } else { self[keyPath: set].insert(id) }
+            if set == \TrayUIState.moreOpen {
+                moreOpen = MenuExpansionPolicy.togglingMore(moreOpen, device: id, oneAtATime: layout.oneMoreSectionAtATime)
+            } else if set == \TrayUIState.openFeatures {
+                openFeatures = MenuExpansionPolicy.togglingFeature(openFeatures, feature: id,
+                                                                   oneAtATime: layout.oneFeatureAtATime)
+            } else if self[keyPath: set].contains(id) {
+                self[keyPath: set].remove(id)
+            } else {
+                self[keyPath: set].insert(id)
+            }
         }
     }
 
@@ -135,6 +231,7 @@ final class TrayPanelController: NSObject {
     private var observers: [NSObjectProtocol] = []
     private var confirmHost: NSView?
     private var pendingWatch: AnyCancellable?
+    private var layoutWatch: AnyCancellable?
     /// Logical open state (the window stays visible for a moment while it fades out).
     private var isOpen = false
     /// Bumped on every show/close so a finished fade-out never hides a panel reopened meanwhile.
@@ -211,18 +308,32 @@ final class TrayPanelController: NSObject {
 
         ui.close = { [weak self] in self?.close() }
         ui.identify = { cgID, title, detail in DisplayIdentifier.flash(cgDisplayID: cgID, title: title, detail: detail) }
+        ui.apply(model.menuLayout)
+        layoutWatch = model.$menuLayout
+            .removeDuplicates()
+            .sink { [weak self] layout in
+                MainActor.assumeIsolated { self?.ui.apply(layout) }
+            }
     }
 
-    func toggle(from button: NSStatusBarButton) {
+    func toggle(from button: NSStatusBarButton?) {
         if isShown { close() } else { show(from: button) }
     }
 
-    func show(from button: NSStatusBarButton) {
+    func show(from button: NSStatusBarButton?) {
         anchorButton = button
         anchor = nil
-        if let window = button.window, let screen = window.screen ?? NSScreen.main, let id = screen.displayID {
+        if let button, let window = button.window, window.isVisible,
+           let screen = window.screen ?? NSScreen.main, let id = screen.displayID {
             let icon = window.convertToScreen(button.convert(button.bounds, to: nil))
-            anchor = (id, screen.frame.maxX - icon.minX)
+            if screen.frame.intersects(icon) { anchor = (id, screen.frame.maxX - icon.minX) }
+        }
+        // No usable icon — macOS hid it (behind the notch, or switched off under System Settings →
+        // Menu Bar) and the panel was asked for from Settings: open at the top right of the screen
+        // under the pointer, where the icon would normally be, instead of nowhere.
+        if anchor == nil, let screen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })
+            ?? NSScreen.main, let id = screen.displayID {
+            anchor = (id, Self.width + 14)
         }
         ui.resetTransient()
         isOpen = true
@@ -233,7 +344,7 @@ final class TrayPanelController: NSObject {
         panel.alphaValue = 0
         panel.orderFrontRegardless()
         panel.makeKey()
-        button.highlight(true)
+        button?.highlight(true)
         installMonitors()
         // Until SwiftUI has reported a height the panel stays invisible (no flash at a stale size);
         // otherwise fade in like a menu.
@@ -295,7 +406,7 @@ final class TrayPanelController: NSObject {
         let iconX = screen.frame.maxX - anchor.fromRight
         let x = min(max(iconX - 8, visible.minX + 6), visible.maxX - Self.width - 6)
         let frame = NSRect(x: x, y: top - height, width: Self.width, height: height)
-        guard animated, frame.origin.x == panel.frame.origin.x else {
+        guard animated, TrayMotion.isAnimating, frame.origin.x == panel.frame.origin.x else {
             panel.setFrame(frame, display: true, animate: false)
             panel.invalidateShadow()
             return
@@ -468,5 +579,16 @@ enum DisplayIdentifier {
             windows.removeAll { $0 === window }
         }
     }
+}
+
+extension Notification.Name {
+    /// Posted by `AppModel` after a display is forgotten or its settings reset, with the observation
+    /// id raw values as the object: the tray drops their collapse/expansion state.
+    static let openDisplayForgetTrayState = Notification.Name("OpenDisplayForgetTrayState")
+    /// Posted by "Reset menu layout": the tray closes every expanded section.
+    static let openDisplayCollapseTray = Notification.Name("OpenDisplayCollapseTray")
+    /// Posted by Settings → Menu's "Open the menu panel": the app delegate shows the tray even while
+    /// macOS hides the menu-bar icon.
+    static let openDisplayShowTray = Notification.Name("OpenDisplayShowTray")
 }
 #endif

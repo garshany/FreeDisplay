@@ -41,6 +41,8 @@ struct MenuBarView: View {
         .frame(width: TrayPanelController.width)
         .frame(maxHeight: .infinity, alignment: .top)
         .environment(\.controlActiveState, .key)
+        .environment(\.traySliderLabels, TraySliderLabels(names: model.menuLayout.showSliderNames,
+                                                          values: model.menuLayout.showSliderValues))
     }
 
     @ViewBuilder private var devices: some View {
@@ -54,11 +56,19 @@ struct MenuBarView: View {
             Label("No displays detected", systemImage: "display.trianglebadge.exclamationmark")
                 .font(.system(size: 12)).foregroundStyle(.secondary).padding(10)
         } else {
-            ForEach(model.displays, id: \.recordID) { display in
-                TrayDeviceSection(display: display)
+            // Menu order and per-display visibility from Settings → Menu (FA-12, SD-11). A switched-off
+            // display's card is never hidden: it's how the display comes back.
+            let entries = model.trayEntries
+            ForEach(entries) { entry in
+                switch entry {
+                case .live(let display): TrayDeviceSection(display: display)
+                case .offline(let offline): TrayOfflineSection(offline: offline)
+                }
             }
-            ForEach(model.managedOffline) { offline in
-                TrayOfflineSection(offline: offline)
+            if entries.isEmpty {
+                // Everything hidden: say so instead of showing an empty menu.
+                TrayRow(icon: "eye.slash", title: String(localized: "All displays are hidden from this menu"),
+                        detail: SettingsSection.menu.title) { ui.openSettings(.menu) }
             }
         }
     }
@@ -138,20 +148,25 @@ private struct TrayDeviceSection: View {
                 }
             }
             if expanded && display.isActive {
+                // Settings → Menu decides what sits here directly and what waits behind «More»
+                // (AM-11, SO-23); what the display can't do is left out either way.
+                let hasMore = TrayItems.hasItems(at: .expanded, for: display, modes: modes, model: model)
                 VStack(alignment: .leading, spacing: 0) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        TrayBrightnessControl(display: display)
-                        TrayResolutionSlider(display: display, modes: modes)
-                        if isExternal, model.ddcControl(.volume, for: display) != nil {
-                            TrayVolumeControl(display: display)
-                        }
-                    }
-                    .padding(.horizontal, 10).padding(.top, 2).padding(.bottom, 4)
-                    moreToggle
-                    if ui.moreOpen.contains(key) {
-                        TrayFeatureList(display: display, modes: modes)
+                    TraySliderGroup(display: display, modes: modes, placement: .visible)
+                    TrayFeatureList(display: display, modes: modes, placement: .visible)
+                    if hasMore {
+                        moreToggle
+                        if ui.moreOpen.contains(key) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                TrayDivider().padding(.horizontal, 4)
+                                TraySliderGroup(display: display, modes: modes, placement: .expanded)
+                                TrayFeatureList(display: display, modes: modes, placement: .expanded)
+                            }
                             .padding(.bottom, 4)
                             .transition(.trayReveal)
+                        }
+                    } else {
+                        Color.clear.frame(height: 4)
                     }
                 }
                 .transition(.trayReveal)
@@ -206,7 +221,8 @@ private struct TrayDeviceHeader: View {
                 if NSEvent.modifierFlags.contains(.option) { identify() } else { toggle() }
             } label: {
                 HStack(spacing: 9) {
-                    TrayGlyph(symbol: trayGlyph(display.displayClass), highlighted: display.isMain)
+                    TrayGlyph(symbol: model.menuIconSymbol(for: [display.recordID]) ?? trayGlyph(display.displayClass),
+                              highlighted: display.isMain)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(model.displayName(for: display))
                             .font(.system(size: 13, weight: .semibold)).lineLimit(1)
@@ -279,6 +295,7 @@ private struct TrayDeviceHeader: View {
 
 private struct TrayOfflineSection: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var ui: TrayUIState
     let offline: AppModel.OfflineDisplay
 
     /// What OpenDisplay did to it, in the provider's own terms — not "turned off": neither path
@@ -299,7 +316,8 @@ private struct TrayOfflineSection: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            TrayGlyph(symbol: trayGlyph(offline.displayClass), highlighted: false).opacity(0.55)
+            TrayGlyph(symbol: model.menuIconSymbol(for: [offline.recordID]) ?? trayGlyph(offline.displayClass),
+                      highlighted: false).opacity(0.55)
             VStack(alignment: .leading, spacing: 1) {
                 Text(offline.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary).lineLimit(1)
                 if offline.reconnectFailedAt == nil {
@@ -310,6 +328,16 @@ private struct TrayOfflineSection: View {
                         Text(failedStatus).font(.system(size: 11)).foregroundStyle(ODColor.caution)
                         Button("Recovery steps…") { NSWorkspace.shared.open(ReconnectVerification.recoveryGuideURL) }
                             .buttonStyle(.link).font(.system(size: 11))
+                        // A monitor unplugged while it was off never comes back to clear its card;
+                        // Settings is where its record can be forgotten, with the warning that goes
+                        // with it (the tray can't host a confirmation).
+                        Button("Forget…") {
+                            model.rememberedDisplayFocus = model.rememberedDisplays
+                                .first { $0.observationIDs.contains(offline.recordID) }?.id ?? offline.recordID.rawValue
+                            ui.openSettings(.displays)
+                        }
+                        .buttonStyle(.link).font(.system(size: 11))
+                        .help(String(localized: "Review and forget this display’s record in Settings"))
                     }
                 }
             }
@@ -470,71 +498,166 @@ private struct TrayResolutionSlider: View {
         return parts.joined(separator: " · ")
     }
 }
-// MARK: - «More»: per-display features
+// MARK: - Item placement (Settings → Menu)
+
+/// Which of a display's item families the tray shows at a placement. Capability is decided here,
+/// before placement: a family the display (or this build) can't offer is never drawn, whatever
+/// Settings says — placement moves a control, it never invents one.
+@MainActor
+private enum TrayItems {
+    static func families(_ section: MenuItemFamily.Section, at placement: MenuPlacement,
+                         for display: DisplayObservation, modes: [TrayModeOption],
+                         model: AppModel) -> [MenuItemFamily] {
+        MenuItemFamily.families(in: section).filter {
+            model.menuPlacement($0) == placement && isAvailable($0, for: display, modes: modes, model: model)
+        }
+    }
+
+    static func hasItems(at placement: MenuPlacement, for display: DisplayObservation,
+                         modes: [TrayModeOption], model: AppModel) -> Bool {
+        !families(.slider, at: placement, for: display, modes: modes, model: model).isEmpty
+            || !families(.displayFeature, at: placement, for: display, modes: modes, model: model).isEmpty
+    }
+
+    static func isAvailable(_ family: MenuItemFamily, for display: DisplayObservation,
+                            modes: [TrayModeOption], model: AppModel) -> Bool {
+        let isExternal = display.displayClass != .builtIn
+        switch family {
+        case .brightness, .displayMode, .toggles, .picture, .colorProfile, .rotation, .pictureInPicture,
+             .manageDisplay:
+            return true
+        case .resolution:
+            // Same conditions the slider itself draws under: never for a mirror target, and only
+            // with more than one stop to choose from.
+            guard let mode = display.mode, display.mirrorSourceID == nil else { return false }
+            return TrayModeCatalog.sliderStops(modes, current: mode).count > 1
+        case .volume:
+            return isExternal && model.ddcControl(.volume, for: display) != nil
+        case .refreshRate:
+            return TrayModeCatalog.refreshRates(modes, current: display.mode).count > 1
+        case .monitorControls, .inputSource, .monitorColorPreset:
+            #if PUBLIC_API_ONLY
+            return false
+            #else
+            return isExternal
+            #endif
+        case .mirroring:
+            return model.displays.count > 1
+        case .scenes, .arrangement, .capture, .edid, .automation, .hotkeysAndDiagnostics,
+             .exportDiagnostics, .updates:
+            return false  // Tools, not a display's item
+        }
+    }
+}
+
+/// The sliders placed at one level of a display's section.
+private struct TraySliderGroup: View {
+    @EnvironmentObject private var model: AppModel
+    let display: DisplayObservation
+    let modes: [TrayModeOption]
+    let placement: MenuPlacement
+
+    var body: some View {
+        let sliders = TrayItems.families(.slider, at: placement, for: display, modes: modes, model: model)
+        if !sliders.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(sliders) { family in
+                    switch family {
+                    case .brightness: TrayBrightnessControl(display: display)
+                    case .resolution: TrayResolutionSlider(display: display, modes: modes)
+                    case .volume: TrayVolumeControl(display: display)
+                    default: EmptyView()
+                    }
+                }
+            }
+            .padding(.horizontal, 10).padding(.top, 2).padding(.bottom, 4)
+        }
+    }
+}
+
+// MARK: - Per-display features («More», or directly in the section)
 
 private struct TrayFeatureList: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var ui: TrayUIState
     let display: DisplayObservation
     let modes: [TrayModeOption]
+    let placement: MenuPlacement
 
     private var key: String { display.recordID.rawValue }
-    private var isExternal: Bool { display.displayClass != .builtIn }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            TrayDivider()
-            feature("mode", "rectangle.on.rectangle", String(localized: "Display mode"), modeSummary) {
+        let families = TrayItems.families(.displayFeature, at: placement, for: display, modes: modes, model: model)
+        if !families.isEmpty {
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(families) { family in row(family) }
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ family: MenuItemFamily) -> some View {
+        let id = family.trayID
+        switch family {
+        case .displayMode:
+            feature(id, "rectangle.on.rectangle", String(localized: "Display mode"), modeSummary) {
                 TrayModeList(display: display, modes: modes)
             }
-            if TrayModeCatalog.refreshRates(modes, current: display.mode).count > 1 {
-                feature("refresh", "arrow.triangle.2.circlepath", String(localized: "Refresh rate"),
-                        display.mode.map { TrayModeCatalog.refreshText($0.refreshHz) }) {
-                    TrayRefreshList(display: display, modes: modes)
-                }
+        case .refreshRate:
+            feature(id, "arrow.triangle.2.circlepath", String(localized: "Refresh rate"),
+                    display.mode.map { TrayModeCatalog.refreshText($0.refreshHz) }) {
+                TrayRefreshList(display: display, modes: modes)
             }
-            feature("toggles", "switch.2", String(localized: "Toggles"), nil) {
+        case .toggles:
+            feature(id, "switch.2", String(localized: "Toggles"), nil) {
                 TrayToggles(display: display, modes: modes)
             }
-            feature("image", "camera.filters", String(localized: "Picture"), imageSummary) {
+        case .picture:
+            feature(id, "camera.filters", String(localized: "Picture"), imageSummary) {
                 TrayImageAdjustments(display: display)
             }
-            #if !PUBLIC_API_ONLY
-            if isExternal {
-                feature("device", "slider.horizontal.3", String(localized: "Monitor controls"), "DDC") {
-                    TrayDeviceControl(display: display)
-                }
-                feature("input", "cable.connector.horizontal", String(localized: "Input source"),
-                        model.inputSource[display.recordID].map { model.inputName($0) }) {
-                    TrayInputList(display: display)
-                }
-                // TR-07: the monitor's own picture preset (VCP 0x14), not a connection colour format.
-                feature("colorMode", "paintpalette", String(localized: "Monitor color preset"),
-                        model.colorPreset[display.recordID].map { model.presetName($0) }) {
-                    TrayColorPresetList(display: display)
-                }
+        #if !PUBLIC_API_ONLY
+        case .monitorControls:
+            feature(id, "slider.horizontal.3", String(localized: "Monitor controls"), "DDC") {
+                TrayDeviceControl(display: display)
             }
-            #endif
-            feature("profile", "swatchpalette", String(localized: "Color profile"), model.colorProfileName[display.recordID]) {
+        case .inputSource:
+            feature(id, "cable.connector.horizontal", String(localized: "Input source"),
+                    model.inputSource[display.recordID].map { model.inputName($0) }) {
+                TrayInputList(display: display)
+            }
+        case .monitorColorPreset:
+            // TR-07: the monitor's own picture preset (VCP 0x14), not a connection colour format.
+            feature(id, "paintpalette", String(localized: "Monitor color preset"),
+                    model.colorPreset[display.recordID].map { model.presetName($0) }) {
+                TrayColorPresetList(display: display)
+            }
+        #endif
+        case .colorProfile:
+            feature(id, "swatchpalette", String(localized: "Color profile"), model.colorProfileName[display.recordID]) {
                 TrayColorProfileList(display: display)
             }
-            feature("rotation", "rotate.right", String(localized: "Display rotation"), "\(model.currentRotation(for: display))°") {
+        case .rotation:
+            feature(id, "rotate.right", String(localized: "Display rotation"), "\(model.currentRotation(for: display))°") {
                 TrayRotation(display: display)
             }
-            if model.displays.count > 1 {
-                feature("mirror", "rectangle.on.rectangle.angled", String(localized: "Mirroring"),
-                        display.isMirrored ? String(localized: "On") : nil) {
-                    TrayMirroring(display: display)
-                }
+        case .mirroring:
+            feature(id, "rectangle.on.rectangle.angled", String(localized: "Mirroring"),
+                    display.isMirrored ? String(localized: "On") : nil) {
+                TrayMirroring(display: display)
             }
-            feature("pip", "pip", String(localized: "Picture in Picture and streaming"), nil) {
+        case .pictureInPicture:
+            feature(id, "pip", String(localized: "Picture in Picture and streaming"), nil) {
                 TrayPictureInPicture(display: display)
             }
-            feature("manage", "info.circle", String(localized: "Manage display"), nil) {
-                TrayManageDisplay(display: display)
+        case .manageDisplay:
+            feature(id, "info.circle", String(localized: "Manage display"), nil) {
+                TrayManageDisplay(display: display, modes: modes)
             }
+        default:
+            EmptyView()
         }
-        .padding(.horizontal, 4)
     }
 
     private var modeSummary: String? {
@@ -546,9 +669,9 @@ private struct TrayFeatureList: View {
         model.colorTemperature[display.recordID].map { "\(Int($0)) K" }
     }
 
-    /// A feature row that unfolds in place under itself. Unlike BetterDisplay it neither hides its
-    /// siblings nor closes the other open features: the row that was clicked never moves, only what
-    /// is below it slides down.
+    /// A feature row that unfolds in place under itself. Unlike BetterDisplay it never hides its
+    /// siblings, and by default doesn't close the other open features either (Settings → Menu can
+    /// ask for one at a time): the row that was clicked never moves, only what is below it slides.
     @ViewBuilder
     private func feature<Content: View>(_ id: String, _ icon: String, _ title: String, _ summary: String?,
                                         @ViewBuilder content: @escaping () -> Content) -> some View {
@@ -1078,9 +1201,17 @@ private struct TrayManageDisplay: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var ui: TrayUIState
     let display: DisplayObservation
+    let modes: [TrayModeOption]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            // With «Toggles» hidden from the menu, its switches (main display, Black Out, HiDPI…)
+            // move here rather than disappearing with it.
+            if model.menuPlacement(.toggles) == .hidden {
+                TraySubheader(String(localized: "Toggles"))
+                TrayToggles(display: display, modes: modes)
+                TrayDivider()
+            }
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(model.displayInfo(for: display).enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .firstTextBaseline) {
@@ -1129,34 +1260,54 @@ private struct TrayToolsSection: View {
                     model.setAutoDisconnectBuiltInOnExternal($0)
                 }
             }
-            tool("scenes", "square.stack.3d.up", String(localized: "Scenes")) {
-                if model.scenes.isEmpty {
-                    TrayNote(String(localized: "No saved scenes. A scene remembers the arrangement and modes of all displays."))
+            // "Displays and virtual displays" holds Reconnect all — the way back when a display is lost —
+            // so it is not one of the rows Settings → Menu can hide.
+            if shows(.scenes) {
+                tool("scenes", "square.stack.3d.up", String(localized: "Scenes")) {
+                    if model.scenes.isEmpty {
+                        TrayNote(String(localized: "No saved scenes. A scene remembers the arrangement and modes of all displays."))
+                    }
+                    ForEach(model.scenes) { scene in
+                        TrayRow(icon: "play.circle", title: scene.name) { Task { await model.applyScene(scene) } }
+                    }
+                    TrayRow(icon: "square.and.arrow.down", title: String(localized: "Save or edit scenes…")) { ui.openSettings(.scenes) }
                 }
-                ForEach(model.scenes) { scene in
-                    TrayRow(icon: "play.circle", title: scene.name) { Task { await model.applyScene(scene) } }
-                }
-                TrayRow(icon: "square.and.arrow.down", title: String(localized: "Save or edit scenes…")) { ui.openSettings(.scenes) }
             }
-            TrayRow(icon: "rectangle.3.group", title: String(localized: "Display arrangement…")) { ui.openSettings(.arrange) }
-            TrayRow(icon: "pip", title: String(localized: "Capture and Picture in Picture…")) { ui.openSettings(.capture) }
-            TrayRow(icon: "cpu", title: String(localized: "EDID and HiDPI…")) { ui.openSettings(.advanced) }
-            TrayRow(icon: "terminal", title: String(localized: "Automation and HTTP…")) { ui.openSettings(.automation) }
-            TrayRow(icon: "keyboard", title: String(localized: "Hotkeys and diagnostics…")) { ui.openSettings(.health) }
-            TrayRow(icon: "doc.zipper", title: String(localized: "Export diagnostics")) {
-                Task {
-                    if let url = await model.exportDiagnostics() {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
+            if shows(.arrangement) {
+                TrayRow(icon: "rectangle.3.group", title: String(localized: "Display arrangement…")) { ui.openSettings(.arrange) }
+            }
+            if shows(.capture) {
+                TrayRow(icon: "pip", title: String(localized: "Capture and Picture in Picture…")) { ui.openSettings(.capture) }
+            }
+            if shows(.edid) {
+                TrayRow(icon: "cpu", title: String(localized: "EDID and HiDPI…")) { ui.openSettings(.advanced) }
+            }
+            if shows(.automation) {
+                TrayRow(icon: "terminal", title: String(localized: "Automation and HTTP…")) { ui.openSettings(.automation) }
+            }
+            if shows(.hotkeysAndDiagnostics) {
+                TrayRow(icon: "keyboard", title: String(localized: "Hotkeys and diagnostics…")) { ui.openSettings(.health) }
+            }
+            if shows(.exportDiagnostics) {
+                TrayRow(icon: "doc.zipper", title: String(localized: "Export diagnostics")) {
+                    Task {
+                        if let url = await model.exportDiagnostics() {
+                            NSWorkspace.shared.activateFileViewerSelecting([url])
+                        }
                     }
                 }
             }
-            let update = SoftwareUpdatePolicy.presentation(for: model.updatePhase)
-            TrayRow(icon: update.systemImage, title: update.title.appLocalized, detail: update.badge,
-                    enabled: !update.showsProgress) { model.checkForUpdates() }
+            if shows(.updates) {
+                let update = SoftwareUpdatePolicy.presentation(for: model.updatePhase)
+                TrayRow(icon: update.systemImage, title: update.title.appLocalized, detail: update.badge,
+                        enabled: !update.showsProgress) { model.checkForUpdates() }
+            }
         }
         .padding(.vertical, 4)
         .background(ODColor.fillQuaternary, in: RoundedRectangle(cornerRadius: 11))
     }
+
+    private func shows(_ family: MenuItemFamily) -> Bool { model.menuPlacement(family) != .hidden }
 
     @ViewBuilder
     private func tool<Content: View>(_ id: String, _ icon: String, _ title: String,
@@ -1207,9 +1358,16 @@ private struct TrayButtonRow: View {
 /// One timing for everything that opens or closes in the tray. The panel host animates the window's
 /// bottom edge with the same duration and curve (`TrayPanelController`), so the edge travels with
 /// the content instead of snapping a frame later.
+@MainActor
 enum TrayMotion {
     static let duration: Double = 0.24
-    static let expand = Animation.easeInOut(duration: duration)
+    /// Settings → Menu's "Animate the menu", set from the menu layout by `TrayUIState`.
+    static var animates = true
+    /// Whether opening and closing animate right now: the preference, and never under macOS Reduce
+    /// Motion (read live, so changing it in System Settings applies at once).
+    static var isAnimating: Bool { animates && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    /// Nil when animation is off — `withAnimation(nil)` applies the change at once.
+    static var expand: Animation? { isAnimating ? .easeInOut(duration: duration) : nil }
 }
 
 extension AnyTransition {
@@ -1223,7 +1381,8 @@ extension AnyTransition {
 
 // MARK: - Controls
 
-private func trayGlyph(_ displayClass: DisplayClass) -> String {
+/// The default glyph for a display class — the tray, and Settings lists that mirror it.
+func trayGlyph(_ displayClass: DisplayClass) -> String {
     switch displayClass {
     case .builtIn: return "laptopcomputer"
     case .television: return "tv"
@@ -1582,7 +1741,16 @@ private struct TraySlider: View {
         self.leadingAction = leadingAction; self.onChange = onChange
     }
 
+    @Environment(\.traySliderLabels) private var labels
+
     var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if labels.names { TraySliderName(accessibilityLabel) }
+            track
+        }
+    }
+
+    private var track: some View {
         HStack(spacing: 8) {
             if let leadingAction {
                 Button(action: leadingAction) {
@@ -1613,7 +1781,7 @@ private struct TraySlider: View {
                     .onEnded { _ in dragValue = nil })
             }
             .frame(height: 22)
-            if showsValue {
+            if showsValue && labels.values {
                 Text(valueText).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
                     .frame(width: 36, alignment: .trailing)
             }
@@ -1637,8 +1805,16 @@ private struct TrayStepSlider: View {
     let onDrag: (Int?) -> Void
     let onCommit: (Int) -> Void
     @State private var dragIndex: Int?
+    @Environment(\.traySliderLabels) private var labels
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if labels.names { TraySliderName(String(localized: "Resolution")) }
+            track
+        }
+    }
+
+    private var track: some View {
         HStack(spacing: 8) {
             GeometryReader { geo in
                 let width = geo.size.width
@@ -1675,13 +1851,44 @@ private struct TrayStepSlider: View {
                     })
             }
             .frame(height: 22)
-            Text(valueText).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
-                .lineLimit(1).fixedSize()
+            // While dragging, the size is the only thing saying where the knob is — shown even with
+            // values turned off.
+            if labels.values || dragIndex != nil {
+                Text(valueText).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
+                    .lineLimit(1).fixedSize()
+            }
         }
         .opacity(enabled ? 1 : 0.6)
         .accessibilityElement()
         .accessibilityLabel("Resolution")
         .accessibilityValue(valueText)
+    }
+}
+
+/// Settings → Menu's slider label preferences (FA-14), handed to every tray slider at once.
+struct TraySliderLabels: Equatable {
+    var names = false
+    var values = true
+}
+
+private struct TraySliderLabelsKey: EnvironmentKey {
+    static let defaultValue = TraySliderLabels()
+}
+
+extension EnvironmentValues {
+    var traySliderLabels: TraySliderLabels {
+        get { self[TraySliderLabelsKey.self] }
+        set { self[TraySliderLabelsKey.self] = newValue }
+    }
+}
+
+/// The small name above a slider when "Show slider names" is on.
+private struct TraySliderName: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        Text(text).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).padding(.leading, 4)
+            .accessibilityHidden(true)  // the slider itself carries the same label
     }
 }
 
