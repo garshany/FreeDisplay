@@ -160,6 +160,16 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// `DisplayGroupStore` enforces on every mutation. Empty by default; a grouped display is
     /// excluded from Adaptive Display targeting, so the two features never write against each other.
     public var displayGroups: [DisplayGroup]
+    /// How event notices are shown while `displayNotificationsEnabled` is on (SO-12): through macOS
+    /// Notification Center (the default) or in OpenDisplay's own notice window, which needs no
+    /// permission. Switching style never touches action confirmations or the OSD.
+    public var notificationStyle: NotificationStyle
+    /// Routine configuration-protection notices ("Restored your protected layout"). Off mutes only
+    /// those: protection keeps restoring, and its failure notices still arrive (FA-16). Default on.
+    public var routineProtectionNoticesEnabled: Bool
+    /// When the app shows a Dock icon (SO-13/FB-15). The bundle stays a menu-bar agent; this only
+    /// changes the running app's activation policy. Default: while Settings is open.
+    public var dockIconPolicy: DockIconPolicy
 
     public init(
         persistencePolicy: PersistencePolicy = .reconnectOnQuit,
@@ -209,7 +219,10 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         xdrRestoreOnPower: Bool = true,
         layoutProtectionEnabled: Bool = false,
         protectedLayouts: [String: ProtectedConfig] = [:],
-        displayGroups: [DisplayGroup] = []
+        displayGroups: [DisplayGroup] = [],
+        notificationStyle: NotificationStyle = .notificationCenter,
+        routineProtectionNoticesEnabled: Bool = true,
+        dockIconPolicy: DockIconPolicy = .whileSettingsOpen
     ) {
         self.persistencePolicy = persistencePolicy
         self.confirmationCountdownSeconds = confirmationCountdownSeconds
@@ -259,6 +272,9 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.layoutProtectionEnabled = layoutProtectionEnabled
         self.protectedLayouts = protectedLayouts
         self.displayGroups = displayGroups
+        self.notificationStyle = notificationStyle
+        self.routineProtectionNoticesEnabled = routineProtectionNoticesEnabled
+        self.dockIconPolicy = dockIconPolicy
     }
 
     public static let `default` = OpenDisplaySettings()
@@ -310,6 +326,9 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case layoutProtectionEnabled
         case protectedLayouts
         case displayGroups
+        case notificationStyle
+        case routineProtectionNoticesEnabled
+        case dockIconPolicy
     }
 
     /// Tolerant decoder: every missing OR undecodable key falls back to its default and unknown
@@ -415,6 +434,12 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             ?? defaults.protectedLayouts
         displayGroups = container.lenient([DisplayGroup].self, forKey: .displayGroups)
             ?? defaults.displayGroups
+        notificationStyle = container.lenient(NotificationStyle.self, forKey: .notificationStyle)
+            ?? defaults.notificationStyle
+        routineProtectionNoticesEnabled = container.lenient(Bool.self, forKey: .routineProtectionNoticesEnabled)
+            ?? defaults.routineProtectionNoticesEnabled
+        dockIconPolicy = container.lenient(DockIconPolicy.self, forKey: .dockIconPolicy)
+            ?? defaults.dockIconPolicy
     }
 }
 

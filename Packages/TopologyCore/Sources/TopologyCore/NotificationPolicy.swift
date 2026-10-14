@@ -82,3 +82,38 @@ public enum NotificationPolicy {
         return result
     }
 }
+
+/// How OpenDisplay shows the notices it decides to send (SO-12). Independent of the OSD and of
+/// action confirmations, which keep their own presentation whatever is chosen here.
+public enum NotificationStyle: String, Hashable, Sendable, Codable, CaseIterable {
+    /// macOS Notification Center. Needs the user's permission, which macOS can deny or withdraw
+    /// at any time — the app reports that state rather than assuming delivery.
+    case notificationCenter
+    /// OpenDisplay's own notice window. Involves no system permission.
+    case appWindow
+}
+
+extension NotificationPolicy {
+    /// What a notice is about — the one thing the delivery filter needs to know about it.
+    public enum NoticeKind: Hashable, Sendable {
+        /// A topology or feature event: a display connected or left, the built-in was turned off
+        /// automatically, an XDR boost was switched off.
+        case event
+        /// Routine confirmation that configuration protection did its job ("Restored your
+        /// protected layout"). The only kind the protection-notice switch mutes.
+        case routineProtection
+        /// Something OpenDisplay or protection tried didn't work. Never muted by the
+        /// protection-notice switch: a silent failure is the case notices exist for.
+        case failure
+    }
+
+    /// Whether a notice of `kind` is delivered at all under `settings` (FA-16). Muting routine
+    /// protection notices changes only what is said — restoration itself runs either way.
+    public static func shouldDeliver(_ kind: NoticeKind, settings: OpenDisplaySettings) -> Bool {
+        guard settings.displayNotificationsEnabled else { return false }
+        switch kind {
+        case .event, .failure: return true
+        case .routineProtection: return settings.routineProtectionNoticesEnabled
+        }
+    }
+}

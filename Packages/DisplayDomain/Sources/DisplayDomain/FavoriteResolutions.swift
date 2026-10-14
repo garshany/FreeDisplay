@@ -48,6 +48,12 @@ public struct FavoriteResolutions: Hashable, Sendable, Codable {
         byDisplay[display.rawValue] ?? []
     }
 
+    /// Every display that has at least one favourite — what a settings import checks against the
+    /// displays this Mac knows.
+    public var displayIDs: Set<DisplayRecordID> {
+        Set(byDisplay.keys.map(DisplayRecordID.init(rawValue:)))
+    }
+
     /// Adds the mode as a favourite if absent (newest first), removes it if already present.
     ///
     /// Pass every mode the display currently offers as `available` whenever it is known: a legacy
