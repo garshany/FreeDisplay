@@ -663,12 +663,29 @@ final class AppModel: ObservableObject {
 
     /// Moves a single display to a new origin (used by the drag-to-arrange canvas), then re-reads
     /// the resulting topology (Core Graphics may adjust neighbours to keep the layout adjacent).
+    ///
+    /// The drop is checked against the topology as it is now, not as the tile was drawn: a display
+    /// that has since become a mirror target (an origin write can change its mirror set) or left is
+    /// not moved. A rejected write is reported in `arrangementError` instead of being dropped.
     func setPosition(_ origin: DisplayOrigin, for observation: DisplayObservation) async {
-        guard let cgID = observation.cgDisplayID else { return }
-        _ = observer.applyArrangement([.init(displayID: cgID, origin: origin, mode: nil)])
+        arrangementError = nil
+        let snapshot = await observer.currentSnapshot()
+        guard ArrangementTiles.canMove(observation.recordID, in: snapshot),
+              let cgID = snapshot.observation(for: observation.recordID)?.cgDisplayID else {
+            arrangementError = String(localized: "The arrangement changed before the drop, so nothing was moved.")
+            await refresh()
+            return
+        }
+        let warnings = observer.applyArrangement([.init(displayID: cgID, origin: origin, mode: nil)])
+        if !warnings.isEmpty {
+            arrangementError = String(localized: "macOS didn’t accept the new position. The canvas shows the arrangement in effect.")
+        }
         await refresh()
         await noteLayoutSelfChange()
     }
+
+    /// Why the last drag on the arrangement canvas didn't move anything; nil after a clean drop.
+    @Published private(set) var arrangementError: String?
 
     /// Mirrors a display onto the main display (both show the same content) or stops mirroring.
     /// Reversible (public Core Graphics mirroring).
@@ -3264,10 +3281,13 @@ final class AppModel: ObservableObject {
             let observer = self.observer
             _ = await Task.detached(priority: .userInitiated) { observer.applyArrangement(targets) }.value
         }
-        for obs in observations {
-            guard let cgID = obs.cgDisplayID else { continue }
-            _ = await observer.setMirroring(of: cgID, enabled: obs.isMirrored)
-        }
+        // Back to each display's exact prior source (or independence) — not "onto main", which put a
+        // display that mirrored a non-main source onto the wrong one.
+        let current = await observer.currentSnapshot()
+        let steps = MirrorRestorePlan.steps(
+            wanted: observations.map { MirrorRestorePlan.Step(target: $0.recordID, source: $0.mirrorSourceID) },
+            current: current)
+        _ = await applyMirrorSteps(steps, in: current)
         await refresh()
         await noteLayoutSelfChange()
     }
@@ -3949,7 +3969,10 @@ final class AppModel: ObservableObject {
             now: Date(),
             isEnabled: settings.layoutProtectionEnabled,
             asleepDisplayIDs: sleepingDisplayIDs(),
-            managedOfflineIDs: Set(managedOffline.map(\.recordID)))
+            managedOfflineIDs: Set(managedOffline.map(\.recordID)),
+            // Read-only rotation backend (default, and the only one in the public build): rotation
+            // drift is excluded rather than "restored" by a scene apply that cannot rotate.
+            canRestoreRotation: rotationWritable)
     }
 
     /// Displays macOS reports as asleep right now. The observer already folds sleep into `isActive`
@@ -3970,6 +3993,8 @@ final class AppModel: ObservableObject {
                                         before generation: TopologyGeneration) async {
         await appendLayoutProtectionAudit(status: "attempted", analysis: analysis)
         await restoreProtectedActiveState(config, analysis: analysis)
+        // Before the scene: the saved origins were captured with the saved rotation.
+        await restoreProtectedRotation(config, analysis: analysis)
         await applyScene(LayoutProtectionPolicy.restoreScene(for: config))
         await restoreProtectedMirroring(config, analysis: analysis)
 
@@ -4017,6 +4042,22 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Puts back a rotation the policy marked actionable — which it does only while the gated
+    /// experimental rotation backend is on (`Context.canRestoreRotation`). Goes through
+    /// `setRotation`, the one rotation writer with the recovery marker and the safe-angle rollback;
+    /// `applyScene` cannot rotate at all.
+    private func restoreProtectedRotation(_ config: ProtectedConfig,
+                                          analysis: DisplayConfigDrifter.DriftAnalysis) async {
+        guard rotationWritable else { return }
+        for change in analysis.changes {
+            guard case .rotationChanged(let id) = change,
+                  let wanted = config.snapshot.observation(for: id)?.rotation,
+                  let live = displays.first(where: { $0.recordID == id && $0.isActive }),
+                  currentRotation(for: live) != wanted.rawValue else { continue }
+            await setRotation(wanted.rawValue, for: live)
+        }
+    }
+
     /// Re-applies the protected mirror relationships. `DesiredState` carries no mirror field, so this
     /// rides alongside the scene apply exactly as the arrangement-revert path does.
     ///
@@ -4025,19 +4066,33 @@ final class AppModel: ObservableObject {
     /// public lifecycle provider, so comparing mirror state directly would un-mirror — turn back
     /// on — exactly the display that must stay off. The policy filters those out; reading its
     /// answer is what keeps that guarantee from being quietly re-derived here.
+    ///
+    /// Each target goes back to the exact source it was saved with (`mirrorRestoreSteps`), not to
+    /// "mirrored onto whatever is main" — a C→A arrangement that drifted to C→B is put back to C→A.
     private func restoreProtectedMirroring(_ config: ProtectedConfig,
                                            analysis: DisplayConfigDrifter.DriftAnalysis) async {
-        var changed = false
-        for change in analysis.changes {
-            guard case .mirrorChanged(let id) = change,
-                  let wanted = config.snapshot.observation(for: id),
-                  let live = displays.first(where: { $0.recordID == id }),
-                  let cgID = live.cgDisplayID,
-                  live.isMirrored != wanted.isMirrored else { continue }
-            _ = await observer.setMirroring(of: cgID, enabled: wanted.isMirrored)
-            changed = true
+        let current = await observer.currentSnapshot()
+        let steps = LayoutProtectionPolicy.mirrorRestoreSteps(
+            protected: config.snapshot, current: current, analysis: analysis)
+        if await applyMirrorSteps(steps, in: current) { await refresh() }
+    }
+
+    /// Performs mirror steps against fresh Core Graphics IDs from `snapshot`. A step whose display or
+    /// source has no live ID is skipped rather than substituted. Returns whether anything was written;
+    /// a rejected write is left for the caller's residual check to report.
+    private func applyMirrorSteps(_ steps: [MirrorRestorePlan.Step], in snapshot: TopologySnapshot) async -> Bool {
+        var wrote = false
+        for step in steps {
+            guard let target = snapshot.observation(for: step.target)?.cgDisplayID else { continue }
+            var source: CGDirectDisplayID?
+            if let sourceID = step.source {
+                guard let live = snapshot.observation(for: sourceID)?.cgDisplayID else { continue }
+                source = live
+            }
+            _ = await observer.setMirrorSource(of: target, to: source)
+            wrote = true
         }
-        if changed { await refresh() }
+        return wrote
     }
 
     /// Display names for the restore notification, covering displays that have since left.

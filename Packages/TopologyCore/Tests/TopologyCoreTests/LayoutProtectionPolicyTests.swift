@@ -43,10 +43,12 @@ final class LayoutProtectionPolicyTests: XCTestCase {
     private func context(now: Date? = nil, enabled: Bool = true,
                          asleep: Set<DisplayRecordID> = [],
                          managedOffline: Set<DisplayRecordID> = [],
-                         debounce: TimeInterval = 0) -> LayoutProtectionPolicy.Context {
+                         debounce: TimeInterval = 0,
+                         canRestoreRotation: Bool = false) -> LayoutProtectionPolicy.Context {
         LayoutProtectionPolicy.Context(
             now: now ?? epoch, isEnabled: enabled, asleepDisplayIDs: asleep,
-            managedOfflineIDs: managedOffline, debounce: debounce)
+            managedOfflineIDs: managedOffline, debounce: debounce,
+            canRestoreRotation: canRestoreRotation)
     }
 
     /// A state already past the debounce window for `snapshot`'s generation, so a test that isn't
@@ -192,11 +194,45 @@ final class LayoutProtectionPolicyTests: XCTestCase {
                        .restore(.init(changes: [.modeChanged(.init(rawValue: "A"))])))
     }
 
-    func testRotationDriftRestores() {
+    func testRotationDriftRestoresWhenRotationCanBeWritten() {
         let protectedSnapshot = snap([obs("A", main: true, rotation: .degrees90)])
         let current = snap([obs("A", main: true, rotation: .degrees0)])
-        XCTAssertEqual(decide(protected: protectedSnapshot, current: current).decision,
+        XCTAssertEqual(decide(protected: protectedSnapshot, current: current,
+                              context: context(canRestoreRotation: true)).decision,
                        .restore(.init(changes: [.rotationChanged(.init(rawValue: "A"))])))
+    }
+
+    // MARK: - Rotation without a rotation writer (FA-01)
+
+    /// With the read-only rotation backend nothing can rotate, so a rotation-only drift is not a
+    /// restore to attempt — attempting it re-applied the other geometry and spent the retry budget
+    /// on a restore that could never land, then reported failure.
+    func testRotationOnlyDriftIsCleanWhenRotationCannotBeWritten() {
+        let protectedSnapshot = snap([obs("A", main: true, rotation: .degrees90)])
+        let current = snap([obs("A", main: true, rotation: .degrees0)])
+        let evaluation = decide(protected: protectedSnapshot, current: current)
+        XCTAssertEqual(evaluation.decision, .clean)
+        XCTAssertFalse(evaluation.shouldNotifyFailure)
+    }
+
+    func testOtherDriftIsStillRestoredWithoutTheRotation() {
+        let protectedSnapshot = snap([obs("A", main: true),
+                                      obs("B", origin: .init(x: 2560, y: 0), rotation: .degrees90)])
+        let current = snap([obs("A", main: true), obs("B", origin: .init(x: 1920, y: 0))])
+        XCTAssertEqual(decide(protected: protectedSnapshot, current: current).decision,
+                       .restore(.init(changes: [.originMoved(.init(rawValue: "B"))])))
+    }
+
+    /// The residual check after a restore uses the same context, so an unrestorable rotation never
+    /// turns a successful restore into a "partial" one that is retried until the cap.
+    func testTheResidualCheckIgnoresAnUnrestorableRotation() {
+        let protectedSnapshot = snap([obs("A", main: true, rotation: .degrees90)])
+        let current = snap([obs("A", main: true, rotation: .degrees0)])
+        XCTAssertEqual(LayoutProtectionPolicy.actionableDrift(
+            protected: protectedSnapshot, current: current, context: context())?.hasDrifted, false)
+        XCTAssertEqual(LayoutProtectionPolicy.actionableDrift(
+            protected: protectedSnapshot, current: current,
+            context: context(canRestoreRotation: true))?.changes, [.rotationChanged(.init(rawValue: "A"))])
     }
 
     func testMirrorDriftRestores() {
@@ -204,6 +240,65 @@ final class LayoutProtectionPolicyTests: XCTestCase {
         let current = snap([obs("A", main: true), obs("B", mirror: "A")])
         XCTAssertEqual(decide(protected: protectedSnapshot, current: current).decision,
                        .restore(.init(changes: [.mirrorChanged(.init(rawValue: "B"))])))
+    }
+
+    // MARK: - Exact mirror sources (TR-04)
+
+    private func mirrorSteps(protected: TopologySnapshot, current: TopologySnapshot,
+                             context: LayoutProtectionPolicy.Context? = nil) -> [MirrorRestorePlan.Step] {
+        guard case .restore(let analysis) = decide(protected: protected, current: current,
+                                                   context: context).decision else { return [] }
+        return LayoutProtectionPolicy.mirrorRestoreSteps(protected: protected, current: current,
+                                                         analysis: analysis)
+    }
+
+    private func step(_ target: String, _ source: String?) -> MirrorRestorePlan.Step {
+        MirrorRestorePlan.Step(target: .init(rawValue: target), source: source.map { .init(rawValue: $0) })
+    }
+
+    func testAMirrorTargetThatChangedSourceGoesBackToItsSavedSource() {
+        // Saved C mirroring A; something moved C onto B. Still mirrored, so the old
+        // "is it mirrored" comparison skipped it.
+        let protectedSnapshot = snap([obs("A", main: true), obs("B", origin: .init(x: 2560, y: 0)),
+                                      obs("C", mirror: "A")])
+        let current = snap([obs("A", main: true), obs("B", origin: .init(x: 2560, y: 0)),
+                            obs("C", mirror: "B")])
+        XCTAssertEqual(mirrorSteps(protected: protectedSnapshot, current: current), [step("C", "A")])
+    }
+
+    func testReMirroringUsesTheSavedSourceEvenWhenItIsNotMain() {
+        // Saved C mirroring B while A is main; C is independent now. "Mirror onto main" picked A.
+        let protectedSnapshot = snap([obs("A", main: true), obs("B", origin: .init(x: 2560, y: 0)),
+                                      obs("C", mirror: "B")])
+        let current = snap([obs("A", main: true), obs("B", origin: .init(x: 2560, y: 0)),
+                            obs("C", origin: .init(x: -1920, y: 0))])
+        XCTAssertEqual(mirrorSteps(protected: protectedSnapshot, current: current), [step("C", "B")])
+    }
+
+    func testAnIndependentDisplayIsUnmirroredBeforeAnythingIsMirroredOntoIt() {
+        let protectedSnapshot = snap([obs("A", main: true), obs("B"), obs("C", mirror: "B")])
+        let current = snap([obs("A", main: true), obs("B", mirror: "A"), obs("C")])
+        XCTAssertEqual(mirrorSteps(protected: protectedSnapshot, current: current),
+                       [step("B", nil), step("C", "B")])
+    }
+
+    func testAMissingSavedSourceIsNeverSubstituted() {
+        let current = snap([obs("B", main: true), obs("C")])
+        XCTAssertEqual(MirrorRestorePlan.steps(wanted: [step("C", "A")], current: current), [])
+    }
+
+    func testMirrorStepsSkipWhatAlreadyMatchesAndSelfSources() {
+        let current = snap([obs("A", main: true), obs("B", mirror: "A"), obs("C")])
+        XCTAssertEqual(MirrorRestorePlan.steps(wanted: [step("B", "A"), step("C", "C")], current: current), [])
+    }
+
+    func testAMirrorChangeOnADisplayTheUserTurnedOffGetsNoStep() {
+        // The public lifecycle provider "turns off" by mirroring onto main; the policy leaves that
+        // alone, and the steps come from the policy's answer, never from a fresh comparison.
+        let protectedSnapshot = snap([obs("A", main: true), obs("B")])
+        let current = snap([obs("A", main: true), obs("B", mirror: "A")])
+        XCTAssertEqual(mirrorSteps(protected: protectedSnapshot, current: current,
+                                   context: context(managedOffline: [.init(rawValue: "B")])), [])
     }
 
     func testMainDisplayDriftRestores() {

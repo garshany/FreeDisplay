@@ -91,18 +91,25 @@ public enum LayoutProtectionPolicy {
         public var debounce: TimeInterval
         /// Restores allowed per stable generation before giving up.
         public var maximumRestoreAttempts: Int
+        /// Whether the host can write rotation right now (the gated experimental rotation backend
+        /// is on). When it can't, rotation drift is excluded from protection instead of being
+        /// "restored" by a path that cannot rotate — that only re-applied the other geometry and
+        /// burned the retry budget on a restore that could never land.
+        public var canRestoreRotation: Bool
 
         public init(now: Date, isEnabled: Bool,
                     asleepDisplayIDs: Set<DisplayRecordID> = [],
                     managedOfflineIDs: Set<DisplayRecordID> = [],
                     debounce: TimeInterval = LayoutProtectionPolicy.defaultDebounce,
-                    maximumRestoreAttempts: Int = LayoutProtectionPolicy.defaultMaximumRestoreAttempts) {
+                    maximumRestoreAttempts: Int = LayoutProtectionPolicy.defaultMaximumRestoreAttempts,
+                    canRestoreRotation: Bool = false) {
             self.now = now
             self.isEnabled = isEnabled
             self.asleepDisplayIDs = asleepDisplayIDs
             self.managedOfflineIDs = managedOfflineIDs
             self.debounce = debounce
             self.maximumRestoreAttempts = maximumRestoreAttempts
+            self.canRestoreRotation = canRestoreRotation
         }
     }
 
@@ -341,7 +348,10 @@ public enum LayoutProtectionPolicy {
                 if !context.managedOfflineIDs.contains(displayID) || wantsOff.contains(displayID) {
                     actionable.append(change)
                 }
-            case .originMoved, .modeChanged, .rotationChanged, .mainChanged:
+            case .rotationChanged:
+                // Unsupported fields are not restorable drift (see `Context.canRestoreRotation`).
+                if context.canRestoreRotation { actionable.append(change) }
+            case .originMoved, .modeChanged, .mainChanged:
                 actionable.append(change)
             }
         }
@@ -421,6 +431,22 @@ public enum LayoutProtectionPolicy {
             managedOffline: config.snapshot.managedOffline,
             capturedAt: config.snapshot.capturedAt)
         return SceneRecorder.capture(from: lit, name: "Protected layout", id: restoreSceneID)
+    }
+
+    /// The mirror relationships a restore has to put back, from the changes the policy marked
+    /// actionable: each drifted display goes back to the *exact* source it was captured mirroring,
+    /// or back to independent. Comparing only "is it mirrored" missed a target that moved from one
+    /// source to another, and re-mirroring "onto main" picked the wrong source whenever the saved
+    /// one wasn't main. Driven by `analysis` alone, never by a fresh comparison, so a display the
+    /// user turned off (mirrored by the public lifecycle provider) keeps the policy's protection.
+    public static func mirrorRestoreSteps(protected: TopologySnapshot, current: TopologySnapshot,
+                                          analysis: DisplayConfigDrifter.DriftAnalysis) -> [MirrorRestorePlan.Step] {
+        let wanted = analysis.changes.compactMap { change -> MirrorRestorePlan.Step? in
+            guard case .mirrorChanged(let id) = change,
+                  let saved = protected.observation(for: id) else { return nil }
+            return MirrorRestorePlan.Step(target: id, source: saved.mirrorSourceID)
+        }
+        return MirrorRestorePlan.steps(wanted: wanted, current: current)
     }
 
     // MARK: - User-facing copy

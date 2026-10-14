@@ -225,9 +225,16 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
     /// Mirrors `displayID` onto the current main display (both show the same content), or stops
     /// mirroring when `enabled` is false. Reversible; public Core Graphics only.
     public func setMirroring(of displayID: CGDirectDisplayID, enabled: Bool) -> Bool {
-        let master = enabled ? CGMainDisplayID() : kCGNullDirectDisplay
+        setMirrorSource(of: displayID, to: enabled ? CGMainDisplayID() : nil)
+    }
+
+    /// Mirrors `displayID` onto exactly `source`, or makes it an independent desktop when `source`
+    /// is nil — what a restore needs to put back a saved relationship whose source isn't main.
+    /// Refuses a display as its own source. Reversible; public Core Graphics only.
+    public func setMirrorSource(of displayID: CGDirectDisplayID, to source: CGDirectDisplayID?) -> Bool {
+        guard source != displayID else { return false }
         do {
-            try applyMirror(of: displayID, onto: master)
+            try applyMirror(of: displayID, onto: source ?? kCGNullDirectDisplay)
             return true
         } catch {
             return false
