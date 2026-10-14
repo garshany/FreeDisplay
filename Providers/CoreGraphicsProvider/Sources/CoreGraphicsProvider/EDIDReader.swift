@@ -6,29 +6,24 @@ import IOKit
 
 /// Reads the raw EDID blob for a display from IORegistry (public IOKit — no private SPI). On Apple
 /// Silicon the EDID lives on display nodes under the DCP; we collect every EDID-shaped property and
-/// match it to the requested display by its EDID **product code** (`CGDisplayModelNumber`), which is a
-/// reliable disambiguator even with several externals; we fall back to built-in/order when no match.
+/// bind one to the requested display through `EDIDBinding`: the blob must carry the display's own
+/// vendor, product code and serial as Core Graphics reports them, and must be the only one that
+/// does. The registry walk can't say which node belongs to which display, so anything short of
+/// that is reported as such — never answered with whichever blob came first, which for identical
+/// monitors or an unexposed EDID is another display's bytes.
 public enum EDIDReader {
-    /// Best-effort raw EDID bytes for `cgID`, or nil if none is exposed for it.
-    public static func rawEDID(for cgID: CGDirectDisplayID) -> [UInt8]? {
-        let candidates = allEDIDs()
-        guard !candidates.isEmpty else { return nil }
+    /// The binding outcome for `cgID`: its bytes, or why there is no single blob to call its own.
+    public static func lookup(for cgID: CGDirectDisplayID) -> EDIDBinding.Outcome {
+        let target = EDIDBinding.Target(vendorNumber: CGDisplayVendorNumber(cgID),
+                                        modelNumber: CGDisplayModelNumber(cgID),
+                                        serialNumber: CGDisplaySerialNumber(cgID))
+        return EDIDBinding.bind(allEDIDs(), to: target)
+    }
 
-        // Prefer an exact product-code match (most distinctive identity field).
-        let wantProduct = Int(CGDisplayModelNumber(cgID))
-        if wantProduct != 0, wantProduct != 0xFFFF_FFFF {
-            if let hit = candidates.first(where: { EDID.parse($0)?.productCode == wantProduct }) {
-                return hit
-            }
-        }
-        // Fall back: a single candidate is unambiguous. Otherwise honour built-in vs external —
-        // the built-in panel's EDID carries Apple's PNP id ("APP"), so an external request must
-        // skip those (tree order puts the built-in first, which would hand back the laptop
-        // panel's identity); a built-in request prefers them. Tree order breaks remaining ties.
-        if candidates.count == 1 { return candidates[0] }
-        let wantBuiltIn = CGDisplayIsBuiltin(cgID) != 0
-        return candidates.first { (EDID.parse($0)?.manufacturerID == "APP") == wantBuiltIn }
-            ?? candidates.first
+    /// The raw EDID bytes for `cgID` when exactly one exposed blob is unambiguously its own.
+    public static func rawEDID(for cgID: CGDirectDisplayID) -> [UInt8]? {
+        if case .matched(let bytes) = lookup(for: cgID) { return bytes }
+        return nil
     }
 
     /// Every EDID-shaped Data property found by walking the whole IORegistry service plane (the EDID
