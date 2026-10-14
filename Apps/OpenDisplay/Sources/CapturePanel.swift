@@ -182,8 +182,8 @@ final class CapturePresentation: NSObject, ObservableObject, SCStreamOutput, SCS
 struct CapturePanel: View {
     @StateObject private var capture = CapturePresentation()
     var body: some View {
-        GroupBox("Экспериментальный захват и «картинка в картинке»") {
-            VStack(alignment: .leading, spacing: 10) {
+        Form {
+            Section("Экспериментальный захват и «картинка в картинке»") {
                 Text("Загрузите источники для начала. macOS может запросить доступ к записи экрана. Предпросмотр хранится в памяти; защищённое содержимое может быть пустым.").font(.caption)
                 Button("Загрузить источники…") { Task { await capture.loadSources() } }.disabled(capture.busy || capture.running)
                 Picker("Источник", selection: $capture.selected) {
@@ -196,12 +196,24 @@ struct CapturePanel: View {
                 }
                 Toggle("Отразить по горизонтали", isOn: $capture.flip)
                 Picker("Поворот", selection: $capture.angle) { ForEach([0, 90, 180, 270], id: \.self) { Text("\($0)°").tag($0) } }
-                HStack { Text("Обрезка / масштаб"); Slider(value: $capture.crop, in: 0...0.4); Text("\(Int(capture.crop * 100))%") }
-                HStack { Button("Загрузить LUT .cube…") { capture.chooseLUT() }; Button("Сбросить LUT") { capture.clearLUT() }; Text(capture.lutName) }
+                LabeledContent("Обрезка / масштаб") {
+                    HStack {
+                        Slider(value: $capture.crop, in: 0...0.4).labelsHidden()
+                        Text("\(Int(capture.crop * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
+                    }
+                }
+                LabeledContent("LUT") {
+                    HStack {
+                        Text(capture.lutName).foregroundStyle(.secondary)
+                        Button("Загрузить LUT .cube…") { capture.chooseLUT() }
+                        Button("Сбросить LUT") { capture.clearLUT() }
+                    }
+                }
                 Text(capture.status).font(.caption).textSelection(.enabled)
                 Text("Только предпросмотр SDR. Точность HDR, калибровка цвета, защищённый контент и аппаратные маршруты не проверены.").font(.caption).foregroundStyle(.secondary)
-            }.padding(8)
+            }
         }
+        .formStyle(.grouped)
         .onDisappear { Task { await capture.stop() } }
     }
 }

@@ -18,8 +18,8 @@ struct VirtualDisplaysSettingsView: View {
     @State private var result: String?
 
     var body: some View {
-        GroupBox("Виртуальные экраны · Экспериментально") {
-            VStack(alignment: .leading, spacing: 12) {
+        Form {
+            Section("Виртуальные экраны · Экспериментально") {
                 Text("Виртуальные экраны используют закрытые API macOS и работают до завершения приложения. Оставьте физический экран доступным для восстановления.")
                     .font(.caption).foregroundStyle(.secondary)
                 if safeMode { Text("Недоступно в безопасном режиме.").foregroundStyle(.orange) }
@@ -27,13 +27,15 @@ struct VirtualDisplaysSettingsView: View {
                 Toggle("Разрешить создание экспериментальных виртуальных экранов", isOn: $experimentalOptIn)
                     .disabled(safeMode || !session.isAvailable || busy)
                 TextField("Название", text: $name)
-                HStack {
-                    TextField("Ширина в пикселях", value: $width, format: .number)
-                    Text("×")
-                    TextField("Высота в пикселях", value: $height, format: .number)
-                    Picker("Частота", selection: $refresh) {
-                        Text("30 Гц").tag(30.0); Text("60 Гц").tag(60.0); Text("120 Гц").tag(120.0)
+                LabeledContent("Размер в пикселях") {
+                    HStack {
+                        TextField("Ширина в пикселях", value: $width, format: .number).labelsHidden().frame(width: 90)
+                        Text("×")
+                        TextField("Высота в пикселях", value: $height, format: .number).labelsHidden().frame(width: 90)
                     }
+                }
+                Picker("Частота", selection: $refresh) {
+                    Text("30 Гц").tag(30.0); Text("60 Гц").tag(60.0); Text("120 Гц").tag(120.0)
                 }
                 Toggle("HiDPI: логический размер рабочего стола вдвое меньше", isOn: $hiDPI)
                 Button("Создать виртуальный экран") {
@@ -60,8 +62,9 @@ struct VirtualDisplaysSettingsView: View {
                 }
                 if busy { ProgressView() }
                 if let result { Text(result).font(.caption).textSelection(.enabled) }
-            }.padding(8)
+            }
         }
+        .formStyle(.grouped)
     }
 
     private func localizedError(_ error: Error) -> String {

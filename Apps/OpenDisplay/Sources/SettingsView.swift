@@ -33,13 +33,7 @@ struct SettingsView: View {
             case .displays: DisplaysSection()
             case .arrange: ArrangeSection()
             case .scenes: ScenesSection()
-            case .capture:
-                ScrollView {
-                    CapturePanel()
-                        .padding(ODSpacing.lg)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
-                .navigationTitle("Захват экрана")
+            case .capture: CapturePanel().navigationTitle("Захват экрана")
             case .advanced:
                 if let display = model.displays.first(where: { $0.recordID == model.selectedDisplayID }) ?? model.displays.first,
                    let id = display.cgDisplayID {
@@ -51,14 +45,10 @@ struct SettingsView: View {
             case .automation: LocalControlPanel()
             case .virtual:
 #if !PUBLIC_API_ONLY
-                ScrollView {
-                    VirtualDisplaysSettingsView(
-                        safeMode: ProcessInfo.processInfo.arguments.contains("--safe-mode"),
-                        session: virtualSession)
-                        .padding(ODSpacing.lg)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
-                .navigationTitle("Виртуальные экраны")
+                VirtualDisplaysSettingsView(
+                    safeMode: ProcessInfo.processInfo.arguments.contains("--safe-mode"),
+                    session: virtualSession)
+                    .navigationTitle("Виртуальные экраны")
 #else
                 Text("Создание виртуальных мониторов недоступно в сборке только с публичными API.")
                     .padding(ODSpacing.lg)
