@@ -178,14 +178,21 @@ public struct KeyboardShortcutRegistry: Hashable, Sendable, Codable {
     }
 
     /// This registry layered over the defaults: persisted bindings win, defaults fill the gaps, and
-    /// an action the user explicitly cleared stays unbound. There is no default input-switch
-    /// binding, so those pass through unchanged.
+    /// an action the user explicitly cleared stays unbound. A default whose chord a persisted binding
+    /// (an action's or an input hotkey's) already uses is skipped: a shortcut shipped by a later
+    /// release must not take a chord the user chose before it existed — registration gives a chord
+    /// to the earliest action, so the default would win and the user's own binding would go dead.
+    /// The skipped action is left unbound but not cleared, and the registration plan reports it as
+    /// a conflict with the slot holding its chord. There is no default input-switch binding, so
+    /// those pass through unchanged.
     public func mergedWithDefaults() -> KeyboardShortcutRegistry {
-        var merged = Self.defaults
-        for (action, binding) in bindings { merged.bindings[action] = binding }
-        for action in disabledActions { merged.bindings[action] = nil }
-        merged.inputSwitchBindings = inputSwitchBindings
-        merged.disabledActions = disabledActions
+        var merged = KeyboardShortcutRegistry(inputSwitchBindings: inputSwitchBindings, disabledActions: disabledActions)
+        for (action, binding) in bindings where !disabledActions.contains(action) { merged.bindings[action] = binding }
+        var savedChords = Set(merged.bindings.values)
+        savedChords.formUnion(inputSwitchBindings.map(\.binding))
+        for action in HotkeyAction.allCases where merged.bindings[action] == nil && !disabledActions.contains(action) {
+            if let shipped = action.defaultBinding, !savedChords.contains(shipped) { merged.bindings[action] = shipped }
+        }
         return merged
     }
 
@@ -194,9 +201,11 @@ public struct KeyboardShortcutRegistry: Hashable, Sendable, Codable {
     /// explicit "no shortcut". Settings shows, conflict-checks and registers this one registry, so
     /// the three can't disagree.
     public func effective(reconnectAllEnabled: Bool) -> KeyboardShortcutRegistry {
-        var merged = mergedWithDefaults()
-        if !reconnectAllEnabled { merged.setBinding(nil, for: .reconnectAll) }
-        return merged
+        // Folded in before the merge, so a Reconnect-All chord the switch turns off doesn't keep
+        // another action's default out (see `mergedWithDefaults`).
+        var source = self
+        if !reconnectAllEnabled { source.setBinding(nil, for: .reconnectAll) }
+        return source.mergedWithDefaults()
     }
 
     /// The slot already using `binding` — a fixed action or an input-switch hotkey — other than

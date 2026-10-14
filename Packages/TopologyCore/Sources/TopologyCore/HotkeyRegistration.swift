@@ -58,6 +58,11 @@ public struct HotkeyRegistrationPlan: Hashable, Sendable {
             if let binding = registry.binding(for: action) { claim(.action(action), binding) }
         }
         for entry in registry.inputSwitchBindings { claim(.inputSwitch(id: entry.id), entry.binding) }
+        // The merge leaves an action without its shipped chord when a saved binding already uses it
+        // (`KeyboardShortcutRegistry.mergedWithDefaults`); say who holds it instead of "no shortcut".
+        for action in HotkeyAction.allCases where registry.binding(for: action) == nil && !cleared.contains(action) {
+            if let shipped = action.defaultBinding, let holder = holders[shipped] { conflicts[.action(action)] = holder }
+        }
     }
 
     /// The status to show for one action, given which planned registrations macOS refused and whether

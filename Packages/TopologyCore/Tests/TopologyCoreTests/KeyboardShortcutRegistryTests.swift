@@ -169,6 +169,48 @@ final class KeyboardShortcutRegistryTests: XCTestCase {
             .disabledActions, [.brightnessUp])
     }
 
+    // MARK: Defaults added by a later release (R3 #1)
+
+    private let shiftF1 = KeyBinding(keyCode: 0x7A, modifiers: KeyBinding.shift)
+
+    func testANewDefaultDoesNotTakeAChordTheUserAlreadyAssigned() throws {
+        // A settings file from before Shift-F1/F2 shipped as the brightness defaults, with the user's
+        // own Shift-F1 on FaceLight.
+        let old = #"{"bindings":{"faceLight":{"keyCode":122,"modifiers":512}},"inputSwitchBindings":[]}"#
+        let reg = try JSONDecoder().decode(KeyboardShortcutRegistry.self, from: Data(old.utf8))
+        let merged = reg.mergedWithDefaults()
+        XCTAssertEqual(merged.binding(for: .faceLight), shiftF1, "the user's own binding must survive the upgrade")
+        XCTAssertNil(merged.binding(for: .brightnessDown), "the default whose chord is taken is skipped")
+        XCTAssertFalse(merged.disabledActions.contains(.brightnessDown), "skipped, not cleared by the user")
+        XCTAssertEqual(merged.binding(for: .brightnessUp), shiftF2)  // a free default still applies
+        XCTAssertEqual(merged.binding(for: .reconnectAll), r)
+        XCTAssertTrue(merged.conflictingBindings().isEmpty)
+    }
+
+    func testANewDefaultDoesNotTakeAChordOfALegacyFlatFile() throws {
+        let legacy = #"{"faceLight":{"keyCode":122,"modifiers":512}}"#
+        let reg = try JSONDecoder().decode(KeyboardShortcutRegistry.self, from: Data(legacy.utf8))
+        XCTAssertEqual(reg.mergedWithDefaults().binding(for: .faceLight), shiftF1)
+        XCTAssertNil(reg.mergedWithDefaults().binding(for: .brightnessDown))
+    }
+
+    func testANewDefaultDoesNotTakeAnInputHotkeyChord() {
+        var reg = KeyboardShortcutRegistry()
+        let entry = InputSwitchBinding(id: "hdmi2", displayID: deskMonitor, inputCode: 0x12, binding: shiftF1)
+        reg.addInputSwitchBinding(entry)
+        let merged = reg.mergedWithDefaults()
+        XCTAssertNil(merged.binding(for: .brightnessDown))
+        XCTAssertEqual(merged.slot(using: shiftF1), .inputSwitch(id: "hdmi2"))
+    }
+
+    func testAChordOfAClearedActionDoesNotBlockADefault() throws {
+        // A binding stored for an action the user also cleared is not in force, so it holds no chord.
+        let file = #"{"bindings":{"faceLight":{"keyCode":122,"modifiers":512}},"inputSwitchBindings":[],"disabledActions":["faceLight"]}"#
+        let reg = try JSONDecoder().decode(KeyboardShortcutRegistry.self, from: Data(file.utf8))
+        XCTAssertNil(reg.mergedWithDefaults().binding(for: .faceLight))
+        XCTAssertEqual(reg.mergedWithDefaults().binding(for: .brightnessDown), shiftF1)
+    }
+
     func testMergedWithDefaultsCarriesInputSwitchBindingsThrough() {
         var reg = KeyboardShortcutRegistry()
         let entry = InputSwitchBinding(id: "hdmi2", displayID: deskMonitor, inputCode: 0x12, binding: digit1)
