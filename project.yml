@@ -28,6 +28,8 @@ options:
     macOS: "14.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
+  # English is the source language; Russian ships from the String Catalogs (Localizable/InfoPlist).
+  developmentLanguage: en
 
 # Sparkle 2 powers the in-app updater (SoftwareUpdater.swift). It ships as a binary xcframework, so
 # SwiftPM resolves it here rather than in Package.swift — the cross-platform package graph stays
@@ -158,10 +160,16 @@ targets:
       - Apps/OpenDisplay/Sources
       - path: Apps/OpenDisplay/Resources/AppIcon.icns
         buildPhase: resources
+      - path: Apps/OpenDisplay/Resources/Localizable.xcstrings
+        buildPhase: resources
+      - path: Apps/OpenDisplay/Resources/InfoPlist.xcstrings
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.opendisplay.app
         INFOPLIST_FILE: Apps/OpenDisplay/Resources/Info.plist
+        SWIFT_EMIT_LOC_STRINGS: YES
+        LOCALIZATION_PREFERS_STRING_CATALOGS: YES
         CODE_SIGN_ENTITLEMENTS: Apps/OpenDisplay/Resources/OpenDisplay.entitlements
         # Sign local (Debug) builds with the stable Developer ID identity, NOT adhoc. TCC keys the
         # Accessibility grant (needed by the media-key tap) to the code signature's designated
@@ -197,10 +205,16 @@ targets:
       - Apps/OpenDisplay/Sources
       - path: Apps/OpenDisplay/Resources/AppIcon.icns
         buildPhase: resources
+      - path: Apps/OpenDisplay/Resources/Localizable.xcstrings
+        buildPhase: resources
+      - path: Apps/OpenDisplay/Resources/InfoPlist.xcstrings
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.opendisplay.app.publicapionly
         INFOPLIST_FILE: Apps/OpenDisplay/Resources/Info.plist
+        SWIFT_EMIT_LOC_STRINGS: YES
+        LOCALIZATION_PREFERS_STRING_CATALOGS: YES
         CODE_SIGN_ENTITLEMENTS: Apps/OpenDisplay/Resources/OpenDisplay.entitlements
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: PUBLIC_API_ONLY
     dependencies:
