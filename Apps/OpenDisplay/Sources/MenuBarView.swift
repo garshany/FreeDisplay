@@ -777,7 +777,7 @@ private struct TrayImageAdjustments: View {
                            valueText: "", accessibilityLabel: String(localized: "Color temperature"), showsValue: false) {
                     model.setColorTemperature(Float(minK + $0 * (maxK - minK)), for: display)
                 }
-                .disabled(suspended).opacity(suspended ? 0.45 : 1)
+                .disabled(suspended).allowsHitTesting(!suspended).opacity(suspended ? 0.45 : 1)
             }
             if model.colorTemperature[id] != nil, !suspended {
                 TrayPillButton(String(localized: "Reset temperature")) {
@@ -793,7 +793,7 @@ private struct TrayImageAdjustments: View {
                            valueText: "", accessibilityLabel: String(localized: "Software contrast"), showsValue: false) {
                     model.setSoftwareContrast(SoftwareContrast.factor(forPosition: Float($0)), for: display)
                 }
-                .disabled(suspended).opacity(suspended ? 0.45 : 1)
+                .disabled(suspended).allowsHitTesting(!suspended).opacity(suspended ? 0.45 : 1)
             }
             if model.softwareContrast[id] != nil, !suspended {
                 if contrast > SoftwareContrast.neutral {
@@ -827,7 +827,7 @@ private struct TrayImageAdjustments: View {
                     Task { await model.resetSoftwareAdjustments(for: display) }
                 }
             }
-            if model.softwareContrast[id] != nil, model.isHDRCapable(display) {
+            if model.softwareContrast[id] != nil, !suspended, model.isHDRCapable(display) {
                 TrayNote(String(localized: "With HDR content, colour-table contrast can clip highlights or look different."))
             }
             TrayNote(String(localized: "The dimming method is shared by all displays. Temperature, contrast and dimming apply to this display only and stay until you quit OpenDisplay."))

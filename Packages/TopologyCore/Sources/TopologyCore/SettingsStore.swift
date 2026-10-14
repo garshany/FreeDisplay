@@ -422,11 +422,16 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             ?? defaults.protectedLayouts
         displayGroups = container.lenient([DisplayGroup].self, forKey: .displayGroups)
             ?? defaults.displayGroups
-        // Its identity is fixed, whatever the file says, so it can never pose as a named group.
+        // Its identity is fixed, whatever the file says, so it can never pose as a named group. It
+        // offers only the plain modes, so a mode it can't use (a group decoder's `.offsets`
+        // fallback for a missing or unknown value) becomes its own default, delta.
         var defaultGroup = container.lenient(DisplayGroup.self, forKey: .defaultDisplayGroup)
             ?? defaults.defaultDisplayGroup
         defaultGroup.id = DisplayGroup.defaultGroupID
         defaultGroup.memberRecordIDs = []
+        if defaultGroup.brightnessMode == .offsets {
+            defaultGroup.brightnessMode = DisplayGroup.defaultGroup.brightnessMode
+        }
         defaultDisplayGroup = defaultGroup
     }
 }

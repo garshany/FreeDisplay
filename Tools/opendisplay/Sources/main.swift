@@ -1575,7 +1575,8 @@ func runGroupList(_ groups: [DisplayGroup]) async {
         for member in group.memberRecordIDs {
             let pair = pairs.first { $0.observation.recordID == member }
             let label = await memberLabel(member, in: pairs)
-            let offset = group.offset(for: member)
+            // Stored offsets apply only in the offsets mode; the plain modes keep them unused.
+            let offset = group.brightnessMode == .offsets ? group.offset(for: member) : 0
             let offsetNote = offset == 0 ? "" : String(format: "  %+.0f%%", offset * 100)
             print("  \(pair == nil ? "○" : "●") \(label)\(offsetNote)")
         }

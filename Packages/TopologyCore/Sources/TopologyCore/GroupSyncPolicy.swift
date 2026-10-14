@@ -359,7 +359,8 @@ public enum GroupSyncPolicy {
     }
 
     /// Classify one brightness write on a grouped display. The caller resolves the group first
-    /// (`DisplayGroupStore.group(containing:in:)`) — an ungrouped display never reaches here.
+    /// (`DisplayGroupStore.syncGroup(containing:in:defaultGroup:eligible:)` — its named group or the
+    /// live Default group) — a display no group covers never reaches here.
     public static func classify(_ write: ManualWrite, group: DisplayGroup,
                                 state: GroupSyncState, echo: SyncEcho) -> ManualWriteResult {
         guard !echo.isEcho(display: write.display, token: write.token) else {

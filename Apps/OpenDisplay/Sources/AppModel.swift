@@ -1898,8 +1898,10 @@ final class AppModel: ObservableObject {
                   displays.contains(where: { $0.recordID == id && $0.cgDisplayID == cgID && $0.isActive }),
                   isBrightnessGroupGoverned(id),
                   let sample else { continue }
+            // The monitor's own last level, not the cache: a menu refresh or the adaptive tick may
+            // already have put `sample` in the cache, and a delta group would then see no change.
+            let previous = nativeMonitors[id]?.baseline
             if nativeMonitors[id, default: BrightnessMonitor()].observe(sample, revision: revision) {
-                let previous = brightness[id]
                 brightness[id] = sample
                 groupBrightnessLastChange = Date()
                 // This is already a hardware change. Only write followers, with no duplicate OSD.
@@ -1970,11 +1972,16 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// The connected displays the Default group can include: every one except virtual screens and
-    /// headless adapters, which have no panel whose brightness is worth matching.
+    /// The displays the Default group can include right now: every present one except virtual
+    /// screens — OpenDisplay's own (which Core Graphics reports as external; the presence
+    /// classifier knows better), macOS's placeholder and headless adapters — which have no panel
+    /// whose brightness is worth matching. Only present displays count, so a group left with a
+    /// single one stops governing it (`DisplayGroupStore.syncGroup`).
     private var defaultGroupEligible: [DisplayRecordID] {
-        displays.filter { $0.displayClass != .virtual && $0.displayClass != .headlessAdapter }
-            .map(\.recordID)
+        displays.filter {
+            $0.isActive && $0.physicalPresence != .virtual
+                && $0.displayClass != .virtual && $0.displayClass != .headlessAdapter
+        }.map(\.recordID)
     }
 
     /// The group whose brightness rules apply to `member`: its named group, else the Default group
@@ -3529,9 +3536,9 @@ final class AppModel: ObservableObject {
         if let named = displayGroup(containing: observation.recordID) {
             return String(localized: "Synced with \(named.name)")
         }
-        guard settings.defaultDisplayGroup.syncBrightness else { return nil }
-        let members = defaultGroupMembers
-        guard members.contains(observation.recordID), members.count > 1 else { return nil }
+        // The Default group resolves only while it has someone to sync with.
+        guard let group = brightnessSyncGroup(containing: observation.recordID), group.syncBrightness
+        else { return nil }
         return String(localized: "Brightness synced with the other displays")
     }
 

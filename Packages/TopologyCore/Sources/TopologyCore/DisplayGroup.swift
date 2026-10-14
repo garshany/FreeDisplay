@@ -197,8 +197,8 @@ public enum DisplayGroupStore {
 
     // MARK: - Default group (SO-05/AM-17)
 
-    /// The Default group with its live membership: every `eligible` display (connected, in the
-    /// caller's order) that no named group claims. Named groups always outrank it, so a display a
+    /// The Default group with its live membership: every `eligible` display (present right now, in
+    /// the caller's order) that no named group claims. Named groups always outrank it, so a display a
     /// named group holds — even one with sync switched off — is never driven by the Default group as
     /// well. ::
     ///
@@ -212,13 +212,14 @@ public enum DisplayGroupStore {
     }
 
     /// The group whose brightness rules apply to a display: its named group, or else the Default
-    /// group when the display is one of its live members. Nil for a display neither covers (an
-    /// ineligible one, such as a virtual screen, outside every named group).
+    /// group when the display is one of its live members AND it has another one to sync with. A
+    /// Default group of one is no group: it would only take that display away from Adaptive Display
+    /// and keep the native-brightness poll running for nothing. Nil for a display neither covers.
     public static func syncGroup(containing member: DisplayRecordID, in groups: [DisplayGroup],
                                  defaultGroup: DisplayGroup, eligible: [DisplayRecordID]) -> DisplayGroup? {
         if let named = group(containing: member, in: groups) { return named }
         let resolved = resolvedDefaultGroup(defaultGroup, eligible: eligible, groups: groups)
-        return resolved.contains(member) ? resolved : nil
+        return resolved.contains(member) && resolved.memberRecordIDs.count > 1 ? resolved : nil
     }
 
     /// `isGroupGoverned` counting the Default group too: true when a group — named, or the Default

@@ -315,6 +315,42 @@ final class BrightnessSyncModeTests: XCTestCase {
                                                  eligible: eligible))
     }
 
+    func testADefaultGroupOfOneGovernsNothing() {
+        // A lone external in clamshell, say: nothing to sync with, so Adaptive Display keeps it.
+        var defaultOn = DisplayGroup.defaultGroup
+        defaultOn.syncBrightness = true
+        XCTAssertNil(DisplayGroupStore.syncGroup(containing: desk, in: [], defaultGroup: defaultOn, eligible: [desk]))
+        XCTAssertFalse(DisplayGroupStore.isGroupGoverned(desk, in: [], defaultGroup: defaultOn, eligible: [desk]))
+        // Nor when the only other eligible display belongs to a named group.
+        let work = DisplayGroup(name: "Work", memberRecordIDs: [builtIn])
+        XCTAssertFalse(DisplayGroupStore.isGroupGoverned(desk, in: [work], defaultGroup: defaultOn,
+                                                         eligible: [builtIn, desk]))
+    }
+
+    func testADecodedDefaultGroupNeverEndsUpOnTheOffsetsModeItDoesNotOffer() throws {
+        var settings = OpenDisplaySettings()
+        settings.defaultDisplayGroup.brightnessMode = .offsets
+        let decoded = try JSONDecoder().decode(OpenDisplaySettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertEqual(decoded.defaultDisplayGroup.brightnessMode, .delta)
+        settings.defaultDisplayGroup.brightnessMode = .absolute
+        let absolute = try JSONDecoder().decode(OpenDisplaySettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertEqual(absolute.defaultDisplayGroup.brightnessMode, .absolute)
+    }
+
+    func testTheMonitorBaselineIsWhatAnObservedDeltaIsMeasuredFrom() {
+        var monitor = BrightnessMonitor()
+        XCTAssertNil(monitor.baseline)
+        XCTAssertFalse(monitor.observe(0.40, revision: monitor.revision), "the first read only seeds")
+        XCTAssertEqual(monitor.baseline, 0.40)
+        let previous = monitor.baseline
+        XCTAssertTrue(monitor.observe(0.55, revision: monitor.revision))
+        XCTAssertEqual(previous, 0.40, "read before observe: the level the change started from")
+        XCTAssertEqual(monitor.baseline, 0.55)
+        monitor.beginWrite()
+        monitor.endWrite(value: 0.70)
+        XCTAssertEqual(monitor.baseline, 0.70, "the app's own write moves the baseline with it")
+    }
+
     func testTheDefaultGroupFansADeltaOutToItsLiveMembers() {
         var defaultOn = DisplayGroup.defaultGroup
         defaultOn.syncBrightness = true

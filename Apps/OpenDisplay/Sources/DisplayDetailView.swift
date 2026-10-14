@@ -281,7 +281,7 @@ struct AppearanceCard: View {
                 let clipped = Int((SoftwareContrast.clippedShare(factor: contrast) * 100).rounded())
                 secondaryNote(String(localized: "\(clipped)% of the tonal range clips to pure black or white."))
             }
-            if model.softwareContrast[display.recordID] != nil, model.isHDRCapable(display) {
+            if !suspended, model.softwareContrast[display.recordID] != nil, model.isHDRCapable(display) {
                 secondaryNote(String(localized: "With HDR content, colour-table contrast can clip highlights or look different."))
             }
             ODDivider()

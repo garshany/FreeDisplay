@@ -8,6 +8,12 @@ public struct BrightnessMonitor: Sendable {
 
     public init() {}
 
+    /// The last level this monitor knows the display to be at — its previous observation, or the
+    /// read-back after the app's own write. What a delta-mode group measures an observed change
+    /// from: the app's brightness cache can be refreshed by other readers before the poll sees the
+    /// change, which would make that change look like no change at all.
+    public var baseline: Float? { value }
+
     public mutating func beginWrite() {
         revision += 1
         writing = true

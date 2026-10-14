@@ -61,6 +61,10 @@ private struct DefaultDisplayGroupSection: View {
         let members = model.defaultGroupMembers
         guard !members.isEmpty else { return String(localized: "Every connected display is in a named group") }
         let names = members.map { model.rememberedDisplayName(for: $0) }.joined(separator: ", ")
+        // A group of one syncs nothing and leaves its display to Adaptive Display — say so.
+        guard members.count > 1 else {
+            return String(localized: "Default group: \(names) — nothing to sync with until another display is connected")
+        }
         return String(localized: "Default group: \(names)")
     }
 }
