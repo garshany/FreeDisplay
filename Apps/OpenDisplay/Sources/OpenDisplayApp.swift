@@ -3,7 +3,8 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// Menu-bar-first entry point (PRD UX-001). `LSUIElement` keeps it out of the Dock. The menu bar AND
+/// Menu-bar-first entry point (PRD UX-001). `LSUIElement` keeps it out of the Dock unless the user's
+/// Dock icon policy asks otherwise (`DockPresenceController`). The menu bar AND
 /// the Settings window are both AppKit-managed by `AppDelegate`: SwiftUI's `MenuBarExtra` mis-anchors
 /// its pop-out across multiple displays, and a menu-bar app can't reliably surface SwiftUI's `Settings`
 /// scene through the responder chain — so the delegate hosts `SettingsView` in its own `NSWindow` and
@@ -89,6 +90,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
     private var settingsKeyMonitor: Any?
+    /// Dock icon policy (SO-13), created at launch once the status item exists.
+    private var dockPresence: DockPresenceController?
+    private var dockPolicyWatch: AnyCancellable?
+    private var settingsWindowObservers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // App Intents run in this process; they reach the live model (and its ledger) through here.
@@ -147,6 +152,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.tray.show(from: button)
                 }
             }
+
+        // Dock icon policy (SO-13): applied now, then on every window change and policy change.
+        let dockPresence = DockPresenceController(policy: model.settings.dockIconPolicy) { [weak self] window in
+            window === self?.settingsWindow
+        }
+        self.dockPresence = dockPresence
+        dockPresence.update()
+        dockPolicyWatch = model.$settings
+            .map(\.dockIconPolicy)
+            .removeDuplicates()
+            .sink { [weak self] policy in
+                MainActor.assumeIsolated { self?.dockPresence?.policy = policy }
+            }
+
+        // Safe startup (FA-09) says so straight away: Settings opens with the banner explaining
+        // what this session holds back, rather than leaving a quieter-than-usual app to puzzle over.
+        if model.safeStartup { showSettings() }
     }
 
     @objc private func statusItemClicked(_ sender: Any?) {
@@ -193,10 +215,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             created.title = SettingsSection.launchSection.title
             created.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             created.isReleasedWhenClosed = false
-            created.setContentSize(NSSize(width: 900, height: 660))
             created.contentMinSize = NSSize(width: 760, height: 540)
+            created.setContentSize(Self.settingsContentSize(onScreenWith: created.contentMinSize))
             settingsWindow = created
             window = created
+            // SD-08: remember the size the user leaves it at, for the next opening and launch — at
+            // the end of a drag, after a zoom (a resize with no drag) and on close.
+            for name in [NSWindow.didEndLiveResizeNotification, NSWindow.didResizeNotification,
+                         NSWindow.willCloseNotification] {
+                settingsWindowObservers.append(NotificationCenter.default.addObserver(
+                    forName: name, object: created, queue: .main) { [weak created] _ in
+                    MainActor.assumeIsolated {
+                        guard let created, !created.inLiveResize else { return }
+                        Self.rememberSettingsSize(of: created)
+                    }
+                })
+            }
         }
         if let screen = NSScreen.screens.first(where: {
             NSMouseInRect(NSEvent.mouseLocation, $0.frame, false)
@@ -206,8 +240,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.setFrameOrigin(NSPoint(x: visible.midX - size.width / 2,
                                           y: visible.midY - size.height / 2))
         }
+        dockPresence?.update(opening: window)  // SO-13: Dock icon first, so activation shows the app's menus
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// The Settings window's starting content size: the remembered one (SD-08), else the default,
+    /// shrunk to fit the screen under the pointer — a size saved on a large external display must
+    /// not open past the edges of the laptop panel — and never below the window's minimum.
+    private static func settingsContentSize(onScreenWith minimum: NSSize) -> NSSize {
+        let wanted = SettingsWindowMemory.contentSize ?? NSSize(width: 900, height: 660)
+        guard let visible = (NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })
+                             ?? NSScreen.main)?.visibleFrame else { return wanted }
+        return NSSize(width: max(minimum.width, min(wanted.width, visible.width)),
+                      height: max(minimum.height, min(wanted.height, visible.height)))
     }
 
     /// Opens (or re-focuses) the custom About window (`AboutView`) — same ownership story as
@@ -234,6 +280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.setFrameOrigin(NSPoint(x: visible.midX - size.width / 2,
                                           y: visible.midY - size.height / 2))
         }
+        dockPresence?.update(opening: window)  // SO-13: Dock icon first, so activation shows the app's menus
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
@@ -249,6 +296,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
+    }
+
+    /// A quit or relaunch with Settings still open sends no `willClose`, so its size (SD-08) is
+    /// saved here too.
+    func applicationWillTerminate(_ notification: Notification) {
+        if let window = settingsWindow, window.isVisible { Self.rememberSettingsSize(of: window) }
+    }
+
+    /// Full screen is the screen's size, not one the user chose, so it is never remembered.
+    private static func rememberSettingsSize(of window: NSWindow) {
+        guard !window.styleMask.contains(.fullScreen) else { return }
+        SettingsWindowMemory.contentSize = window.contentRect(forFrameRect: window.frame).size
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

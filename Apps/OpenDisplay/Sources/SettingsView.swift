@@ -18,7 +18,7 @@ import VirtualDisplayProvider
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     // `-OpenDisplaySettingsSection <rawValue>` (launch argument) opens a given section — used to
-    // take documentation screenshots without UI scripting. Unknown or absent values mean Displays.
+    // take documentation screenshots without UI scripting. Without it, the last section shown.
     @State private var section: SettingsSection? = .launchSection
 #if !PUBLIC_API_ONLY
     // Same physical-screen evidence as lifecycle preflight, so "a real screen stays visible" means
@@ -34,34 +34,41 @@ struct SettingsView: View {
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 220)
         } detail: {
-            switch section ?? .displays {
-            case .displays: DisplaysSection()
-            case .arrange: ArrangeSection()
-            case .scenes: ScenesSection()
-            case .capture: CapturePanel().navigationTitle("Screen Capture")
-            case .advanced:
-                if let display = model.displays.first(where: { $0.recordID == model.selectedDisplayID }) ?? model.displays.first,
-                   let id = display.cgDisplayID {
-                    AdvancedDisplayToolsView(displayID: id, displayName: model.displayName(for: display))
-                } else {
-                    ContentUnavailableView("Select a connected display first.", systemImage: "display")
-                        .navigationTitle("EDID & HiDPI")
+            // FA-09: a safe startup says so on every section, above whatever the section shows.
+            VStack(spacing: 0) {
+                if model.safeStartup {
+                    SafeStartupBanner()
+                        .padding(.horizontal, ODSpacing.lg).padding(.top, ODSpacing.md)
                 }
-            case .automation: LocalControlPanel()
-            case .virtual:
+                switch section ?? .displays {
+                case .displays: DisplaysSection()
+                case .arrange: ArrangeSection()
+                case .scenes: ScenesSection()
+                case .capture: CapturePanel().navigationTitle("Screen Capture")
+                case .advanced:
+                    if let display = model.displays.first(where: { $0.recordID == model.selectedDisplayID }) ?? model.displays.first,
+                       let id = display.cgDisplayID {
+                        AdvancedDisplayToolsView(displayID: id, displayName: model.displayName(for: display))
+                    } else {
+                        ContentUnavailableView("Select a connected display first.", systemImage: "display")
+                            .navigationTitle("EDID & HiDPI")
+                    }
+                case .automation: LocalControlPanel()
+                case .virtual:
 #if !PUBLIC_API_ONLY
-                VirtualDisplaysSettingsView(
-                    safeMode: ProcessInfo.processInfo.arguments.contains("--safe-mode"),
-                    session: virtualSession)
-                    .navigationTitle("Virtual Displays")
+                    VirtualDisplaysSettingsView(
+                        safeMode: model.safeStartup,  // `--safe-mode` or Shift at launch (FA-09)
+                        session: virtualSession)
+                        .navigationTitle("Virtual Displays")
 #else
-                Text("Creating virtual displays isn’t available in the public-API-only build.")
-                    .padding(ODSpacing.lg)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .navigationTitle("Virtual Displays")
+                    Text("Creating virtual displays isn’t available in the public-API-only build.")
+                        .padding(ODSpacing.lg)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .navigationTitle("Virtual Displays")
 #endif
-            case .health: HealthSection()
-            case .about: AboutSection()
+                case .health: HealthSection()
+                case .about: AboutSection()
+                }
             }
         }
         .frame(minWidth: 720, idealWidth: 720, minHeight: 480, idealHeight: 520)
@@ -79,6 +86,10 @@ struct SettingsView: View {
         .onChange(of: model.selectedDisplayID) { _, newValue in
             if newValue != nil { section = .displays }
         }
+        // SD-08: the next Settings window (this launch or the next) opens where this one was left.
+        .onChange(of: section) { _, newValue in
+            if let newValue { SettingsWindowMemory.lastSection = newValue.rawValue }
+        }
     }
 }
 
@@ -86,9 +97,14 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     case displays, arrange, scenes, virtual, capture, advanced, automation, health, about
     var id: String { rawValue }
 
-    /// The section a newly created Settings window starts on (see the launch argument above).
+    /// The section a newly created Settings window starts on: the launch argument when given (the
+    /// app never writes that key, so it only ever comes from the command line), otherwise the
+    /// section last shown (SD-08), otherwise Displays.
     static var launchSection: SettingsSection {
-        SettingsSection(rawValue: UserDefaults.standard.string(forKey: "OpenDisplaySettingsSection") ?? "") ?? .displays
+        if let requested = UserDefaults.standard.string(forKey: "OpenDisplaySettingsSection").flatMap(SettingsSection.init(rawValue:)) {
+            return requested
+        }
+        return SettingsWindowMemory.lastSection.flatMap(SettingsSection.init(rawValue:)) ?? .displays
     }
     var title: String {
         switch self {
@@ -527,16 +543,10 @@ private struct HealthSection: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Toggle(isOn: Binding(
-                    get: { model.settings.displayNotificationsEnabled },
-                    set: { model.setDisplayNotificationsEnabled($0) }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Notify on display connect / disconnect")
-                        Text("Posts a system notification when an external display is connected or disconnected, and when the built-in is auto-disconnected. Asks for notification permission the first time you turn this on.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
+                // SO-12/FA-16: style, routine-protection filter and the macOS permission state.
+                NotificationSettingsRows()
+                // SO-13/FB-15.
+                DockIconPolicyRow()
                 if Bundle.main.object(forInfoDictionaryKey: "OpenDisplayLocalBuild") as? Bool == true {
                     Text("Updating a local build").font(.headline)
                     Text("This build is updated from source: pull the project’s changes, build the app, and replace the installed copy. Automatic release downloads aren’t available here.")
@@ -902,9 +912,15 @@ private struct AboutSection: View {
                         ProjectLinkRow(link: link)
                     }
                 }
+                // SO-40: the same selectable, copyable build details as the About window.
+                ODCard(title: String(localized: "Build information"), padded: true) {
+                    BuildMetadataView()
+                }
                 ODCard(title: String(localized: "Language")) {
                     LanguageRow()
                 }
+                // SO-11/FA-10: export, import, reset, relaunch and quit.
+                AppSettingsCard()
             }
             .padding(ODSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .topLeading)
