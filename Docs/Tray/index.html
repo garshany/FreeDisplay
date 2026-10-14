@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>OpenDisplay — трей: что и как работает</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f5f5f7; --card: #fff; --muted: #6e6e73; --line: #d2d2d7; --accent: #0071e3; --ok: #1d8a3a; --warn: #b26a00; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1c1c1e; --card: #2c2c2e; --muted: #a1a1a6; --line: #3a3a3c; --accent: #2997ff; --ok: #30d158; --warn: #ff9f0a; } }
+  body { margin: 0; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; background: var(--bg); }
+  main { max-width: 1060px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 28px; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 40px 0 12px; }
+  p.lead { color: var(--muted); margin: 0 0 24px; }
+  .row { display: grid; grid-template-columns: 360px 1fr; gap: 24px; align-items: start; background: var(--card); border-radius: 14px; padding: 18px; margin: 14px 0; }
+  .row img { width: 344px; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+  .row h3 { margin: 0 0 6px; font-size: 17px; }
+  .row ul { margin: 6px 0 0; padding-left: 18px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .pair figure { margin: 0; background: var(--card); border-radius: 14px; padding: 16px; }
+  .pair img { width: 100%; max-width: 344px; border-radius: 12px; display: block; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+  figcaption { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 14px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 14px; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .ok { color: var(--ok); font-weight: 600; } .part { color: var(--warn); font-weight: 600; } .no { color: var(--muted); font-weight: 600; }
+  code { font: 13px ui-monospace, SFMono-Regular, monospace; }
+  .note { background: var(--card); border-left: 4px solid var(--accent); border-radius: 10px; padding: 12px 16px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Трей OpenDisplay</h1>
+<p class="lead">Снимки сделаны 14.10.2026 с реального экрана (MacBook + SunWind SM-27QI201 через Ugreen). Структура повторяет меню BetterDisplay 5, интерфейс и поведение доработаны.</p>
+
+<h2>Было → стало</h2>
+<div class="pair">
+  <figure><img src="img/00-before.png" alt="Старый трей"><figcaption><b>Было (версия Codex):</b> NSPopover фиксированного размера 460×620. При раскрытии поповер пересчитывал позицию и «уезжал»; почти все настройки открывались отдельной страницей с кнопкой «Назад» или в окне настроек.</figcaption></figure>
+  <figure><img src="img/01-main.png" alt="Новый трей"><figcaption><b>Стало:</b> панель прибита верхним краем под значком и на всё время открытия привязана к одному экрану. Раскрытие плавное (0,24 с), нижний край окна движется вместе с содержимым. Строка, по которой кликнули, остаётся на месте.</figcaption></figure>
+</div>
+
+<h2>Как управлять</h2>
+<div class="note">
+<b>Клик по значку</b> — трей. <b>⌥-клик</b> — настройки. <b>Правый клик / ⌃-клик</b> — короткое меню: настройки, «Подключить все экраны», «Переопределить экраны», «Не гасить экраны», «Отключать встроенный», «Об OpenDisplay», «Выйти».
+<b>Esc</b> или клик мимо закрывает трей. Кнопка <b>📌</b> закрепляет трей: он не закрывается от кликов мимо (аналог «открепляемого меню» BetterDisplay).
+<b>⌥-клик по шапке экрана</b> показывает на самом мониторе, какой это экран.
+</div>
+
+<h2>Каждая функция</h2>
+
+<div class="row"><img src="img/01-main.png" alt=""><div>
+<h3>Секция экрана</h3>
+<ul>
+<li><b>Шапка:</b> значок (синий с «M» — основной экран), имя, режим (размер · Гц · HiDPI). Клик сворачивает секцию, это запоминается. <b>Переключатель</b> отключает экран; последний активный отключить нельзя.</li>
+<li><b>Яркость:</b> один ползунок. Сам выбирает путь: встроенный → DisplayServices, внешний → DDC, если DDC не работает или включено «Программная яркость» → гамма. Под ползунком написан выбранный способ.</li>
+<li><b>Разрешение:</b> ползунок по размерам с родным соотношением сторон. Зелёные точки — родное и рекомендуемое macOS. Пока тянешь, показывает размер; отпустишь — применяет.</li>
+<li><b>Громкость:</b> по DDC, только если монитор её отдаёт. Значок динамика — выключить/включить звук.</li>
+<li><b>«Ещё»</b> раскрывает все настройки этого экрана.</li>
+</ul></div></div>
+
+<div class="row"><img src="img/02-more.png" alt=""><div>
+<h3>«Ещё» — меню экрана</h3>
+<p>Как device menu у BetterDisplay: режим, частота, переключатели, изображение, управление монитором (DDC), источник сигнала, цветовой режим монитора, цветовой профиль, поворот, зеркалирование, картинка в картинке, управление экраном. Справа — текущее значение. Можно раскрыть несколько пунктов сразу, соседние не прячутся и не закрываются.</p>
+</div></div>
+
+<div class="row"><img src="img/03-mode-builtin.png" alt=""><div>
+<h3>Режим экрана</h3>
+<ul>
+<li><b>«Родные и рекомендуемые»</b> всегда сверху. «Родное» = картинка 1:1 без масштабирования, самая чёткая. Например, у MacBook это 1440×932 HiDPI и 2880×1864; «по умолч.» — то, что выбирает macOS (1710×1107).</li>
+<li><b>★</b> добавляет режим в «Избранные».</li>
+<li>По умолчанию одна строка на размер. Галочка «Показывать все варианты» — все частоты и варианты без HiDPI.</li>
+<li>Служебные режимы, которые macOS помечает как непригодные для рабочего стола, отфильтрованы (у SunWind таких было 49 из 104).</li>
+</ul></div></div>
+
+<div class="row"><img src="img/03-mode-external.png" alt=""><div>
+<h3>Режим экрана — SunWind</h3>
+<p>Родное 2560×1440 (75/60/50 Гц), 1280×720 HiDPI — тоже 1:1 по пикселям. Ниже остальные размеры. Масштабированные размеры ниже родного выглядят мягче, это видно по отсутствию метки «родное».</p>
+</div></div>
+
+<div class="row"><img src="img/04-refresh.png" alt=""><div>
+<h3>Частота обновления</h3>
+<p>Частоты для текущего размера и плотности. Пункт показывается, только если частот больше одной.</p>
+</div></div>
+
+<div class="row"><img src="img/16-confirm.png" alt=""><div>
+<h3>Подтверждение нового режима</h3>
+<ul>
+<li>После смены разрешения или частоты внизу всплывает плашка «Оставить новый режим?» с именем экрана и таймером. Она поверх содержимого и ничего не сдвигает.</li>
+<li>Без ответа режим сам вернётся через 10 с — страховка от чёрного экрана.</li>
+<li><b>Двигать ползунок или выбирать режим этого же экрана дальше можно сразу:</b> предыдущий шаг сохраняется, новый получает свой таймер.</li>
+<li>Перестройка экранов при смене режима теперь идёт в фоновом потоке, а не в главном, где раньше подвешивала весь OpenDisplay (замер не делался).</li>
+</ul></div></div>
+
+<div class="row"><img src="img/05-toggles.png" alt=""><div>
+<h3>Переключатели</h3>
+<p>HiDPI (если для текущего размера есть вариант с другой плотностью), «Основной экран», «Затемнить полностью» (Black Out — недоступно, если это последний светящийся экран), «Свет для камеры», «Усиление XDR» (встроенный XDR, Labs), «Программная яркость» (внешний, если монитор игнорирует DDC).</p>
+</div></div>
+
+<div class="row"><img src="img/06-image.png" alt=""><div>
+<h3>Изображение</h3>
+<p>Цветовая температура и программное затемнение со способом «Гамма / Слой / Оба». Действуют до выхода из OpenDisplay.</p>
+</div></div>
+
+<div class="row"><img src="img/07-device.png" alt=""><div>
+<h3>Управление монитором (DDC)</h3>
+<p>Все DDC-регуляторы, которые монитор отдаёт: контраст, громкость, резкость, усиление R/G/B. Питание: «Режим ожидания» и «Выключить». Сброс к заводским — в два клика. Если монитор не отвечает по DDC, есть подсказка и кнопка «Повторить опрос».</p>
+<p><b>Важно для SunWind через Ugreen:</b> значения читаются из монитора, но меняется ли от них картинка физически, не подтверждено. Поэтому для этого монитора включена программная яркость.</p>
+</div></div>
+
+<div class="row"><img src="img/08-input.png" alt=""><div>
+<h3>Источник сигнала</h3>
+<p>Переключение входа по DDC. Монитор сейчас сообщает код 50: его нет в стандартном списке MCCS, поэтому он показан как «Код 50».</p>
+</div></div>
+
+<div class="row"><img src="img/09-colormode.png" alt=""><div>
+<h3>Цветовой режим монитора</h3>
+<p>Пресеты монитора (VCP 0x14). «Определить поддерживаемые режимы» запускается только вручную: у части мониторов этот запрос подвешивает DDC до выключения питания.</p>
+</div></div>
+
+<div class="row"><img src="img/10-profile.png" alt=""><div>
+<h3>Цветовой профиль</h3>
+<p>«Заводской профиль» и все установленные RGB-профили ColorSync. Раньше список был пустым: macOS отдаёт тип как <code>"RGB "</code> с пробелом, и код отбрасывал все профили. Исправлено, теперь список работает и в окне настроек.</p>
+</div></div>
+
+<div class="row"><img src="img/11-rotation.png" alt=""><div>
+<h3>Поворот экрана</h3>
+<p>0/90/180/270°, если экспериментальный поворот включён и поддерживается. На этой macOS безопасный поворот недоступен — трей честно это пишет и ведёт в Labs или в системные «Дисплеи».</p>
+</div></div>
+
+<div class="row"><img src="img/12-mirror.png" alt=""><div>
+<h3>Зеркалирование</h3>
+<p>Для неосновного экрана — «Дублировать основной экран». Для основного — список экранов, на которые его показывать.</p>
+</div></div>
+
+<div class="row"><img src="img/13-pip.png" alt=""><div>
+<h3>Картинка в картинке и трансляция</h3>
+<p>Открывает окно захвата экрана (ScreenCaptureKit, поворот, отражение, LUT).</p>
+</div></div>
+
+<div class="row"><img src="img/14-manage.png" alt=""><div>
+<h3>Управление экраном</h3>
+<p>Сведения из EDID и CoreGraphics, «Показать на экране» (крупная подпись на самом мониторе) и «Все настройки…» — окно настроек сразу на этом экране.</p>
+</div></div>
+
+<div class="row"><img src="img/15-tools.png" alt=""><div>
+<h3>Инструменты (кнопка «…»)</h3>
+<p>«Экраны и виртуальные экраны»: подключить все, переопределить экраны, виртуальные экраны, «Не гасить экраны», «Отключать встроенный». «Сцены»: применить или сохранить. Ещё расположение, захват/PIP, EDID и HiDPI, автоматизация и HTTP, горячие клавиши и диагностика, экспорт диагностики, проверка обновлений.</p>
+</div></div>
+
+<h2>Сравнение с BetterDisplay</h2>
+<table>
+<tr><th>BetterDisplay</th><th>OpenDisplay</th><th>Состояние</th></tr>
+<tr><td>Секция экрана, шапка с переключателем, «M» у основного</td><td>Так же; плюс ⌥-клик «показать экран»</td><td class="ok">есть</td></tr>
+<tr><td>Ползунки яркости (combined), разрешения, громкости, контраста</td><td>Яркость, разрешение, громкость в секции; контраст — в «Управлении монитором» (у BD он по умолчанию тоже скрыт)</td><td class="ok">есть</td></tr>
+<tr><td>Display Mode, избранные, родные/рекомендуемые</td><td>Есть + фильтр служебных режимов</td><td class="ok">есть</td></tr>
+<tr><td>Refresh Rate, Rotation, Color Profile, Input Source, Device Control, Toggles, Manage Display</td><td>Есть (поворот на этой macOS выключен самим ядром)</td><td class="ok">есть</td></tr>
+<tr><td>Image Adjustments</td><td>Только температура и программное затемнение</td><td class="part">частично</td></tr>
+<tr><td>Mirror Display — на любой экран</td><td>Только с основным экраном (ограничение ядра)</td><td class="part">частично</td></tr>
+<tr><td>Picture in Picture / Stream Display</td><td>PIP — в окне захвата; трансляции экрана на экран нет</td><td class="part">частично</td></tr>
+<tr><td>Tools: подключить все, виртуальные экраны, группы, сцены</td><td>Есть; создание виртуальных экранов и группы — в окне настроек</td><td class="ok">есть</td></tr>
+<tr><td>Detachable menu, ⌥-клик по значку, правый клик</td><td>Закрепление 📌, ⌥-клик → настройки, правый клик → короткое меню</td><td class="ok">есть</td></tr>
+<tr><td>Color Mode (8/10 бит, RGB/YCbCr, HDR), Enable HDR</td><td>В ядре нет</td><td class="no">нет</td></tr>
+<tr><td>Night Shift / True Tone / тёмная тема в меню</td><td>В ядре нет</td><td class="no">нет</td></tr>
+<tr><td>Configuration Protection по экрану, Apple Display Presets, Notch</td><td>В ядре нет (есть защита расположения в настройках)</td><td class="no">нет</td></tr>
+</table>
+</main>
+</body>
+</html>

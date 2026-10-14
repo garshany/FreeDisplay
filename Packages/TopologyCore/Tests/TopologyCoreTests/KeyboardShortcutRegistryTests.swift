@@ -13,7 +13,7 @@ final class KeyboardShortcutRegistryTests: XCTestCase {
     func testDefaultsBindReconnectAllToCtrlOptCmdR() {
         let defaults = KeyboardShortcutRegistry.defaults
         XCTAssertEqual(defaults.binding(for: .reconnectAll), r)
-        XCTAssertNil(defaults.binding(for: .brightnessUp))   // unbound by default
+        XCTAssertEqual(defaults.binding(for: .brightnessUp), KeyBinding(keyCode: 0x78, modifiers: KeyBinding.shift))
         XCTAssertNil(defaults.binding(for: .faceLight))      // unbound by default, same as brightnessUp
     }
 
@@ -57,7 +57,7 @@ final class KeyboardShortcutRegistryTests: XCTestCase {
         reg.setBinding(up, for: .reconnectAll)    // override the default reconnect chord
         let merged = reg.mergedWithDefaults()
         XCTAssertEqual(merged.binding(for: .reconnectAll), up)        // override wins
-        XCTAssertNil(merged.binding(for: .brightnessUp))             // still unbound (no default)
+        XCTAssertEqual(merged.binding(for: .brightnessUp), KeyBinding(keyCode: 0x78, modifiers: KeyBinding.shift))
     }
 
     func testCodableRoundTripsIncludingUnknownKeyTolerance() throws {

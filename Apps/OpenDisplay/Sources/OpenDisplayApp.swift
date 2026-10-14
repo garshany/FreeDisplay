@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import Combine
 import SwiftUI
 
 /// Menu-bar-first entry point (PRD UX-001). `LSUIElement` keeps it out of the Dock. The menu bar AND
@@ -70,30 +71,26 @@ private struct SettingsSceneRedirect: NSViewRepresentable {
     }
 }
 
-/// Owns the menu-bar status item + popover and the shared `AppModel`, and receives `opendisplay://`
+/// Owns the menu-bar status item + tray panel and the shared `AppModel`, and receives `opendisplay://`
 /// URL activations (Issue 4).
 ///
 /// Why AppKit instead of `MenuBarExtra`: with several displays, SwiftUI's `MenuBarExtra(.window)`
-/// pop-out frequently opens on the *wrong* screen (often the opposite one from the click). An
-/// `NSPopover` shown `relativeTo:` the clicked status-item button always anchors below the icon on the
-/// screen the user clicked, and — with "Displays have separate Spaces" — stays there even when a
-/// set-main changes the primary display. The Keep/Revert confirmation lives inside that pop-out.
+/// pop-out frequently opens on the *wrong* screen. The tray is a panel pinned under the clicked
+/// status-item button (`TrayPanelController`) — unlike the earlier `NSPopover` it never re-centres or
+/// jumps when a section expands. The Keep/Revert confirmation lives inside that panel.
+///
+/// Icon clicks follow BetterDisplay: left — tray, ⌥-left — Settings, right/⌃ — the quick menu.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
     private var statusItem: NSStatusItem?
-    private let popover = NSPopover()
+    private lazy var tray = TrayPanelController(model: model)
+    private var pendingRevertWatch: AnyCancellable?
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
     private var settingsKeyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        popover.behavior = .transient
-        popover.animates = false
-        let controller = NSHostingController(rootView: MenuBarView().environmentObject(model))
-        controller.sizingOptions = [.preferredContentSize]
-        popover.contentViewController = controller
-
         // Close the pop-out when an action that re-lays-out the displays is picked (e.g. Set as Main):
         // otherwise the open pop-out, anchored to the status item, gets displaced to a random spot when
         // set-main relocates the menu bar to the new main display.
@@ -122,28 +119,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "OpenDisplay")
-        item.button?.action = #selector(togglePopover(_:))
+        item.button?.action = #selector(statusItemClicked(_:))
         item.button?.target = self
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         statusItem = item
+
+        // A mode change opens a short keep/revert window. Make sure its countdown is on screen even
+        // when the change didn't come from the tray (hotkey, URL, CLI) and Settings isn't open.
+        pendingRevertWatch = model.$pendingRevert
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak self] pending in
+                MainActor.assumeIsolated {
+                    guard pending, let self, let button = self.statusItem?.button, !self.tray.isShown,
+                          self.settingsWindow?.isVisible != true else { return }
+                    self.tray.show(from: button)
+                }
+            }
     }
 
-    @objc private func togglePopover(_ sender: Any?) {
+    @objc private func statusItemClicked(_ sender: Any?) {
         guard let button = statusItem?.button else { return }
-        if popover.isShown {
-            popover.performClose(sender)
+        let event = NSApp.currentEvent
+        let flags = event?.modifierFlags.intersection(.deviceIndependentFlagsMask) ?? []
+        if event?.type == .rightMouseUp || flags.contains(.control) {
+            tray.close()
+            let menu = TrayQuickMenu.make(model: model) { [weak self] in self?.showSettings() }
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+        } else if flags.contains(.option) {
+            showSettings()
         } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            guard let window = popover.contentViewController?.view.window else { return }
-            window.makeKey()
-            // AppKit hands initial key focus to the first control (the gear button), which paints an
-            // accent focus ring the moment the pop-out opens. Clear it — Tab still reaches every
-            // control for keyboard users; the ring just doesn't appear until they ask for it.
-            DispatchQueue.main.async { window.makeFirstResponder(nil) }
+            tray.toggle(from: button)
         }
     }
 
     @objc private func dismissPopover() {
-        if popover.isShown { popover.performClose(nil) }
+        tray.close()
     }
 
     /// Opening the app while it is already running (Finder, Spotlight, Launchpad) opens Settings.
@@ -166,10 +177,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             let hosting = NSHostingController(rootView: SettingsView().environmentObject(model))
             let created = NSWindow(contentViewController: hosting)
-            created.title = "OpenDisplay Settings"
-            created.styleMask = [.titled, .closable, .miniaturizable]
+            created.title = "Настройки OpenDisplay"
+            created.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             created.isReleasedWhenClosed = false
-            created.setContentSize(NSSize(width: 720, height: 520))
+            created.setContentSize(NSSize(width: 900, height: 660))
+            created.contentMinSize = NSSize(width: 760, height: 540)
             settingsWindow = created
             window = created
         }
@@ -195,7 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             let hosting = NSHostingController(rootView: AboutView().environmentObject(model))
             let created = NSWindow(contentViewController: hosting)
-            created.title = "About OpenDisplay"
+            created.title = "Об OpenDisplay"
             created.styleMask = [.titled, .closable]
             created.isReleasedWhenClosed = false
             aboutWindow = created
@@ -243,7 +255,7 @@ extension Notification.Name {
     /// Posted across processes by a second copy of the app as it bows out to the one already
     /// running (see `enforceSingleInstance`), asking that one to show its Settings window.
     static let openDisplayShowSettingsFromSibling = Notification.Name("dev.opendisplay.app.showSettings")
-    /// Posted by the menu's "About OpenDisplay" item; the delegate owns the About window.
+    /// Posted by the menu's "Об OpenDisplay" item; the delegate owns the About window.
     static let openDisplayShowAbout = Notification.Name("OpenDisplayShowAbout")
 }
 #endif

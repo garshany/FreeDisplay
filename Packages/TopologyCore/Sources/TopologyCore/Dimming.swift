@@ -38,6 +38,12 @@ public enum DimmingComposer {
     }
 
     /// `level` is the dim slider's value, 1 (no dimming) down to 0 (maximum), clamped.
+    /// Blackout owns the physical output until lifted; callers may still cache desired levels.
+    public static func application(method: DimmingMethod, desiredLevel: Float, blackedOut: Bool) -> Split? {
+        guard !blackedOut else { return nil }
+        return split(method: method, level: desiredLevel)
+    }
+
     public static func split(method: DimmingMethod, level: Float) -> Split {
         let level = min(max(level, 0), 1)
         let strength = 1 - level

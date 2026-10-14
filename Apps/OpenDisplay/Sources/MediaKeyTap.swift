@@ -17,12 +17,12 @@ final class MediaKeyTap {
     /// Handle a key. Return `true` if OpenDisplay acted on it (the event is then swallowed), `false` to
     /// let it pass through to macOS (e.g. a volume key with no DDC-audio-capable target). Invoked on the
     /// main actor (the tap runs on the main run loop), so it can touch `AppModel`.
-    private let handler: @MainActor (MediaKeyAction, _ fineStep: Bool) -> Bool
+    private let handler: @MainActor (MediaKeyAction, _ fineStep: Bool, _ shiftPressed: Bool) -> Bool
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
-    init(handler: @escaping @MainActor (MediaKeyAction, _ fineStep: Bool) -> Bool) {
+    init(handler: @escaping @MainActor (MediaKeyAction, _ fineStep: Bool, _ shiftPressed: Bool) -> Bool) {
         self.handler = handler
     }
 
@@ -41,7 +41,11 @@ final class MediaKeyTap {
     /// can't be created — the keys then reach macOS unchanged.
     @discardableResult
     func start() -> Bool {
-        guard eventTap == nil else { return true }
+        if let eventTap {
+            guard Self.isAccessibilityTrusted else { stop(); return false }
+            CGEvent.tapEnable(tap: eventTap, enable: true)
+            return isActive
+        }
         guard Self.isAccessibilityTrusted else { return false }
 
         let mask = CGEventMask(1 << 14) // NSEvent.EventType.systemDefined
@@ -59,6 +63,11 @@ final class MediaKeyTap {
         return true
     }
 
+    var isActive: Bool {
+        guard let eventTap else { return false }
+        return Self.isAccessibilityTrusted && CGEvent.tapIsEnabled(tap: eventTap)
+    }
+
     func stop() {
         if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: false) }
         if let source = runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
@@ -72,14 +81,14 @@ final class MediaKeyTap {
     }
 
     /// Dispatch a decoded media key to the handler; returns whether it was consumed.
-    func dispatch(_ action: MediaKeyAction, fineStep: Bool) -> Bool {
-        handler(action, fineStep)
+    func dispatch(_ action: MediaKeyAction, fineStep: Bool, shiftPressed: Bool) -> Bool {
+        handler(action, fineStep, shiftPressed)
     }
 
     /// Decode a systemDefined CGEvent into a media-key action (+ fine-step modifier), or nil if it isn't
     /// a media-key *press* we care about. `nonisolated` + pure of actor state — returns only Sendable
     /// values, so the C callback can do this outside the main-actor hop (CGEvent isn't Sendable).
-    nonisolated static func decode(_ cgEvent: CGEvent) -> (action: MediaKeyAction, fineStep: Bool)? {
+    nonisolated static func decode(_ cgEvent: CGEvent) -> (action: MediaKeyAction, fineStep: Bool, shiftPressed: Bool)? {
         guard let nsEvent = NSEvent(cgEvent: cgEvent), nsEvent.subtype.rawValue == 8 else { return nil }
         let data1 = nsEvent.data1
         let keyCode = Int((data1 & 0xFFFF_0000) >> 16)
@@ -87,7 +96,7 @@ final class MediaKeyTap {
         let isKeyDown = ((keyFlags & 0xFF00) >> 8) == 0x0A
         guard isKeyDown, let action = MediaKeyAction.from(nxKeyType: keyCode) else { return nil }
         let fineStep = nsEvent.modifierFlags.contains(.shift) && nsEvent.modifierFlags.contains(.option)
-        return (action, fineStep)
+        return (action, fineStep, nsEvent.modifierFlags.contains(.shift))
     }
 }
 
@@ -107,7 +116,7 @@ private func mediaKeyTapCallback(
     }
 
     guard let decoded = MediaKeyTap.decode(event) else { return Unmanaged.passUnretained(event) }
-    let consumed = MainActor.assumeIsolated { tap.dispatch(decoded.action, fineStep: decoded.fineStep) }
+    let consumed = MainActor.assumeIsolated { tap.dispatch(decoded.action, fineStep: decoded.fineStep, shiftPressed: decoded.shiftPressed) }
     return consumed ? nil : Unmanaged.passUnretained(event)
 }
 #endif

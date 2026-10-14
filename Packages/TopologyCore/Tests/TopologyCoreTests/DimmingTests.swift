@@ -95,4 +95,14 @@ final class DimmingTests: XCTestCase {
         XCTAssertEqual(DimmingComposer.split(method: .combined, level: -1),
                        DimmingComposer.split(method: .combined, level: 0))
     }
+    func testBlackoutDefersAllMethodsAndRestoresLatestDesiredLevel() {
+        for method in DimmingMethod.allCases {
+            for level: Float in [0.15, 0.4, 1] {
+                XCTAssertNil(DimmingComposer.application(method: method, desiredLevel: level, blackedOut: true))
+                XCTAssertEqual(DimmingComposer.application(method: method, desiredLevel: level, blackedOut: false),
+                               DimmingComposer.split(method: method, level: level))
+            }
+        }
+    }
+
 }

@@ -102,9 +102,22 @@ struct OSDHUDView: View {
     }
 
     var body: some View {
-        switch style {
-        case .minimal: minimalBody
-        default: squareBody
+        Group {
+            switch style {
+            case .minimal: minimalBody
+            default: squareBody
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
+    }
+
+    private var accessibilityDescription: String {
+        switch content.kind {
+        case .brightness: return "Яркость: \(content.percent)%"
+        case .volume: return "Громкость: \(content.percent)%"
+        case .mute: return "Звук выключен"
+        case .input: return "Источник сигнала: \(content.label ?? "не указан")"
         }
     }
 

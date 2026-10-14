@@ -28,12 +28,12 @@ enum HardwareControl: CaseIterable, Hashable {
     }
     var label: String {
         switch self {
-        case .contrast: return "Contrast"
-        case .volume: return "Volume"
-        case .sharpness: return "Sharpness"
-        case .redGain: return "Red gain"
-        case .greenGain: return "Green gain"
-        case .blueGain: return "Blue gain"
+        case .contrast: return "Контрастность"
+        case .volume: return "Громкость"
+        case .sharpness: return "Резкость"
+        case .redGain: return "Красный канал"
+        case .greenGain: return "Зелёный канал"
+        case .blueGain: return "Синий канал"
         }
     }
     var icon: String {
@@ -59,8 +59,8 @@ enum BrightnessMethod: String, Hashable {
     var caption: String? {
         switch self {
         case .native: return nil
-        case .hardware: return "Hardware · DDC"
-        case .software: return "Software · gamma"
+        case .hardware: return "Аппаратная · DDC"
+        case .software: return "Программная · гамма"
         }
     }
 }
@@ -89,7 +89,7 @@ enum FeatureFlags {
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var displays: [DisplayObservation] = []
-    @Published private(set) var statusText = "Scanning…"
+    @Published private(set) var statusText = "Поиск…"
     @Published private(set) var busy = false
     @Published private(set) var diagnostics: [DisplayDiagnostic] = []
     @Published private(set) var phase: DisplayLoadPhase = .scanning
@@ -152,10 +152,10 @@ final class AppModel: ObservableObject {
     /// menu offers the advertised codes (or a bounded 1...max guess) and labels the standard ones,
     /// falling back to "Preset N".
     static let presetNames: [Int: String] = [
-        1: "sRGB", 2: "Display native", 3: "4000K", 4: "5000K", 5: "6500K",
-        6: "7500K", 7: "8200K", 8: "9300K", 9: "10000K", 10: "11500K", 11: "User 1", 12: "User 2",
+        1: "sRGB", 2: "Заводской", 3: "4000K", 4: "5000K", 5: "6500K",
+        6: "7500K", 7: "8200K", 8: "9300K", 9: "10000K", 10: "11500K", 11: "Пользовательский 1", 12: "Пользовательский 2",
     ]
-    func presetName(_ code: Int) -> String { Self.presetNames[code] ?? "Preset \(code)" }
+    func presetName(_ code: Int) -> String { Self.presetNames[code] ?? "Режим \(code)" }
 
     /// Common DDC/CI input-source codes (VCP 0x60). Monitors mostly follow these; the menu shows the
     /// live code too, so a non-standard panel is still legible.
@@ -166,7 +166,7 @@ final class AppModel: ObservableObject {
 
     /// Human label for a DDC input code, or "Code N" if non-standard.
     func inputName(_ code: Int) -> String {
-        Self.standardInputs.first { $0.code == code }?.name ?? "Code \(code)"
+        Self.standardInputs.first { $0.code == code }?.name ?? "Код \(code)"
     }
 
     /// A display OpenDisplay turned off — remembered (and persisted) so it stays visible and
@@ -296,6 +296,8 @@ final class AppModel: ObservableObject {
     /// Live "Keep these settings?" prompt for an arrangement-altering change (Issue 6), or nil when no
     /// revert window is open. Drives the countdown banner; the UI calls `confirmArrangementChange()` /
     /// `revertArrangementChange()`.
+    @Published private(set) var modeChangeError: String?
+    private var modeChangeInProgress = false
     @Published private(set) var pendingRevert: PendingRevert?
     /// UI state for the timed auto-revert banner.
     struct PendingRevert: Equatable { var message: String; var secondsRemaining: Int }
@@ -518,7 +520,7 @@ final class AppModel: ObservableObject {
         if let screen = observation.cgDisplayID.flatMap(Self.screen(for:)) {
             return screen.localizedName
         }
-        if observation.displayClass == .builtIn { return "Built-in Display" }
+        if observation.displayClass == .builtIn { return "Встроенный экран" }
         if let mode = observation.mode {
             return "\(observation.displayClass.rawValue.capitalized) · \(mode.pixelWidth)×\(mode.pixelHeight)"
         }
@@ -557,10 +559,10 @@ final class AppModel: ObservableObject {
         // Probes are static for a given environment, so republish only when something actually changed
         // (this is read on every topology event to drive the menu-bar "degraded" banner via isDegraded).
         let updated = [
-            DisplayDiagnostic(provider: "Core Graphics (observation)", status: observation.status.rawValue,
+            DisplayDiagnostic(provider: "Core Graphics (наблюдение)", status: observation.status.rawValue,
                               risk: observation.risk.rawValue, experimental: observer.isExperimental,
                               reasons: observation.reasons.map(\.rawValue)),
-            DisplayDiagnostic(provider: "Lifecycle (disconnect / reconnect)", status: lifecycleProbe.status.rawValue,
+            DisplayDiagnostic(provider: "Отключение и восстановление", status: lifecycleProbe.status.rawValue,
                               risk: lifecycleProbe.risk.rawValue, experimental: lifecycle.isExperimental,
                               reasons: lifecycleProbe.reasons.map(\.rawValue))
         ]
@@ -686,7 +688,8 @@ final class AppModel: ObservableObject {
 
     /// Expresses one dim level through the current method's gamma/overlay split.
     private func applyDim(level: Float, id: DisplayRecordID, cgID: CGDirectDisplayID) {
-        let split = DimmingComposer.split(method: settings.dimmingMethod, level: level)
+        guard let split = DimmingComposer.application(method: settings.dimmingMethod,
+            desiredLevel: level, blackedOut: blackedOut.contains(id)) else { return }
         writeGamma(level: split.gammaLevel, id: id, cgID: cgID)
         dimOverlay.setAlpha(split.overlayAlpha, for: cgID)
     }
@@ -1021,6 +1024,12 @@ final class AppModel: ObservableObject {
             blackedOut.remove(id)
             applyDim(level: softwareDim[id] ?? 1.0, id: id, cgID: cgID)
         } else {
+            // Never black out the last visible screen: with every panel at gamma 0 there is nothing
+            // left to click to undo it (any entry point — menu, hotkey, URL — goes through here).
+            let anotherLit = displays.contains {
+                $0.recordID != id && $0.isActive && !blackedOut.contains($0.recordID)
+            }
+            guard anotherLit else { return }
             blackedOut.insert(id)
             observer.setGammaDim(0.0, for: cgID)
             dimOverlay.remove(for: cgID)  // gamma 0 is already fully black; restore recreates it
@@ -1031,23 +1040,25 @@ final class AppModel: ObservableObject {
     func displayInfo(for observation: DisplayObservation) -> [(label: String, value: String)] {
         guard let cgID = observation.cgDisplayID else { return [] }
         var info: [(String, String)] = [
-            ("Name", displayName(for: observation)),
-            ("Type", observation.displayClass == .builtIn ? "Built-in" : "External"),
+            ("Название", displayName(for: observation)),
+            ("Тип", observation.displayClass == .builtIn ? "Встроенный" : "Внешний"),
         ]
         let vendor = CGDisplayVendorNumber(cgID)
         let model = CGDisplayModelNumber(cgID)
         let serial = CGDisplaySerialNumber(cgID)
-        if vendor != 0, vendor != 0xFFFF_FFFF { info.append(("Vendor", String(vendor))) }
-        if model != 0, model != 0xFFFF_FFFF { info.append(("Model", String(model))) }
-        if serial != 0 { info.append(("Serial", String(serial))) }
+        if vendor != 0, vendor != 0xFFFF_FFFF { info.append(("Производитель", String(vendor))) }
+        if model != 0, model != 0xFFFF_FFFF { info.append(("Модель", String(model))) }
+        if serial != 0 { info.append(("Серийный номер", String(serial))) }
         if let mode = observation.mode {
-            info.append(("Native", "\(mode.pixelWidth) × \(mode.pixelHeight)"))
-            info.append(("Refresh", "\(Int(mode.refreshHz.rounded())) Hz"))
+            info.append(("Рабочая область", "\(mode.pointWidth) × \(mode.pointHeight) логических точек"))
+            info.append(("Буфер изображения", "\(mode.pixelWidth) × \(mode.pixelHeight) пикселей"))
+            info.append(("Частота", mode.refreshHz > 0 ? String(format: "%.2f Гц", mode.refreshHz) : "Не сообщена macOS"))
+            info.append(("Плотность", mode.isHiDPI ? "HiDPI" : "Без HiDPI"))
         }
         let size = CGDisplayScreenSize(cgID)
         if size.width > 0, size.height > 0 {
             let inches = (size.width * size.width + size.height * size.height).squareRoot() / 25.4
-            info.append(("Size", String(format: "%.1f-inch", inches)))
+            info.append(("Размер", String(format: "%.1f дюйма", inches)))
         }
         return info
     }
@@ -1069,7 +1080,7 @@ final class AppModel: ObservableObject {
         await refresh()
         await noteLayoutSelfChange()
         sceneWarning = rotationSkipped
-            ? "Applied. Rotation in this scene was skipped — not supported on this macOS version."
+            ? "Применено. Поворот из сцены пропущен: эта версия macOS его не поддерживает."
             : nil
     }
 
@@ -1205,7 +1216,7 @@ final class AppModel: ObservableObject {
         }
         // Guard against a no-op republish: the active/total count string is usually unchanged across
         // a refresh, and reassigning @Published fires objectWillChange and re-evaluates every view.
-        let status = "\(snapshot.activeDisplays.count) active · \(snapshot.observations.count) total"
+        let status = "Активных: \(snapshot.activeDisplays.count) · всего: \(snapshot.observations.count)"
         if statusText != status { statusText = status }
         phase = displays.isEmpty ? .empty : .ready
         await resolveRecords(snapshot)
@@ -1248,6 +1259,11 @@ final class AppModel: ObservableObject {
     func refreshBrightness(for observation: DisplayObservation) async {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
+        if settings.softwareBrightnessDisplayIDs.contains(id.rawValue) {
+            brightnessMethod[id] = .software
+            brightness[id] = softwareDim[id] ?? 1
+            return
+        }
         #if !PUBLIC_API_ONLY
         // Apple's own externals (Pro Display XDR, Studio Display) have no DDC; their backlight is
         // driven through DisplayServices exactly like the built-in panel, so they take the native
@@ -1262,6 +1278,7 @@ final class AppModel: ObservableObject {
         if nativeCapable, let value = await Task.detached(priority: .userInitiated, operation: {
             control.brightness(for: cgID)
         }).value {
+            guard !settings.softwareBrightnessDisplayIDs.contains(id.rawValue) else { return }
             clearBrightnessDim(id: id, cgID: cgID)
             brightness[id] = value
             brightnessMethod[id] = .native
@@ -1277,6 +1294,7 @@ final class AppModel: ObservableObject {
             let vcp = ExternalDisplayDDC.Feature.brightness.rawValue
             if ddcProbe[id, default: DDCProbeTracker()].admitProbe(vcp) {
                 if let reading = await controller.read(vcp: vcp), reading.max > 0 {
+                    guard !settings.softwareBrightnessDisplayIDs.contains(id.rawValue) else { return }
                     ddcProbe[id, default: DDCProbeTracker()].recordSuccess(vcp)
                     // Hardware brightness just (re)appeared — lift any leftover software-gamma dim
                     // from the fallback era, or the two dimming layers stack and the panel stays
@@ -1312,7 +1330,9 @@ final class AppModel: ObservableObject {
     /// The caption for a display's brightness slider ("Hardware · DDC", "Software · gamma"), or nil for
     /// native control where no qualifier is needed.
     func brightnessCaption(for observation: DisplayObservation) -> String? {
-        brightnessMethod[observation.recordID]?.caption
+        brightnessMethod[observation.recordID] == .software
+            ? "Программная · \(settings.dimmingMethod == .gamma ? "гамма" : settings.dimmingMethod == .overlay ? "чёрный слой" : "комбинированная")"
+            : brightnessMethod[observation.recordID]?.caption
     }
 
     /// Sets a display's brightness (0...1) through whichever route was resolved for it, updating the
@@ -1334,7 +1354,9 @@ final class AppModel: ObservableObject {
         #if PUBLIC_API_ONLY
         let method = BrightnessMethod.software
         #else
-        let method = brightnessMethod[id] ?? (observation.displayClass == .builtIn ? .native : .hardware)
+        let method = settings.softwareBrightnessDisplayIDs.contains(id.rawValue)
+            ? BrightnessMethod.software
+            : brightnessMethod[id] ?? (observation.displayClass == .builtIn ? .native : .hardware)
         #endif
         switch method {
         case .native:
@@ -1356,9 +1378,10 @@ final class AppModel: ObservableObject {
         case .software:
             let gamma = max(0.15, value)
             softwareDim[id] = gamma
-            writeGamma(level: gamma, id: id, cgID: cgID)  // brightness emulation keeps the warmth
+            applyDim(level: gamma, id: id, cgID: cgID)
         }
-        presentOSD(kind: .brightness, value: value, for: observation)  // Batch-3 #4
+        // Batch-3 #4: the HUD confirms key presses; a slider already shows its own value.
+        if origin != .slider { presentOSD(kind: .brightness, value: value, for: observation) }
         syncGroupBrightness(value, from: observation, token: syncToken, origin: origin)  // Issue #39
     }
 
@@ -1495,7 +1518,9 @@ final class AppModel: ObservableObject {
         #if PUBLIC_API_ONLY
         let method = BrightnessMethod.software
         #else
-        let method = brightnessMethod[id] ?? (observation.displayClass == .builtIn ? .native : .hardware)
+        let method = settings.softwareBrightnessDisplayIDs.contains(id.rawValue)
+            ? BrightnessMethod.software
+            : brightnessMethod[id] ?? (observation.displayClass == .builtIn ? .native : .hardware)
         #endif
         switch method {
         case .native:
@@ -1509,7 +1534,7 @@ final class AppModel: ObservableObject {
         case .software:
             let gamma = max(0.15, value)
             softwareDim[id] = gamma
-            writeGamma(level: gamma, id: id, cgID: cgID)
+            applyDim(level: gamma, id: id, cgID: cgID)
         }
     }
 
@@ -1615,9 +1640,9 @@ final class AppModel: ObservableObject {
     private func drainDDCWrites(_ id: DisplayRecordID, _ observation: DisplayObservation) async {
         guard let controller = await ddcController(for: observation) else { ddcWriters[id] = nil; return }
         let vcp = ExternalDisplayDDC.Feature.brightness.rawValue
-        while true {
+        while !Task.isCancelled && !settings.softwareBrightnessDisplayIDs.contains(id.rawValue) {
             var lastTarget: Int?
-            while let target = ddcTarget[id] {
+            while !Task.isCancelled, !settings.softwareBrightnessDisplayIDs.contains(id.rawValue), let target = ddcTarget[id] {
                 ddcTarget[id] = nil
                 lastTarget = target
                 await controller.write(.brightness, target)
@@ -1784,7 +1809,8 @@ final class AppModel: ObservableObject {
     /// I2C writes the same way brightness does. `isGroupSync` marks a write this model is fanning out
     /// on a group's behalf, so it doesn't mirror straight back (Issue #39).
     func setHardwareControl(_ control: HardwareControl, _ value: Float,
-                            for observation: DisplayObservation, isGroupSync: Bool = false) {
+                            for observation: DisplayObservation, isGroupSync: Bool = false,
+                            showsOSD: Bool = true) {
         #if !PUBLIC_API_ONLY
         guard observation.displayClass != .builtIn else { return }
         let id = observation.recordID
@@ -1794,7 +1820,7 @@ final class AppModel: ObservableObject {
         if ddcControlWriter[key] == nil {
             ddcControlWriter[key] = Task { [weak self] in await self?.drainHardwareWrites(key, control, observation) }
         }
-        if control == .volume { presentOSD(kind: .volume, value: value, for: observation) }  // Batch-3 #4
+        if control == .volume, showsOSD { presentOSD(kind: .volume, value: value, for: observation) }  // Batch-3 #4
         if control == .contrast, !isGroupSync { syncGroupContrast(value, from: observation) }  // Issue #39
         #endif
     }
@@ -1884,15 +1910,15 @@ final class AppModel: ObservableObject {
     func switchInputByHotkey(_ entry: InputSwitchBinding) async {
         #if !PUBLIC_API_ONLY
         guard let observation = displays.first(where: { $0.recordID == entry.displayID }) else {
-            await notifyInputSwitchFailed(entry.displayID, reason: "is offline")
+            await notifyInputSwitchFailed(entry.displayID, reason: "отключён")
             return
         }
         guard let controller = await ddcController(for: observation) else {
-            await notifyInputSwitchFailed(entry.displayID, reason: "has no DDC control")
+            await notifyInputSwitchFailed(entry.displayID, reason: "не поддерживает управление DDC")
             return
         }
         guard await controller.write(.inputSource, entry.inputCode) else {
-            await notifyInputSwitchFailed(entry.displayID, reason: "rejected the input switch")
+            await notifyInputSwitchFailed(entry.displayID, reason: "отклонил смену источника сигнала")
             return
         }
         inputSource[entry.displayID] = entry.inputCode
@@ -1907,7 +1933,7 @@ final class AppModel: ObservableObject {
     private func notifyInputSwitchFailed(_ displayID: DisplayRecordID, reason: String) async {
         let name = await registry?.record(for: displayID)?.displayName ?? displayID.rawValue
         NotificationDelivery.post(NotificationPolicy.DisplayNotification(
-            title: "Input switch failed", body: "\(name) \(reason)."
+            title: "Не удалось сменить источник сигнала", body: "\(name) \(reason)."
         ))
     }
     #endif
@@ -2432,31 +2458,31 @@ final class AppModel: ObservableObject {
         let clockTarget = clockOn ? clockScheduleBrightness(atMinute: minuteOfDay, on: now) : nil
         if let clockTarget {
             // Clock Mode governs brightness and outranks the adaptive mirror.
-            parts.append("clock \(Int((clockTarget * 100).rounded()))%")
+            parts.append("по расписанию \(Int((clockTarget * 100).rounded()))%")
         } else if settings.adaptiveBrightnessSyncEnabled || settings.adaptiveLocationModeEnabled {
             if let manualAt = state?.manualBrightnessAt,
                Date() < manualAt.addingTimeInterval(settings.adaptiveConfig.manualCooldown) {
-                parts.append("brightness paused (manual)")
+                parts.append("яркость приостановлена вручную")
             } else if settings.adaptiveBrightnessSyncEnabled,
                       displays.contains(where: { $0.displayClass == .builtIn && $0.isActive }) {
                 let offset = Int(((state?.brightnessOffset ?? 0) * 100).rounded())
-                parts.append(offset == 0 ? "following built-in"
-                                         : String(format: "following built-in (%+d%%)", offset))
+                parts.append(offset == 0 ? "синхронизация со встроенным экраном"
+                                         : "синхронизация со встроенным экраном (" + String(format: "%+d%%", offset) + ")")
             } else if settings.adaptiveBrightnessSyncEnabled, let lux = ambientLuxEMA {
-                parts.append("following room light (\(Int(lux.rounded())) lx)")
+                parts.append("по освещению комнаты (\(Int(lux.rounded())) лк)")
             } else if let elevation = locationElevationDegrees(at: now) {
-                parts.append("following sun position (\(Int(elevation.rounded()))°)")
+                parts.append("по положению солнца (\(Int(elevation.rounded()))°)")
             } else {
-                parts.append("on schedule (no light sensor)")
+                parts.append("по расписанию (нет датчика освещения)")
             }
         }
         if settings.adaptiveWarmthEnabled {
-            parts.append(state?.warmthPhase == .evening ? "evening warmth active" : "day colour")
+            parts.append(state?.warmthPhase == .evening ? "вечерний тёплый режим включён" : "дневной цветовой режим")
         }
         guard !parts.isEmpty else { return nil }
         let usesAdaptive = settings.adaptiveBrightnessSyncEnabled || settings.adaptiveWarmthEnabled
             || settings.adaptiveLocationModeEnabled
-        let prefix = usesAdaptive ? "Adaptive: " : "Clock Mode: "
+        let prefix = usesAdaptive ? "Адаптивное управление: " : "Расписание: "
         return prefix + parts.joined(separator: " · ")
     }
 
@@ -2793,7 +2819,7 @@ final class AppModel: ObservableObject {
 
     /// The "synced with <group>" caption for a display's detail row, or nil when it isn't grouped.
     func groupSyncCaption(for observation: DisplayObservation) -> String? {
-        displayGroup(containing: observation.recordID).map { "Synced with \($0.name)" }
+        displayGroup(containing: observation.recordID).map { "Синхронизация с \($0.name)" }
     }
 
     /// A name for a display that may not be present right now: its live/aliased name when the
@@ -3011,10 +3037,52 @@ final class AppModel: ObservableObject {
     /// topology. A bad/blank resolution can leave a display unreadable, so the change is checkpointed
     /// and reverts itself unless confirmed within the window.
     func setMode(_ mode: DisplayMode, for observation: DisplayObservation) async {
-        guard let cgID = observation.cgDisplayID else { return }
-        await applyWithRevert("Resolution changed on \(displayName(for: observation))") {
-            _ = self.observer.applyArrangement([.init(displayID: cgID, origin: nil, mode: mode)])
+        guard !modeChangeInProgress, pendingRevert == nil else {
+            modeChangeError = "Сначала подтвердите или отмените предыдущее изменение режима."
+            return
         }
+        modeChangeError = nil
+        guard let cgID = observation.cgDisplayID, DisplayModeChoices.isValid(mode) else {
+            modeChangeError = "Экран или выбранный режим недоступен."
+            return
+        }
+        modeChangeInProgress = true
+        defer { modeChangeInProgress = false }
+        let before = await observer.currentSnapshot().observations
+        guard let prior = before.first(where: { $0.cgDisplayID == cgID && $0.recordID == observation.recordID }), prior.isActive else {
+            modeChangeError = "Экран больше не активен. Обновите список экранов."
+            return
+        }
+        if let actual = prior.mode, DisplayModeChoices.matches(actual, requested: mode) { return }
+        guard observer.allModes(for: cgID).contains(where: { DisplayModeChoices.matches($0, requested: mode) }) else {
+            modeChangeError = "Этот точный режим больше недоступен. Другой буфер или частота автоматически не подставляются."
+            return
+        }
+        // Persist the original arrangement BEFORE the write so a crash during verification can recover.
+        Self.writeRevertMarker(before)
+        // CGCompleteDisplayConfiguration blocks until the displays are reconfigured (often 1–3 s on
+        // HDMI). Off the main actor, so the menu and the rest of the app stay responsive meanwhile.
+        let observer = self.observer
+        let warnings = await Task.detached(priority: .userInitiated) {
+            observer.applyArrangement([.init(displayID: cgID, origin: nil, mode: mode)])
+        }.value
+        await refresh()
+        let actual = await observer.currentSnapshot().observations.first(where: { $0.cgDisplayID == cgID })?.mode
+        guard !Task.isCancelled, DisplayModeChoices.verifiedApply(warnings: warnings, actual: actual, requested: mode) else {
+            // Never offer Keep when the provider rejected the request or fresh readback differs.
+            await restoreArrangement(before)
+            let restored = await observer.currentSnapshot().observations.first(where: { $0.cgDisplayID == cgID })?.mode
+            let restorationVerified = prior.mode.map { expected in
+                restored.map { DisplayModeChoices.matches($0, requested: expected) } ?? false
+            } ?? false
+            if restorationVerified { Self.clearRevertMarker() }
+            modeChangeError = restorationVerified
+                ? "macOS не подтвердила выбранный режим. Предыдущий режим восстановлен."
+                : "macOS не подтвердила выбранный режим и восстановление. Используйте аварийное восстановление; сохранена запись предыдущих настроек."
+            return
+        }
+        await noteLayoutSelfChange()
+        beginRevertWindow(before: before, message: "Изменён режим: \(displayName(for: observation))")
     }
 
     /// Whether `mode` is a pinned favourite for this display (Batch-2 #3).
@@ -3087,21 +3155,6 @@ final class AppModel: ObservableObject {
     /// Countdown length for the resolution revert window (clamped to a sane minimum).
     private var arrangementRevertSeconds: Int { max(3, settings.arrangementAutoRevertSeconds) }
 
-    /// Applies a **resolution** change behind a macOS-style timed auto-revert: snapshot the prior mode,
-    /// apply, then start a "Keep these settings?" countdown that restores it unless the user confirms.
-    /// Used for resolution only — a bad/blank mode can strand a display, whereas set-main and mirror
-    /// never leave a display unreadable, so those apply directly (reverting them just fights the user).
-    /// The auto-revert needs no input, so recovery is guaranteed even if the display became unreadable.
-    private func applyWithRevert(_ message: String, _ apply: () async -> Void) async {
-        // A change made while a window is still open keeps the prior one, then opens a fresh window.
-        if revertGate?.isPending == true { confirmArrangementChange() }
-        let before = await observer.currentSnapshot().observations
-        await apply()
-        await refresh()
-        await noteLayoutSelfChange()
-        beginRevertWindow(before: before, message: message)
-    }
-
     private func beginRevertWindow(before: [DisplayObservation], message: String) {
         let seconds = arrangementRevertSeconds
         revertGate = TimedRevertGate(before: before, deadline: Date().addingTimeInterval(Double(seconds)))
@@ -3164,7 +3217,10 @@ final class AppModel: ObservableObject {
             guard let cgID = obs.cgDisplayID else { return nil }
             return .init(displayID: cgID, origin: obs.origin, mode: obs.mode)
         }
-        if !targets.isEmpty { _ = observer.applyArrangement(targets) }
+        if !targets.isEmpty {
+            let observer = self.observer
+            _ = await Task.detached(priority: .userInitiated) { observer.applyArrangement(targets) }.value
+        }
         for obs in observations {
             guard let cgID = obs.cgDisplayID else { continue }
             _ = await observer.setMirroring(of: cgID, enabled: obs.isMirrored)
@@ -4099,9 +4155,12 @@ final class AppModel: ObservableObject {
         await setMain(for: actives[(idx + 1) % actives.count])
     }
 
-    /// Nudges the main display's brightness by `delta`, clamped to 0...1.
+    /// Nudges the configured brightness-key target, clamped to 0...1.
     func adjustMainBrightness(by delta: Float) async {
-        guard let main = displays.first(where: { $0.isMain }) else { return }
+        guard let main = MediaKeyTargetPolicy.target(
+            for: .brightnessUp, in: displays, cursor: cursorInCGCoordinates(),
+            mode: settings.mediaKeyTargetMode, volumeCapable: [], audioTarget: nil) else { return }
+        if brightnessMethod[main.recordID] == nil { await refreshBrightness(for: main) }
         let current = brightness[main.recordID] ?? 0.5
         setBrightness(max(0, min(1, current + delta)), for: main, origin: .keys)
     }
@@ -4141,7 +4200,9 @@ final class AppModel: ObservableObject {
     /// raise the OSD), and returns whether it acted — so the tap can swallow handled keys and let
     /// others (e.g. volume on the built-in) pass through to macOS.
     @discardableResult
-    func handleMediaKey(_ action: MediaKeyAction, fineStep: Bool) -> Bool {
+    func handleMediaKey(_ action: MediaKeyAction, fineStep: Bool, shiftPressed: Bool = false) -> Bool {
+        guard action.acceptsModifiers(shiftPressed: shiftPressed,
+            brightnessRequiresShift: settings.brightnessMediaKeysRequireShift) else { return false }
         // Volume/mute follow the system's default audio output (resolved at keypress); brightness
         // follows the configured target mode and ignores this.
         let audioTarget = action.isVolume ? audioOutputDisplayID() : nil
@@ -4162,16 +4223,22 @@ final class AppModel: ObservableObject {
             setHardwareControl(.volume, min(1, max(0, current + action.signedDelta(fineStep: fineStep))),
                                for: target)
         case .muteToggle:
-            // A volume of 0 already renders the speaker-slash glyph; toggle to 0 or back to the prior level.
-            let current = ddcControl(.volume, for: target) ?? 0
-            if current > 0 {
-                preMuteVolume[id] = current
-                setHardwareControl(.volume, 0, for: target)
-            } else {
-                setHardwareControl(.volume, preMuteVolume[id] ?? 0.5, for: target)
-            }
+            toggleMute(for: target)
         }
         return true
+    }
+
+    /// Mute toggle shared by the mute key and the menu's speaker icon. A volume of 0 already renders
+    /// the speaker-slash glyph, so "mute" is volume 0 with the prior level remembered for unmute.
+    func toggleMute(for observation: DisplayObservation) {
+        let id = observation.recordID
+        let current = ddcControl(.volume, for: observation) ?? 0
+        if current > 0 {
+            preMuteVolume[id] = current
+            setHardwareControl(.volume, 0, for: observation)
+        } else {
+            setHardwareControl(.volume, preMuteVolume[id] ?? 0.5, for: observation)
+        }
     }
 
     /// External displays that can take DDC audio (VCP 0x62) — the only valid volume-key targets. The
@@ -4216,8 +4283,8 @@ final class AppModel: ObservableObject {
     private func reconcileMediaKeyTap() {
         if settings.mediaKeyInterceptionEnabled {
             guard mediaKeyTap == nil else { return }
-            let tap = MediaKeyTap { [weak self] action, fineStep in
-                self?.handleMediaKey(action, fineStep: fineStep) ?? false
+            let tap = MediaKeyTap { [weak self] action, fineStep, shiftPressed in
+                self?.handleMediaKey(action, fineStep: fineStep, shiftPressed: shiftPressed) ?? false
             }
             mediaKeyTap = tap
             if !tap.start() {
@@ -4240,19 +4307,51 @@ final class AppModel: ObservableObject {
     private func armMediaKeyTapWhenTrusted(_ tap: MediaKeyTap) {
         mediaKeyTapRetry?.cancel()
         mediaKeyTapRetry = Task { [weak self] in
-            while !Task.isCancelled, !MediaKeyTap.isAccessibilityTrusted {
+            while !Task.isCancelled {
+                guard let self, self.settings.mediaKeyInterceptionEnabled else { return }
+                if MediaKeyTap.isAccessibilityTrusted && tap.start() && tap.isActive {
+                    self.mediaKeyTapRetry = nil
+                    self.objectWillChange.send()
+                    return
+                }
+                self.objectWillChange.send()
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
-            guard !Task.isCancelled else { return }
-            _ = tap.start()
-            self?.mediaKeyTapRetry = nil
-            self?.objectWillChange.send()  // Settings' "active" status row reads a computed var
         }
     }
 
     /// Whether the media-key tap is currently capturing keys (true only with the toggle on AND the
     /// Accessibility grant present). Drives the Settings status row.
-    var mediaKeysActive: Bool { mediaKeyTap != nil && MediaKeyTap.isAccessibilityTrusted }
+    var mediaKeysActive: Bool { mediaKeyTap?.isActive == true }
+
+    func retryMediaKeyCapture() {
+        mediaKeyTap?.stop()
+        mediaKeyTap = nil
+        reconcileMediaKeyTap()
+    }
+
+    func setBrightnessMediaKeysRequireShift(_ required: Bool) {
+        settings.brightnessMediaKeysRequireShift = required
+        persistSettings()
+    }
+
+    func setSoftwareBrightness(_ enabled: Bool, for observation: DisplayObservation) async {
+        let id = observation.recordID
+        if enabled {
+            settings.softwareBrightnessDisplayIDs.insert(id.rawValue)
+            #if !PUBLIC_API_ONLY
+            ddcWriters[id]?.cancel()
+            ddcWriters[id] = nil
+            ddcTarget[id] = nil
+            #endif
+            brightnessMethod[id] = .software
+            brightness[id] = softwareDim[id] ?? 1
+        } else {
+            settings.softwareBrightnessDisplayIDs.remove(id.rawValue)
+        }
+        persistSettings()
+        await refreshBrightness(for: observation)
+    }
 
     /// Toggle media-key interception (Batch-3 #3). Persists; prompts for Accessibility when enabling
     /// without the grant; reconciles the tap.

@@ -2,8 +2,9 @@
 import DisplayDomain
 import ProviderInterfaces
 
-/// ScreenCaptureKit-backed PIP / zoom / screenshots (PRD VIR-004..007, Core 1.x). Stub — capture
-/// sessions and permission handling land in M4. Requests no permission until a capture feature runs.
+/// Capability registration. CapturePanel owns explicitly initiated ScreenCaptureKit PIP sessions.
+/// Probe deliberately remains unknown: permission and live delivery are assessed when the user
+/// chooses a source. This provider never requests access during discovery/startup.
 public struct CaptureProvider: DisplayProvider {
     public let providerID = "capture.v1"
     public let isExperimental = false

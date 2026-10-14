@@ -52,6 +52,8 @@ final class SoftwareUpdater: NSObject {
     /// cycle (which begins on the next runloop pass) sees the settings the user actually chose.
     init(behavior: AutomaticUpdateBehavior) {
         super.init()
+        // Local forks must not be replaced with an upstream binary that lacks their changes.
+        guard !isLocalBuild else { return }
         apply(behavior)
         observeAutomaticDownloadPreference()
         updaterController.startUpdater()
@@ -68,6 +70,7 @@ final class SoftwareUpdater: NSObject {
     /// see `observeAutomaticDownloadPreference`. Sparkle re-schedules its cycle after either flag
     /// changes, so no explicit reset is needed here.
     func apply(_ behavior: AutomaticUpdateBehavior) {
+        guard !isLocalBuild else { return }
         updaterController.updater.automaticallyChecksForUpdates = behavior.checksForUpdates
         updaterController.updater.automaticallyDownloadsUpdates = behavior.downloadsAndInstalls
     }
@@ -80,6 +83,13 @@ final class SoftwareUpdater: NSObject {
     /// of its own is mid-flight — it drops the request silently, and a phase moved to `checking` would
     /// sit on a spinner no callback ever clears.
     func checkForUpdates() {
+        if isLocalBuild {
+            let alert = NSAlert()
+            alert.messageText = "Локальная открытая сборка"
+            alert.informativeText = "Обновляйте эту сборку из исходников проекта. Автоматическая установка исходной версии отключена, чтобы сохранить ваши доработки."
+            alert.runModal()
+            return
+        }
         guard updaterController.updater.canCheckForUpdates else { return }
         NotificationCenter.default.post(name: .openDisplayDismissMenu, object: nil)
         activateForUpdaterWindow()
@@ -109,6 +119,10 @@ final class SoftwareUpdater: NSObject {
     /// The running build's marketing version ("0.9.0"), the left-hand side of the downgrade guard.
     private var runningVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    }
+
+    private var isLocalBuild: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "OpenDisplayLocalBuild") as? Bool == true
     }
 
     private func record(_ event: SoftwareUpdateEvent) {

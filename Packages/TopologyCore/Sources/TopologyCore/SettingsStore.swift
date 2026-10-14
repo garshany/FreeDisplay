@@ -102,7 +102,11 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// itself into the new version). Opt-in, and inert while `updateCheckEnabled` is off — an updater
     /// that never looks at the feed has nothing to install.
     public var automaticUpdateDownloadEnabled: Bool
-    /// How the software dimming slider darkens a display (gamma table, overlay window, or both).
+    /// Displays whose brightness must not use DDC, even if the monitor answers reads.
+    public var softwareBrightnessDisplayIDs: Set<String>
+    /// Leave unmodified brightness media keys to macOS.
+    public var brightnessMediaKeysRequireShift: Bool
+    /// How software dimming darkens a display (gamma table, overlay window, or both).
     public var dimmingMethod: DimmingMethod
     /// App Presets (Issue #33): switch a display's brightness/contrast/colour preset when a chosen app
     /// becomes frontmost and restore the prior state when it leaves. Default off.
@@ -182,6 +186,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         updateCheckEnabled: Bool = true,
         automaticUpdateDownloadEnabled: Bool = false,
         dimmingMethod: DimmingMethod = .gamma,
+        softwareBrightnessDisplayIDs: Set<String> = [],
+        brightnessMediaKeysRequireShift: Bool = false,
         appPresetsEnabled: Bool = false,
         appPresets: [AppPresetPolicy.AppPreset] = [],
         appPresetPriorStateByDisplay: [String: AppPresetPolicy.PriorState] = [:],
@@ -227,6 +233,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.updateCheckEnabled = updateCheckEnabled
         self.automaticUpdateDownloadEnabled = automaticUpdateDownloadEnabled
         self.dimmingMethod = dimmingMethod
+        self.softwareBrightnessDisplayIDs = softwareBrightnessDisplayIDs
+        self.brightnessMediaKeysRequireShift = brightnessMediaKeysRequireShift
         self.appPresetsEnabled = appPresetsEnabled
         self.appPresets = appPresets
         self.appPresetPriorStateByDisplay = appPresetPriorStateByDisplay
@@ -274,6 +282,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case updateCheckEnabled
         case automaticUpdateDownloadEnabled
         case dimmingMethod
+        case softwareBrightnessDisplayIDs
+        case brightnessMediaKeysRequireShift
         case appPresetsEnabled
         case appPresets
         case appPresetPriorStateByDisplay
@@ -359,6 +369,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             ?? defaults.updateCheckEnabled
         automaticUpdateDownloadEnabled = container.lenient(Bool.self, forKey: .automaticUpdateDownloadEnabled)
             ?? defaults.automaticUpdateDownloadEnabled
+        softwareBrightnessDisplayIDs = container.lenient(Set<String>.self, forKey: .softwareBrightnessDisplayIDs) ?? []
+        brightnessMediaKeysRequireShift = container.lenient(Bool.self, forKey: .brightnessMediaKeysRequireShift) ?? false
         dimmingMethod = container.lenient(DimmingMethod.self, forKey: .dimmingMethod)
             ?? defaults.dimmingMethod
         appPresetsEnabled = container.lenient(Bool.self, forKey: .appPresetsEnabled)

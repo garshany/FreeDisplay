@@ -37,6 +37,10 @@ public enum MediaKeyAction: String, Hashable, Sendable, CaseIterable {
 
     public var isBrightness: Bool { !isVolume }
 
+    public func acceptsModifiers(shiftPressed: Bool, brightnessRequiresShift: Bool) -> Bool {
+        !isBrightness || !brightnessRequiresShift || shiftPressed
+    }
+
     /// +1 to raise, -1 to lower, 0 for a non-directional action (mute).
     public var sign: Float {
         switch self {
@@ -78,6 +82,8 @@ public enum MediaKeyTargetMode: String, Hashable, Sendable, Codable, CaseIterabl
     case mainDisplay
     /// Always the built-in panel (falls back to main).
     case builtInAlways
+    /// External under the pointer, otherwise the first active external; never the built-in.
+    case externalOnly
 }
 
 /// Chooses the display a media key should drive (Batch-3 #1). Pure.
@@ -115,6 +121,10 @@ public enum MediaKeyTargetPolicy {
                 ?? active.first { $0.isMain } ?? active.first
         case .mainDisplay:
             return active.first { $0.isMain } ?? active.first
+        case .externalOnly:
+            let external = active.filter { $0.displayClass == .external }
+            return cursor.flatMap { point in external.first { contains($0, point) } }
+                ?? external.first { $0.isMain } ?? external.first
         case .builtInAlways:
             return active.first { $0.displayClass == .builtIn }
                 ?? active.first { $0.isMain } ?? active.first

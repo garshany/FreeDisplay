@@ -25,6 +25,8 @@ public enum HotkeyAction: String, Hashable, Sendable, Codable, CaseIterable {
         switch self {
         // ⌃⌥⌘R — the always-available Reconnect-All (recovery hierarchy step 3).
         case .reconnectAll: return KeyBinding(keyCode: 0x0F, modifiers: KeyBinding.controlOptionCommand)
+        case .brightnessDown: return KeyBinding(keyCode: 0x7A, modifiers: KeyBinding.shift) // ⇧F1
+        case .brightnessUp: return KeyBinding(keyCode: 0x78, modifiers: KeyBinding.shift) // ⇧F2
         default: return nil
         }
     }
@@ -86,7 +88,7 @@ public struct KeyboardShortcutRegistry: Hashable, Sendable, Codable {
         self.inputSwitchBindings = inputSwitchBindings
     }
 
-    /// The shipped defaults (currently just Reconnect-All).
+    /// The shipped defaults (Reconnect-All and Shift-F1/F2 brightness).
     public static var defaults: KeyboardShortcutRegistry {
         var b: [HotkeyAction: KeyBinding] = [:]
         for action in HotkeyAction.allCases { if let d = action.defaultBinding { b[action] = d } }

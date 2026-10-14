@@ -42,7 +42,9 @@ enum ColorProfileService {
                 guard let url = info["com.apple.ColorSync.ProfileURL"] as? URL,
                       let name = info["com.apple.ColorSync.ProfileDescription"] as? String
                 else { return true }
-                if let space = info["com.apple.ColorSync.ProfileColorSpace"] as? String, space != "RGB" {
+                // ColorSync reports the ICC four-char code, padded: "RGB " — compare without the padding.
+                if let space = info["com.apple.ColorSync.ProfileColorSpace"] as? String,
+                   space.trimmingCharacters(in: .whitespaces) != "RGB" {
                     return true
                 }
                 list.pointee.append(ICCProfile(id: url.path, name: name, url: url))
@@ -67,9 +69,9 @@ enum ColorProfileService {
         }
         if let factory = info["FactoryProfiles"] as? NSDictionary,
            let url = factory.allValues.compactMap({ $0 as? URL }).first {
-            return (profileDescription(url) ?? url.deletingPathExtension().lastPathComponent) + " (factory)"
+            return (profileDescription(url) ?? url.deletingPathExtension().lastPathComponent) + " (заводской)"
         }
-        return "Factory default"
+        return "Заводской профиль"
     }
 
     private static func profileDescription(_ url: URL) -> String? {

@@ -425,4 +425,18 @@ final class SettingsStoreTests: XCTestCase {
         let decoded = try JSONDecoder().decode(OpenDisplaySettings.self, from: data)
         XCTAssertEqual(decoded.persistencePolicy, .reconnectOnWake)
     }
+    func testSoftwareBrightnessOverrideAndShiftPreferenceSurviveRoundTrip() throws {
+        var settings = OpenDisplaySettings.default
+        settings.softwareBrightnessDisplayIDs = ["sunwind-edid"]
+        settings.brightnessMediaKeysRequireShift = true
+        settings.mediaKeyTargetMode = .externalOnly
+        let decoded = try JSONDecoder().decode(OpenDisplaySettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertEqual(decoded.softwareBrightnessDisplayIDs, ["sunwind-edid"])
+        XCTAssertTrue(decoded.brightnessMediaKeysRequireShift)
+        XCTAssertEqual(decoded.mediaKeyTargetMode, .externalOnly)
+        let legacy = try JSONDecoder().decode(OpenDisplaySettings.self, from: Data("{}".utf8))
+        XCTAssertTrue(legacy.softwareBrightnessDisplayIDs.isEmpty)
+        XCTAssertFalse(legacy.brightnessMediaKeysRequireShift)
+    }
+
 }

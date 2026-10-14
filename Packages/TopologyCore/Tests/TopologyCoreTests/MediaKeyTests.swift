@@ -34,4 +34,11 @@ final class MediaKeyTests: XCTestCase {
         XCTAssertEqual(MediaKeyAction.volumeDown.signedDelta(fineStep: false), -1.0 / 16.0, accuracy: 1e-6)
         XCTAssertEqual(MediaKeyAction.muteToggle.signedDelta(fineStep: false), 0, accuracy: 1e-6)
     }
+    func testShiftRequirementLeavesUnmodifiedBrightnessToSystem() {
+        XCTAssertFalse(MediaKeyAction.brightnessDown.acceptsModifiers(shiftPressed: false, brightnessRequiresShift: true))
+        XCTAssertTrue(MediaKeyAction.brightnessUp.acceptsModifiers(shiftPressed: true, brightnessRequiresShift: true))
+        XCTAssertTrue(MediaKeyAction.brightnessUp.acceptsModifiers(shiftPressed: false, brightnessRequiresShift: false))
+        XCTAssertTrue(MediaKeyAction.volumeDown.acceptsModifiers(shiftPressed: false, brightnessRequiresShift: true))
+    }
+
 }

@@ -412,25 +412,22 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
 
     private nonisolated func modeSatisfied(_ id: CGDirectDisplayID, _ desired: DisplayMode) -> Bool {
         guard let current = CGDisplayCopyDisplayMode(id) else { return false }
-        // Compare the logical (point) size + HiDPI + refresh: a scaled HiDPI mode and a native mode
-        // can share pixel dimensions, so a pixel-only check would wrongly treat them as identical.
-        return current.width == desired.pointWidth && current.height == desired.pointHeight
-            && (current.pixelWidth > current.width) == desired.isHiDPI
-            && abs(current.refreshRate - desired.refreshHz) < 1
+        let actual = DisplayMode(pixelWidth: current.pixelWidth, pixelHeight: current.pixelHeight,
+            pointWidth: current.width, pointHeight: current.height,
+            refreshHz: current.refreshRate, isHiDPI: current.pixelWidth > current.width)
+        return DisplayModeChoices.matches(actual, requested: desired)
     }
 
     private nonisolated func bestMode(for id: CGDirectDisplayID, matching desired: DisplayMode) -> CGDisplayMode? {
         let options = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
         guard let modes = CGDisplayCopyAllDisplayModes(id, options) as? [CGDisplayMode] else { return nil }
-        // Prefer an exact logical (point) + HiDPI + refresh match, since a scaled HiDPI mode and a
-        // native mode can share pixel dimensions; fall back to a pixel match if none lines up.
+        // Do not silently substitute a different scaled framebuffer or rounded refresh rate.
+        // Missing exact modes are rejected and surfaced by applyArrangement's warning path.
         return modes.first {
-            $0.width == desired.pointWidth && $0.height == desired.pointHeight
-                && ($0.pixelWidth > $0.width) == desired.isHiDPI
-                && abs($0.refreshRate - desired.refreshHz) < 1
-        } ?? modes.first {
-            $0.pixelWidth == desired.pixelWidth && $0.pixelHeight == desired.pixelHeight
-                && abs($0.refreshRate - desired.refreshHz) < 1
+            let actual = DisplayMode(pixelWidth: $0.pixelWidth, pixelHeight: $0.pixelHeight,
+                pointWidth: $0.width, pointHeight: $0.height,
+                refreshHz: $0.refreshRate, isHiDPI: $0.pixelWidth > $0.width)
+            return DisplayModeChoices.matches(actual, requested: desired)
         }
     }
 

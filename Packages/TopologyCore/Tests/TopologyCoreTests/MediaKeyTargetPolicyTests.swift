@@ -122,4 +122,14 @@ final class MediaKeyTargetPolicyTests: XCTestCase {
         XCTAssertNil(MediaKeyTargetPolicy.target(
             for: .brightnessUp, in: [off], cursor: nil, mode: .mainDisplay, volumeCapable: [], audioTarget: nil))
     }
+    func testExternalOnlyNeverFallsBackToBuiltIn() {
+        let builtIn = obs("builtin", main: true, builtIn: true)
+        let external = obs("external", x: 1920)
+        let selected = MediaKeyTargetPolicy.target(for: .brightnessUp, in: [builtIn, external],
+            cursor: DisplayOrigin(x: 100, y: 100), mode: .externalOnly, volumeCapable: [], audioTarget: nil)
+        XCTAssertEqual(selected?.recordID, external.recordID)
+        XCTAssertNil(MediaKeyTargetPolicy.target(for: .brightnessDown, in: [builtIn],
+            cursor: nil, mode: .externalOnly, volumeCapable: [], audioTarget: nil))
+    }
+
 }

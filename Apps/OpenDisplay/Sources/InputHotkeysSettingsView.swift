@@ -36,8 +36,8 @@ struct InputHotkeySection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
-            Text("Input hotkeys").font(.title3)
-            Text("Jump a display straight to an input (HDMI, DisplayPort, USB-C\u{2026}) with a global shortcut.")
+            Text("Клавиши смены источника").font(.title3)
+            Text("Переключайте источник сигнала монитора (HDMI, DisplayPort, USB-C) глобальной горячей клавишей.")
                 .font(.caption).foregroundStyle(.secondary)
 
             ForEach(model.settings.hotkeyShortcuts.inputSwitchBindings) { entry in
@@ -47,7 +47,7 @@ struct InputHotkeySection: View {
             Button {
                 isAddingBinding = true
             } label: {
-                Label("Add input hotkey\u{2026}", systemImage: "plus")
+                Label("Добавить сочетание клавиш\u{2026}", systemImage: "plus")
             }
             .disabled(externalDisplays.isEmpty)
         }
@@ -68,6 +68,7 @@ private struct InputHotkeyRow: View {
                 model.removeInputSwitchHotkey(id: entry.id)
             } label: {
                 Image(systemName: "trash")
+                    .accessibilityLabel("Удалить сочетание клавиш")
             }
             .buttonStyle(.plain)
         }
@@ -109,37 +110,37 @@ private struct AddInputHotkeySheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.md) {
-            Text("Add input hotkey").font(.headline)
+            Text("Добавить сочетание для смены источника").font(.headline)
 
-            Picker("Display", selection: $selectedDisplayID) {
+            Picker("Монитор", selection: $selectedDisplayID) {
                 ForEach(externalDisplays, id: \.recordID) { display in
                     Text(model.displayName(for: display)).tag(display.recordID as DisplayRecordID?)
                 }
             }
-            Picker("Input", selection: $selectedInputCode) {
+            Picker("Источник", selection: $selectedInputCode) {
                 ForEach(AppModel.standardInputs, id: \.code) { input in
                     Text(input.name).tag(input.code)
                 }
             }
-            Picker("Shortcut", selection: $selectedDigit) {
+            Picker("Сочетание клавиш", selection: $selectedDigit) {
                 ForEach(1...9, id: \.self) { digit in
                     Text(HotkeyDigitChords.label(forDigit: digit)).tag(digit)
                 }
             }
             if hasConflict {
-                Text("That shortcut is already assigned.").font(.caption).foregroundStyle(ODColor.danger)
+                Text("Это сочетание клавиш уже назначено.").font(.caption).foregroundStyle(ODColor.danger)
             }
 
             HStack {
                 Spacer()
-                Button("Cancel") { isPresented = false }
-                Button("Add") { addBinding() }
+                Button("Отмена") { isPresented = false }
+                Button("Добавить") { addBinding() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(selectedDisplayID == nil || hasConflict)
             }
         }
         .padding(ODSpacing.lg)
-        .frame(width: 360)
+        .frame(width: 420)
         .onAppear { selectedDisplayID = externalDisplays.first?.recordID }
     }
 

@@ -25,10 +25,10 @@ struct AboutView: View {
 
     /// The project links AboutView offers, reused verbatim by the Settings → About card.
     static let projectLinks: [AboutLink] = [
-        AboutLink(title: "Website", systemImage: "globe", url: URL(string: repo)!),
-        AboutLink(title: "Release notes", systemImage: "doc.text", url: URL(string: "\(repo)/releases")!),
-        AboutLink(title: "Report an issue", systemImage: "ladybug", url: URL(string: "\(repo)/issues/new")!),
-        AboutLink(title: "License (GPL-3.0)", systemImage: "checkmark.seal",
+        AboutLink(title: "Исходный проект", systemImage: "globe", url: URL(string: repo)!),
+        AboutLink(title: "История исходного проекта", systemImage: "doc.text", url: URL(string: "\(repo)/releases")!),
+        AboutLink(title: "Обсуждения исходного проекта", systemImage: "ladybug", url: URL(string: "\(repo)/issues/new")!),
+        AboutLink(title: "Лицензия GPL-3.0", systemImage: "checkmark.seal",
                   url: URL(string: "\(repo)/blob/main/LICENSE")!),
     ]
 
@@ -48,15 +48,15 @@ struct AboutView: View {
                 .accessibilityHidden(true)
             Text("OpenDisplay")
                 .font(.title2.weight(.semibold))
-            Text("Free, open-source display control for macOS.")
+            Text("Открытое управление дисплеями macOS. Локальная сборка с доработками.")
                 .font(.callout).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("Version \(Self.version) (build \(Self.build))")
+            Text("Версия \(Self.version) (сборка \(Self.build))")
                 .font(.callout.monospacedDigit())
                 .textSelection(.enabled)
-                .accessibilityLabel("Version \(Self.version), build \(Self.build)")
+                .accessibilityLabel("Версия \(Self.version), сборка \(Self.build)")
                 .padding(.top, 2)
             UpdateCheckStatusView()
 
@@ -88,7 +88,7 @@ struct AboutView: View {
             }
         }
         .foregroundStyle(ODColor.accent)
-        .accessibilityHint("Opens in your browser")
+        .accessibilityHint("Открыть в браузере")
     }
 }
 
@@ -101,7 +101,10 @@ struct UpdateCheckStatusView: View {
 
     var body: some View {
         let presentation = SoftwareUpdatePolicy.presentation(for: model.updatePhase)
-        if presentation.showsProgress {
+        if Bundle.main.object(forInfoDictionaryKey: "OpenDisplayLocalBuild") as? Bool == true {
+            Label("Локальная сборка · обновление из исходников", systemImage: "hammer")
+                .font(.caption).foregroundStyle(.secondary)
+        } else if presentation.showsProgress {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
                 Text(presentation.combinedTitle).font(.callout).foregroundStyle(.secondary)
@@ -114,7 +117,7 @@ struct UpdateCheckStatusView: View {
                 Label(presentation.combinedTitle, systemImage: presentation.systemImage)
             }
             .controlSize(.small)
-            .accessibilityHint("Checks for a new version, then downloads and installs it")
+            .accessibilityHint("Сведения об обновлении локальной сборки")
         }
     }
 }
