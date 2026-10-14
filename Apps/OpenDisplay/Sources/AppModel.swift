@@ -1032,7 +1032,10 @@ final class AppModel: ObservableObject {
             guard anotherLit else { return }
             blackedOut.insert(id)
             observer.setGammaDim(0.0, for: cgID)
-            dimOverlay.remove(for: cgID)  // gamma 0 is already fully black; restore recreates it
+            // The provider floors gamma at 0.15 so a dim can never become unreadable; that floor
+            // left Black Out at ~15 %. The click-through opaque overlay does the actual blacking
+            // out, and lifting it goes through applyDim, which resets the overlay alpha.
+            dimOverlay.setAlpha(1, for: cgID)
         }
     }
 
@@ -3653,12 +3656,18 @@ final class AppModel: ObservableObject {
         await refresh()
     }
 
-    /// Emergency recovery — always available (PRD LIF-010). With live observation and no
-    /// managed-offline displays yet, this is a safe no-op until a disconnect path is exercised.
+    /// Emergency recovery — always available (PRD LIF-010). `coordinator.reconnectAll()` only sees
+    /// the provider snapshot's offline list, which CoreGraphicsProvider never fills, so displays this
+    /// app turned off (the persisted `managedOffline` ledger) are reconnected the same verified way
+    /// as their own off-card button.
     func reconnectAll() async {
         busy = true
         defer { busy = false }
         _ = await coordinator.reconnectAll()
+        for offline in managedOffline {
+            await reconnectOffline(offline, forgettingIntent: true)
+            busy = true  // the per-display path clears it on return; the batch is still running
+        }
         await refresh()
     }
 

@@ -573,7 +573,9 @@ private struct IdentityCard: View {
                     .onSubmit { Task { await model.setAlias(alias, for: display) } }
             }
         }
-        .onAppear { alias = model.records[display.recordID]?.alias ?? "" }
+        // Re-seed when the segmented picker switches displays: the view keeps its identity, so an
+        // onAppear-only seed would let Enter rename the new display with the previous one's alias.
+        .onChange(of: display.recordID, initial: true) { alias = model.records[display.recordID]?.alias ?? "" }
     }
 }
 
