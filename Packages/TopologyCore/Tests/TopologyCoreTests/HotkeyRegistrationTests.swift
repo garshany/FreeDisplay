@@ -110,6 +110,10 @@ final class HotkeyRegistrationTests: XCTestCase {
         XCTAssertEqual(HotkeyRecorderPolicy.verdict(keyCode: 0x33, modifiers: 0), .clear)
         XCTAssertEqual(HotkeyRecorderPolicy.verdict(keyCode: 0x75, modifiers: 0), .clear)
         XCTAssertEqual(HotkeyRecorderPolicy.verdict(keyCode: 0x30, modifiers: 0), .endAndPassThrough)
+        XCTAssertEqual(HotkeyRecorderPolicy.verdict(keyCode: 0x30, modifiers: KeyBinding.shift), .endAndPassThrough)
+        // With a real modifier Tab is an ordinary chord.
+        XCTAssertEqual(HotkeyRecorderPolicy.verdict(keyCode: 0x30, modifiers: KeyBinding.control),
+                       .accept(KeyBinding(keyCode: 0x30, modifiers: KeyBinding.control)))
     }
 
     func testRecorderAcceptsChordsWithARealModifier() {

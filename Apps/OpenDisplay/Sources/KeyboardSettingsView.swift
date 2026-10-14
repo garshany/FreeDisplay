@@ -59,7 +59,7 @@ private struct KeyboardShortcutsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
             Text("Keyboard shortcuts").font(.title3)
-            Text("These shortcuts work in every app while OpenDisplay is running. Click a shortcut, then press the new keys: a function key, or a key together with ⌘, ⌥ or ⌃. Esc cancels; Delete removes the shortcut. Shortcuts are paused while you record one.")
+            Text("These shortcuts work in every app while OpenDisplay is running. Click a shortcut, then press the new keys: a function key, or a key together with ⌘, ⌥ or ⌃. Esc cancels; Delete removes the shortcut. Shortcuts are paused while you record one. A registered shortcut can still be taken first by macOS or by another app that uses the same keys.")
                 .font(.caption).foregroundStyle(.secondary)
             ForEach(Self.groups.indices, id: \.self) { index in
                 let group = Self.groups[index]
@@ -138,12 +138,25 @@ private struct ShortcutRow: View {
                 Image(systemName: "arrow.uturn.backward.circle")
             }
             .buttonStyle(.borderless)
-            .help(action.defaultBinding.map { String(localized: "Restore Default (\(KeyBindingFormatter.string(for: $0)))") }
-                  ?? String(localized: "Restore Default (no shortcut)"))
+            .help(restoreHelp)
             .accessibilityLabel(Text("Restore Default"))
-            .disabled(binding == action.defaultBinding)
+            .disabled(binding == action.defaultBinding || defaultHolder != nil)
         }
         .padding(.vertical, 2)
+    }
+
+    /// The slot that now holds this action's shipped chord, if another one does.
+    private var defaultHolder: HotkeySlot? {
+        action.defaultBinding.flatMap { model.hotkeySlot(using: $0, excluding: action) }
+    }
+
+    private var restoreHelp: String {
+        guard let shipped = action.defaultBinding else { return String(localized: "Restore Default (no shortcut)") }
+        let chord = KeyBindingFormatter.string(for: shipped)
+        if let holder = defaultHolder {
+            return String(localized: "The standard shortcut \(chord) is used by \(model.hotkeySlotName(holder)).")
+        }
+        return String(localized: "Restore Default (\(chord))")
     }
 
     private var recorderTitle: String {
@@ -154,7 +167,7 @@ private struct ShortcutRow: View {
     @ViewBuilder private var statusLine: some View {
         switch model.hotkeyStatus[action] ?? .unassigned {
         case .registered:
-            Label("Active", systemImage: "checkmark.circle.fill")
+            Label("Registered", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(ODColor.connected)
         case .unassigned:
             Text("No shortcut").foregroundStyle(.secondary)
@@ -165,11 +178,11 @@ private struct ShortcutRow: View {
                 Text("No shortcut").foregroundStyle(.secondary)
             }
         case .conflict(let holder):
-            Label("Not active: \(model.hotkeySlotName(holder)) uses the same shortcut",
+            Label("Not registered: \(model.hotkeySlotName(holder)) uses the same shortcut",
                   systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(ODColor.caution)
         case .failed:
-            Label("Not active: macOS or another app already uses this shortcut",
+            Label("Not registered: macOS refused this shortcut; another app may already use it",
                   systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(ODColor.caution)
         case .paused:
@@ -368,39 +381,84 @@ private struct AdjustmentStepsCard: View {
     }
 }
 
-/// One numeric field. Return or leaving the field saves it, Esc puts the saved value back, and an
-/// empty or non-numeric entry means "use the default".
+/// One numeric field. Return, Tab or leaving the field saves it, Esc puts the saved value back, and
+/// an empty or non-numeric entry means "use the default".
 private struct StepField: View {
     let title: LocalizedStringKey
     let defaultValue: Int
     let stored: Int?
     let commit: (Int?) -> Void
 
-    @State private var text = ""
-    @FocusState private var focused: Bool
-
     var body: some View {
         LabeledContent(title) {
-            TextField(String(defaultValue), text: $text)
-                .multilineTextAlignment(.trailing)
+            StepTextField(placeholder: String(defaultValue), stored: stored, commit: commit)
                 .frame(width: 80)
-                .focused($focused)
-                .onSubmit(save)
-                .onExitCommand {
-                    text = stored.map(String.init) ?? ""
-                    focused = false
-                }
         }
-        .onAppear { text = stored.map(String.init) ?? "" }
-        .onChange(of: focused) { _, isFocused in if !isFocused { save() } }
-        .onChange(of: stored) { _, value in if !focused { text = value.map(String.init) ?? "" } }
-        .onDisappear(perform: save)
+    }
+}
+
+/// The AppKit field behind `StepField`. Its delegate sees Esc (`cancelOperation:`), which a SwiftUI
+/// `TextField` doesn't pass on, and every way editing ends: Return, Tab, a click elsewhere, the page
+/// going away.
+private struct StepTextField: NSViewRepresentable {
+    let placeholder: String
+    let stored: Int?
+    let commit: (Int?) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField(string: Self.text(for: stored))
+        field.placeholderString = placeholder
+        field.alignment = .right
+        field.bezelStyle = .roundedBezel
+        field.delegate = context.coordinator
+        return field
     }
 
-    private func save() {
-        let parsed = AdjustmentSteps.parse(text)
-        text = parsed.map(String.init) ?? ""
-        if parsed != stored { commit(parsed) }
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        // Never overwrite what is being typed; show the saved value otherwise.
+        if field.currentEditor() == nil { field.stringValue = Self.text(for: stored) }
+    }
+
+    static func dismantleNSView(_ field: NSTextField, coordinator: Coordinator) {
+        // Leaving the page while typing saves, like leaving the field.
+        if field.currentEditor() != nil { coordinator.save(field.stringValue) }
+    }
+
+    static func text(for value: Int?) -> String { value.map(String.init) ?? "" }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: StepTextField
+        private var reverting = false
+
+        init(_ parent: StepTextField) { self.parent = parent }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            guard selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+            reverting = true
+            textView.string = StepTextField.text(for: parent.stored)
+            control.window?.makeFirstResponder(nil)
+            return true
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            if reverting {
+                reverting = false
+                field.stringValue = StepTextField.text(for: parent.stored)
+                return
+            }
+            save(field.stringValue)
+            field.stringValue = StepTextField.text(for: AdjustmentSteps.parse(field.stringValue))
+        }
+
+        func save(_ text: String) {
+            let parsed = AdjustmentSteps.parse(text)
+            if parsed != parent.stored { parent.commit(parsed) }
+        }
     }
 }
 #endif

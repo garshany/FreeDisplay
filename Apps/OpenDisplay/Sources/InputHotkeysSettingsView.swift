@@ -76,10 +76,10 @@ private struct InputHotkeyRow: View {
             // SO-30: a chord that didn't register must not look like it works.
             switch model.inputHotkeyStatus[entry.id] {
             case .conflict(let holder)?:
-                Text("Not active: \(model.hotkeySlotName(holder)) uses the same shortcut")
+                Text("Not registered: \(model.hotkeySlotName(holder)) uses the same shortcut")
                     .font(.caption).foregroundStyle(ODColor.caution)
             case .failed?:
-                Text("Not active: macOS or another app already uses this shortcut")
+                Text("Not registered: macOS refused this shortcut; another app may already use it")
                     .font(.caption).foregroundStyle(ODColor.caution)
             default:
                 EmptyView()

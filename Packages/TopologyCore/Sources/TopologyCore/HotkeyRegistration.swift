@@ -15,11 +15,12 @@ public enum HotkeyRegistrationStatus: Hashable, Sendable {
     case unassigned
     /// The user removed the chord (a shipped default included) — it stays off until set or restored.
     case cleared
-    /// Registered with macOS; pressing it runs the action.
+    /// macOS accepted the registration. That is all it promises: a chord macOS keeps for itself, or
+    /// one another app also listens for, can still fail to reach OpenDisplay.
     case registered
     /// Not registered: `holder` claimed the same chord first.
     case conflict(holder: HotkeySlot)
-    /// macOS refused the registration — typically another app already holds the chord.
+    /// macOS refused the registration (for example, the chord is already registered elsewhere).
     case failed
     /// Every shortcut is unregistered while a new one is being recorded, so the keys typed into the
     /// recorder can't fire an action.
@@ -89,7 +90,7 @@ public enum HotkeyRecorderPolicy {
         case cancel
         /// Delete / Forward Delete: remove the chord.
         case clear
-        /// Tab: recording ends and the key moves focus as usual.
+        /// Tab or ⇧Tab: recording ends and the key moves focus as usual.
         case endAndPassThrough
         /// A key that can't be a global shortcut on its own (a letter with no modifier, or with Shift
         /// only): keep recording and tell the user.
@@ -112,11 +113,12 @@ public enum HotkeyRecorderPolicy {
     ///   - modifiers: the Carbon modifier mask (`KeyBinding.command` etc.) held with it.
     public static func verdict(keyCode: UInt32, modifiers: UInt32) -> Verdict {
         let modifiers = modifiers & KeyBinding.recordableModifiers
+        // Tab and ⇧Tab move focus forwards and back; either ends recording.
+        if keyCode == tabKeyCode, modifiers & ~KeyBinding.shift == 0 { return .endAndPassThrough }
         if modifiers == 0 {
             switch keyCode {
             case escapeKeyCode: return .cancel
             case deleteKeyCode, forwardDeleteKeyCode: return .clear
-            case tabKeyCode: return .endAndPassThrough
             default: break
             }
         }
