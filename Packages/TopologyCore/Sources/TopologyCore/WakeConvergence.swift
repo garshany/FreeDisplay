@@ -201,10 +201,14 @@ public enum WakeConvergencePolicy {
     /// precisely the window in which the net used to panic and light the built-in.
     private static func isDisplayOnItsWayBack(_ context: Context) -> Bool {
         let owned = Set(context.managedOffline.map(\.recordID))
-        // Only a physical display can be the one "coming back": a lit virtual or unverified screen
-        // is already enumerated and will never turn into the screen the net is waiting for.
+        // A known-virtual screen (ours, the placeholder) will never become the screen the net is
+        // waiting for, so it isn't one. An *unverified* one might be a monitor whose hardware
+        // evidence hasn't been read yet (IORegistry settling after a hotplug), so it gets the same
+        // bounded benefit of the doubt as a panel still training its link — never more than
+        // `recoveryDeadline`.
         let realDisplayStillEnumerated = context.observations.contains {
-            RecoverySurfacePolicy.isPhysical($0) && !owned.contains($0.recordID)
+            $0.displayClass != .virtual && $0.physicalPresence != .virtual
+                && !owned.contains($0.recordID)
         }
         return realDisplayStillEnumerated || isWakingUp(context)
     }

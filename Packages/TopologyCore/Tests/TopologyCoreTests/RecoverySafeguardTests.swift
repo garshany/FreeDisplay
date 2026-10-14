@@ -14,8 +14,9 @@ final class RecoverySafeguardTests: XCTestCase {
     }
 
     private var builtIn: DisplayObservation { obs("builtin", main: true, klass: .builtIn, presence: .physical) }
-    /// One of OpenDisplay's own endpoints — a HiDPI one, which the single-mode test never caught.
-    private var ourVirtual: DisplayObservation { obs("ours", klass: .virtual, presence: .virtual) }
+    /// One of OpenDisplay's own endpoints — a HiDPI one, which the single-mode test never caught. The
+    /// provider keeps its `.external` class; only its presence says what it is.
+    private var ourVirtual: DisplayObservation { obs("ours", presence: .virtual) }
     /// BetterDisplay / DisplayLink / Sidecar: looks like a monitor, no hardware behind it.
     private var thirdParty: DisplayObservation { obs("displaylink", presence: .unverified) }
 
@@ -44,24 +45,36 @@ final class RecoverySafeguardTests: XCTestCase {
     // MARK: - The always-one-active net
 
     private func context(_ observations: [DisplayObservation], offline: [ManagedOfflineDisplay] = [],
-                         wokeSecondsAgo: TimeInterval? = nil) -> WakeConvergencePolicy.Context {
+                         wokeSecondsAgo: TimeInterval? = nil,
+                         darkForSeconds: TimeInterval? = nil) -> WakeConvergencePolicy.Context {
         WakeConvergencePolicy.Context(now: epoch, observations: observations, managedOffline: offline,
-                                      lastWakeAt: wokeSecondsAgo.map { epoch.addingTimeInterval(-$0) })
+                                      lastWakeAt: wokeSecondsAgo.map { epoch.addingTimeInterval(-$0) },
+                                      darkSince: darkForSeconds.map { epoch.addingTimeInterval(-$0) })
     }
 
-    /// The built-in is off and the last physical external went away; only a virtual screen is left
-    /// lit. It used to satisfy the net, which then never lit anything.
-    func testALitVirtualScreenDoesNotSatisfyTheNet() {
-        for other in [ourVirtual, thirdParty] {
-            XCTAssertEqual(WakeConvergencePolicy.surfaceDecision(context([other], offline: [offline("builtin")])),
-                           .restore(offline("builtin")), "\(other.recordID)")
-        }
+    /// The built-in is off and the last physical external went away; only our own virtual screen is
+    /// left lit. It used to satisfy the net, which then never lit anything.
+    func testOurLitVirtualScreenDoesNotSatisfyTheNet() {
+        XCTAssertEqual(WakeConvergencePolicy.surfaceDecision(context([ourVirtual], offline: [offline("builtin")])),
+                       .restore(offline("builtin")), "a known-virtual screen gets no benefit of the doubt")
     }
 
-    func testAVirtualScreenIsNotADisplayOnItsWayBack() {
-        let decision = WakeConvergencePolicy.surfaceDecision(
-            context([thirdParty], offline: [offline("builtin")]))
-        XCTAssertEqual(decision, .restore(offline("builtin")), "no waiting on a screen that is already there")
+    /// An unverified screen may be a monitor whose hardware node isn't readable yet, so the net waits —
+    /// but never past its deadline, after which the built-in comes back whatever the list claims.
+    func testAnUnverifiedScreenGetsOnlyTheBoundedWait() {
+        XCTAssertEqual(WakeConvergencePolicy.surfaceDecision(
+            context([thirdParty], offline: [offline("builtin")], darkForSeconds: 1)),
+            .waitForWakingDisplay(WakeConvergencePolicy.defaultRecheckStep))
+        XCTAssertEqual(WakeConvergencePolicy.surfaceDecision(
+            context([thirdParty], offline: [offline("builtin")],
+                    darkForSeconds: WakeConvergencePolicy.defaultRecoveryDeadline)),
+            .restore(offline("builtin")))
+    }
+
+    func testAPhysicalScreenSatisfiesTheNetBesideVirtualOnes() {
+        XCTAssertEqual(WakeConvergencePolicy.surfaceDecision(
+            context([ourVirtual, thirdParty, obs("monitor", presence: .physical)], offline: [offline("builtin")])),
+            .satisfied)
     }
 
     func testAVirtualScreenCannotCoverTheBuiltInGoingBackOff() {

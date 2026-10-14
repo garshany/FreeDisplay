@@ -302,10 +302,11 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
         let id = facts.id
         let uuid = displayUUID(id)
         let isBuiltin = facts.isBuiltIn
-        // macOS's "no displays" placeholder and this app's own virtual endpoints are virtual by
-        // construction. Other apps' virtual screens can't be told from a monitor by class, so they
-        // stay `.external` and are kept out of recovery decisions by `physicalPresence` instead.
-        let isVirtual = presence == .virtual
+        // Only macOS's "no displays" placeholder is classed `.virtual`, as before. Every other
+        // screen keeps its class — `.virtual` also means "never lit" to reconnect verification and
+        // the ledger, which would strand a reconnected endpoint of ours — and is kept out of
+        // recovery decisions by `physicalPresence` instead.
+        let isVirtual = facts.isSystemPlaceholder
         let bounds = CGDisplayBounds(id)
         let mirrorMaster = CGDisplayMirrorsDisplay(id)
         let mirrorSourceID = mirrorMaster != 0

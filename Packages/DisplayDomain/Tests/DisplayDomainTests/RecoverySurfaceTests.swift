@@ -83,6 +83,22 @@ final class PhysicalPresenceClassifierTests: XCTestCase {
     func testAPNPManufacturerIDIsReadWhenTheNumericOneIsMissing() {
         let named = Node(manufacturerID: "DEL", productID: 0x4242)
         XCTAssertEqual(PhysicalPresenceClassifier.classify([external(2)], hardware: [named])[2], .physical)
+        let zeroed = Node(legacyManufacturerID: 0, manufacturerID: "DEL", productID: 0x4242)
+        XCTAssertEqual(PhysicalPresenceClassifier.classify([external(2)], hardware: [zeroed])[2], .physical)
+    }
+
+    /// A serial the hardware also reports proves that display, even beside a same-model screen
+    /// (e.g. a DisplayLink twin) that has no hardware of its own.
+    func testASerialMatchSettlesItsDisplayBesideAnImpostor() {
+        let presence = PhysicalPresenceClassifier.classify(
+            [external(2, serial: 11), external(3, serial: 22)], hardware: [node(serial: 11)])
+        XCTAssertEqual(presence, [2: .physical, 3: .unverified])
+    }
+
+    func testAnImpostorCopyingTheSerialTooLeavesBothUnverified() {
+        let presence = PhysicalPresenceClassifier.classify(
+            [external(2, serial: 11), external(3, serial: 11)], hardware: [node(serial: 11)])
+        XCTAssertEqual(presence, [2: .unverified, 3: .unverified])
     }
 }
 

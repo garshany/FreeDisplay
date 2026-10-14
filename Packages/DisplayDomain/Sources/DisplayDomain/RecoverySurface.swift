@@ -26,9 +26,10 @@ public enum PhysicalPresence: String, Hashable, Sendable, Codable {
 /// `ProductAttributes` an Apple-silicon display pipe publishes for a panel it is driving).
 ///
 /// A virtual screen has no such node, so an external display is `.physical` only when a node with
-/// its vendor and model is there for it. Nodes are matched one-to-one: when more displays claim an
-/// identity than there are nodes carrying it, nothing says which one is the impostor, and every
-/// claimant of that identity is `.unverified`. Pure, so `make test` covers the whole table.
+/// its vendor and model is there for it. Nodes are matched one-to-one: a serial the node also
+/// carries settles it for that display; otherwise, when more displays claim an identity than there
+/// are nodes left carrying it, nothing says which one is the impostor, and every unsettled claimant
+/// of that identity is `.unverified`. Pure, so `make test` covers the whole table.
 public enum PhysicalPresenceClassifier {
     /// The Core Graphics side of one online display.
     public struct Display: Hashable, Sendable {
@@ -81,9 +82,24 @@ public enum PhysicalPresenceClassifier {
         let groups = Dictionary(grouping: pending, by: key(of:))
         for (identity, members) in groups {
             var available = nodes.filter { $0.key == identity }
-            // Displays with a serial are the constrained ones, so they choose first; the rest can
-            // take any node of their identity whose serial doesn't contradict theirs.
-            let ordered = members.sorted {
+            // A serial the hardware also reports settles it for that display alone: when there are at
+            // least as many nodes carrying the serial as displays claiming it, they are those
+            // displays. Fewer nodes than claimants (an impostor copying the serial too) leaves the
+            // claimants to the anonymous round below.
+            var unsettled: [Display] = []
+            for (serial, claimants) in Dictionary(grouping: members, by: \.serialNumber) {
+                let carriers = available.indices.filter { serial != 0 && available[$0].serial == Int(serial) }
+                guard serial != 0, carriers.count >= claimants.count else {
+                    unsettled.append(contentsOf: claimants)
+                    continue
+                }
+                for index in carriers.prefix(claimants.count).reversed() { available.remove(at: index) }
+                for display in claimants { result[display.id] = .physical }
+            }
+            // The rest can only be vouched for by a node whose serial doesn't contradict theirs, and
+            // only all together: if one of them is left without a node, nothing says which one is
+            // the screen without hardware, so none of them counts. Serialled displays choose first.
+            let ordered = unsettled.sorted {
                 ($0.serialNumber == 0 ? 1 : 0, $0.id) < ($1.serialNumber == 0 ? 1 : 0, $1.id)
             }
             var everyoneMatched = true
@@ -94,7 +110,7 @@ public enum PhysicalPresenceClassifier {
                 }
                 available.remove(at: index)
             }
-            for display in members { result[display.id] = everyoneMatched ? .physical : .unverified }
+            for display in unsettled { result[display.id] = everyoneMatched ? .physical : .unverified }
         }
         return result
     }
@@ -120,7 +136,8 @@ public enum PhysicalPresenceClassifier {
     }
 
     private static func key(of node: HardwareNode) -> IdentityKey? {
-        let vendor = node.legacyManufacturerID ?? node.manufacturerID.flatMap(DDCServiceMatcher.vendorNumber(fromPNP:))
+        let legacy = node.legacyManufacturerID.flatMap { $0 == 0 ? nil : $0 }
+        let vendor = legacy ?? node.manufacturerID.flatMap(DDCServiceMatcher.vendorNumber(fromPNP:))
         guard let vendor, vendor != 0, let model = node.productID, model != 0 else { return nil }
         return IdentityKey(vendor: vendor, model: model)
     }

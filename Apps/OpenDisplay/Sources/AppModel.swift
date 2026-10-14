@@ -3533,12 +3533,16 @@ final class AppModel: ObservableObject {
         if enabled { NotificationDelivery.requestAuthorization() }
     }
 
-    /// True when at least one REAL external display is currently present. The physical test
-    /// matters: macOS's placeholder, a virtual screen, DisplayLink or Sidecar is not a monitor
-    /// arriving, and treating one as such would make auto-disconnect go after the built-in at the
-    /// exact moment it is the only screen anyone can see.
+    /// True when at least one REAL external display is currently present. The `.virtual` exclusion
+    /// matters: macOS's placeholder is not a monitor arriving, and treating it as one would make
+    /// auto-disconnect turn the built-in off at the exact moment it is the only screen left.
+    ///
+    /// Deliberately class-based, not `physicalPresence`-based: it also drives the keep-awake guard
+    /// (a DisplayLink monitor is an external to keep awake), and an arrival edge raised by a
+    /// virtual or unverified screen is still refused by `SafetyEngine`, which does require a
+    /// physical surface. Presence can flicker while IORegistry settles; an edge detector must not.
     var hasExternalDisplay: Bool {
-        displays.contains { $0.displayClass != .builtIn && RecoverySurfacePolicy.isPhysical($0) }
+        displays.contains { $0.displayClass != .builtIn && $0.displayClass != .virtual }
     }
 
     /// On an external-arrival edge (and only then), turn the built-in panel off through the gated

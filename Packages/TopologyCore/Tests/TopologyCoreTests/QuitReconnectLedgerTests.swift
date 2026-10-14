@@ -14,7 +14,6 @@ final class OwedReconnectWakeTests: XCTestCase {
     }
 
     private var builtIn: DisplayObservation { obs("builtin", klass: .builtIn, presence: .physical) }
-    private var thirdParty: DisplayObservation { obs("displaylink", presence: .unverified) }
 
     private func offline(_ id: String, klass: DisplayClass = .builtIn, failedAt: Date? = nil) -> ManagedOfflineDisplay {
         ManagedOfflineDisplay(recordID: DisplayRecordID(rawValue: id), cgID: 9, name: id,
@@ -40,8 +39,9 @@ final class OwedReconnectWakeTests: XCTestCase {
 
     func testAStillDarkFailedEntryStaysForTheNet() {
         let failed = offline("builtin", failedAt: epoch)
-        XCTAssertTrue(WakeConvergencePolicy.entriesToForget(context([thirdParty], offline: [failed])).isEmpty)
-        XCTAssertEqual(WakeConvergencePolicy.surfaceDecision(context([thirdParty], offline: [failed])),
+        let ours = obs("ours", presence: .virtual)
+        XCTAssertTrue(WakeConvergencePolicy.entriesToForget(context([ours], offline: [failed])).isEmpty)
+        XCTAssertEqual(WakeConvergencePolicy.surfaceDecision(context([ours], offline: [failed])),
                        .restore(failed))
     }
 }
