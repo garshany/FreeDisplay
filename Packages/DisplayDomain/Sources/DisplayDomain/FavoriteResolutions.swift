@@ -129,6 +129,11 @@ public struct FavoriteResolutions: Hashable, Sendable, Codable {
         byDisplay[display.rawValue] = list.isEmpty ? nil : list
     }
 
+    /// Drops every favourite of one display — part of forgetting it, never of an ordinary edit.
+    public mutating func removeAll(for display: DisplayRecordID) {
+        byDisplay[display.rawValue] = nil
+    }
+
     /// Removes every stored key naming this logical size, density and refresh rate (within the
     /// usual tolerance) whatever its framebuffer — for a caller that knows only those, like the CLI
     /// un-setting a favourite the display no longer offers. Legacy keys go when their rounded form
