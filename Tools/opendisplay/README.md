@@ -1,30 +1,65 @@
 # opendisplay (CLI)
 
-**macOS target** (Swift ArgumentParser). Scripts all supported get/set/toggle/scene/lifecycle
-actions through the same `AutomationGateway` — and therefore the same identity, capability,
-safety, transaction, verification, and audit path — as the UI (PRD §12, AUT-001..004/011).
+**macOS target** (`Tools/opendisplay/Sources/main.swift`, no argument-parsing dependency; the
+grammar lives in `Packages/AutomationSchema/Sources/AutomationSchema/CLIArguments.swift`). It runs
+in its own process: it composes its own providers, reads the app's persisted stores (display
+registry, managed-offline list, settings, scenes) and routes lifecycle commands through
+`CommandGateway`, but it is not a remote control for the running app.
 
-- Stable selectors (`Packages/DisplayDomain/Selector.swift`); ambiguous selectors return
-  candidates and perform no mutation.
-- Machine-readable JSON via `Packages/AutomationSchema` (`ResultEnvelope`); documented exit codes.
-- `--dry-run` for every multi-field or lifecycle mutation.
-
-Proposed grammar (PRD §12.2):
+These are the commands it implements — `opendisplay --help` prints the same list:
 
 ```
-opendisplay list [--state active|offline|all] [--json]
-opendisplay get <selector> [field ...] [--json]
-opendisplay set <selector> <field=value>... [--dry-run] [--json]
-opendisplay connect|disconnect <selector> [--dry-run]
-opendisplay blackout <selector> on|off|toggle
-opendisplay scene list|show|apply|export|import <name> [--dry-run]
-opendisplay recover all|checkpoint|safe-mode
-opendisplay diagnose display|route|provider|bundle [selector]
+opendisplay list [--json]
+opendisplay diagnose [--json]
+opendisplay diagnose --bundle [directory]
+opendisplay lux [--json]
+opendisplay lid [--json]
+opendisplay listen
+opendisplay alias <selector> <name>
+opendisplay tag <selector> <tag>
+opendisplay disconnect <selector> [--dry-run] [--json]
+opendisplay reconnect <selector> [--json]
+opendisplay recover [--json]
+opendisplay scene <list|save|show|plan|apply|delete> [name] [--json]
+opendisplay layout <protect|unprotect|status> [--json]
+opendisplay group <list|create|delete> [name] [--json]
+opendisplay group <add|remove> <name> <selector>
+opendisplay brightness <selector> [0..1] [--json]
+opendisplay ddc <selector> <brightness|contrast|volume|input|colour|sharpness|red|green|blue|mute|power|caps> [value] [--json]
+opendisplay ddc <selector> reset
+opendisplay ddc <selector> vcp <0xNN> [value] [--json]
+opendisplay edid <selector> [--out <path.bin>]
+opendisplay favorite <list|set|unset> <selector> [WxH[@Hz][@2x]]
+opendisplay help | --help | -h
 ```
 
-Milestone: **M1**.
+The PRD's generic `get`/`set`/`connect`/`blackout` grammar (PRD §12.2) is **not** implemented.
 
-> Stub — Xcode/SPM executable target added on macOS.
+- **Options are per command.** An option a command doesn't list is an error (exit 2) rather than
+  ignored — in particular `--dry-run` exists only for `disconnect`, and nowhere else does it
+  silently perform the real write. `--help`/`-h` anywhere prints help and touches nothing.
+- **Results say what is known.** A write is `verified` only when reading the value back shows
+  exactly what was written; `sent` means the display accepted it but nothing confirmed it took
+  (no read-back, or one that disagreed — DDC panels ACK writes they then ignore). With `--json`,
+  mutating commands print a `ResultEnvelope` whose operations carry an `outcome`
+  (`verified`, `sent`, `alreadySatisfied`, `skipped`, `unsupported`, `failed`). Failures go to
+  stderr.
+- **`scene apply`** writes positions and modes only, then checks every field against the
+  arrangement read afterwards: fields it doesn't execute (on/off, rotation, brightness, colour
+  profile, HDR, relative placement) are reported as skipped, and a missing *required* member blocks
+  the whole apply.
+- **`recover`** reconnects every display in the shared managed-offline list (displays the app or
+  the CLI turned off), each verified like `reconnect`. If the app is running it keeps its own copy
+  of that list, so prefer the app's Reconnect All while it is up.
+
+Exit status:
+
+| Code | Meaning |
+|---|---|
+| 0 | Success, including "nothing to do" and writes reported as `sent` |
+| 1 | Failed — nothing requested was achieved, or a read was impossible |
+| 2 | Usage error (unknown command/option, bad argument); nothing ran |
+| 3 | Partly done — some displays/fields applied, others failed or were skipped |
 
 ## Sensor + streaming commands (Issue #34)
 
@@ -52,14 +87,23 @@ Two event kinds share one envelope (`ListenEvent` in `AutomationSchema`), distin
 sets them (a `config` line has no brightness keys and vice versa):
 
 ```jsonc
-// A live brightness change (menu, media key, another CLI invocation, or an App Intent).
+// A live brightness change. `level` is normalized; `maxValue` (1) is the top of its scale.
 {"version":1,"event":"brightness","timestamp":1737482921.5,"displayId":"cg:abc",
- "displayName":"Studio Display","level":0.62,"source":"mediaKey"}
+ "displayName":"Studio Display","level":0.62,"maxValue":1,"source":"mediaKey"}
 
 // The display topology changed: hotplug, mode/resolution, rotation, mirror, or main display.
 {"version":1,"event":"config","timestamp":1737482925.0,
  "displays":[{"id":"cg:abc","active":true,"main":true,"mode":"3840x2160@60"}]}
 ```
+
+`source` is one of `menu` (a slider in the menu-bar panel or Settings), `mediaKey`, `hotkey`, `http`
+(the local HTTP server), `cli` (another `opendisplay brightness` run), `appIntent` (Shortcuts) or
+`app` (OpenDisplay's own automation: FaceLight, presets, restoring a level); consumers must tolerate
+others. Each change is published exactly once, whether or not OpenDisplay drew its own HUD for it —
+sliders, HTTP, CLI and Intent changes draw none but are still published. Not published: the
+follower writes a Display Group fans out (they carry no new user intent, and a HUD receiver would
+show the wrong display), and brightness changes made outside OpenDisplay (macOS keys, System
+Settings, auto-brightness) — nothing observes those generally.
 
 `brightness` events require **Broadcast OSD events** enabled in OpenDisplay's Settings (default
 off) — `listen` prints a one-time note to stderr on startup when it's off, so brightness stays
