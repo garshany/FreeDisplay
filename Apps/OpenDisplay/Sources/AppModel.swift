@@ -3132,17 +3132,18 @@ final class AppModel: ObservableObject {
         favorites.isFavorite(mode, for: observation.recordID)
     }
 
-    /// Pins/unpins `mode` as a favourite for this display and persists.
+    /// Pins/unpins `mode` as a favourite for this display and persists. Every mode the display offers
+    /// goes along so a favourite saved under the old rounded key — which covered a 59.94/60 Hz pair
+    /// at once — is first split into exact keys: un-pinning one of the pair keeps the other.
     func toggleFavoriteResolution(_ mode: DisplayMode, for observation: DisplayObservation) {
-        favorites.toggle(mode, for: observation.recordID)
+        favorites.toggle(mode, among: allModes(for: observation), for: observation.recordID)
         try? favoritesStore?.save(favorites)
     }
 
-    /// The display's favourite modes (newest first), resolved against `stops` — stale ones drop out.
+    /// The display's favourite modes (newest first) among `stops`; favourites it doesn't offer right
+    /// now are left out here but stay stored.
     func favoriteResolutions(among stops: [DisplayMode], for observation: DisplayObservation) -> [DisplayMode] {
-        let merged = favorites.merged(stops: stops, for: observation.recordID)
-        let count = favorites.favoriteKeys(for: observation.recordID).count
-        return merged.prefix(count).filter { isFavoriteResolution($0, for: observation) }
+        favorites.favoriteModes(among: stops, for: observation.recordID)
     }
 
     /// Switches the refresh rate at the current resolution.

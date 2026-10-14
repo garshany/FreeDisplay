@@ -883,13 +883,28 @@ func runFavorite() async {
         let keys = favorites.favoriteKeys(for: recordID)
         print(keys.isEmpty ? "(no favourites)" : keys.joined(separator: "\n"))
     case "set", "unset":
-        guard positional.count > 3, let mode = parseModeArg(positional[3]) else {
+        guard positional.count > 3, let spec = parseModeArg(positional[3]) else {
             fail("mode must look like 1920x1080[@60][@2x]")
         }
-        if sub.lowercased() == "set" { favorites.add(mode, for: recordID) }
-        else { favorites.remove(mode, for: recordID) }
+        // Favourites name exact modes (framebuffer, unrounded refresh), which the WxH@Hz argument
+        // doesn't spell out — resolve it against what the display really offers. The refresh must
+        // match the argument itself, so `@60` never picks a 59.94 Hz mode or the reverse.
+        let available = target.observation.cgDisplayID.map { observer.allModes(for: $0) } ?? []
+        let modes = available.filter {
+            $0.pointWidth == spec.pointWidth && $0.pointHeight == spec.pointHeight
+                && $0.isHiDPI == spec.isHiDPI && abs($0.refreshHz - spec.refreshHz) < 0.01
+        }
+        guard !modes.isEmpty else {
+            fail("\(name(for: target)) doesn't offer \(positional[3]) right now — it must be connected and the refresh rate exact (e.g. @59.94)")
+        }
+        for mode in modes {
+            if sub.lowercased() == "set" { favorites.add(mode, for: recordID) }
+            else { favorites.remove(mode, among: available, for: recordID) }
+        }
         try? store?.save(favorites)
-        print("\(sub.lowercased()) \(FavoriteResolutions.key(for: mode)) for \(name(for: target))")
+        for mode in modes {
+            print("\(sub.lowercased()) \(FavoriteResolutions.key(for: mode)) for \(name(for: target))")
+        }
     default:
         fail("unknown favorite subcommand '\(sub)' (list|set|unset)")
     }
