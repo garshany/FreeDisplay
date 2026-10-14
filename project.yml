@@ -164,6 +164,8 @@ targets:
         buildPhase: resources
       - path: Apps/OpenDisplay/Resources/InfoPlist.xcstrings
         buildPhase: resources
+      - path: Apps/OpenDisplay/Resources/AppShortcuts.xcstrings
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.opendisplay.app
@@ -208,6 +210,8 @@ targets:
       - path: Apps/OpenDisplay/Resources/Localizable.xcstrings
         buildPhase: resources
       - path: Apps/OpenDisplay/Resources/InfoPlist.xcstrings
+        buildPhase: resources
+      - path: Apps/OpenDisplay/Resources/AppShortcuts.xcstrings
         buildPhase: resources
     settings:
       base:

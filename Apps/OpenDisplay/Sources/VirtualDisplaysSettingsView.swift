@@ -9,7 +9,7 @@ struct VirtualDisplaysSettingsView: View {
     let safeMode: Bool
     @ObservedObject var session: VirtualDisplaySession
     @State private var experimentalOptIn = false
-    @State private var name = "Рабочий экран OpenDisplay"
+    @State private var name = String(localized: "OpenDisplay Workspace")
     @State private var width = 1920
     @State private var height = 1080
     @State private var hiDPI = false
@@ -19,35 +19,35 @@ struct VirtualDisplaysSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Виртуальные экраны · Экспериментально") {
-                Text("Виртуальные экраны используют закрытые API macOS и работают до завершения приложения. Оставьте физический экран доступным для восстановления.")
+            Section("Virtual screens · Experimental") {
+                Text("Virtual screens use private macOS APIs and last until the app quits. Keep a physical display available for recovery.")
                     .font(.caption).foregroundStyle(.secondary)
-                if safeMode { Text("Недоступно в безопасном режиме.").foregroundStyle(.orange) }
-                if !session.isAvailable { Text("В этой версии macOS отсутствует необходимый API виртуальных экранов.").foregroundStyle(.orange) }
-                Toggle("Разрешить создание экспериментальных виртуальных экранов", isOn: $experimentalOptIn)
+                if safeMode { Text("Unavailable in Safe Mode.").foregroundStyle(.orange) }
+                if !session.isAvailable { Text("This macOS version lacks the required virtual screen API.").foregroundStyle(.orange) }
+                Toggle("Allow creating experimental virtual screens", isOn: $experimentalOptIn)
                     .disabled(safeMode || !session.isAvailable || busy)
-                TextField("Название", text: $name)
-                LabeledContent("Размер в пикселях") {
+                TextField("Name", text: $name)
+                LabeledContent("Size in pixels") {
                     HStack {
-                        TextField("Ширина в пикселях", value: $width, format: .number).labelsHidden().frame(width: 90)
+                        TextField("Width in pixels", value: $width, format: .number).labelsHidden().frame(width: 90)
                         Text("×")
-                        TextField("Высота в пикселях", value: $height, format: .number).labelsHidden().frame(width: 90)
+                        TextField("Height in pixels", value: $height, format: .number).labelsHidden().frame(width: 90)
                     }
                 }
-                Picker("Частота", selection: $refresh) {
-                    Text("30 Гц").tag(30.0); Text("60 Гц").tag(60.0); Text("120 Гц").tag(120.0)
+                Picker("Refresh rate", selection: $refresh) {
+                    Text("30 Hz").tag(30.0); Text("60 Hz").tag(60.0); Text("120 Hz").tag(120.0)
                 }
-                Toggle("HiDPI: логический размер рабочего стола вдвое меньше", isOn: $hiDPI)
-                Button("Создать виртуальный экран") {
+                Toggle("HiDPI: half the logical desktop size", isOn: $hiDPI)
+                Button("Create Virtual Screen") {
                     guard let pixelWidth = UInt32(exactly: width), let pixelHeight = UInt32(exactly: height) else {
-                        result = "Введите допустимые положительные размеры в пикселях."; return
+                        result = String(localized: "Enter valid positive pixel dimensions."); return
                     }
                     let definition = VirtualDisplayDefinition(name: name, pixelWidth: pixelWidth,
                         pixelHeight: pixelHeight, refreshRate: refresh, hiDPI: hiDPI)
                     run {
                         let endpoint = try await session.create(definition,
                             experimentalOptIn: experimentalOptIn, safeMode: safeMode)
-                        result = "Экран \(endpoint.displayID) активен. Размеры в пикселях подтверждены."
+                        result = String(localized: "Screen \(endpoint.displayID) is active. Pixel dimensions confirmed.")
                     }
                 }
                 .disabled(busy || !experimentalOptIn || safeMode || !session.isAvailable)
@@ -56,7 +56,7 @@ struct VirtualDisplaysSettingsView: View {
                         Text(endpoint.definition.name)
                         Spacer()
                         Text("\(endpoint.definition.pixelWidth) × \(endpoint.definition.pixelHeight)")
-                        Button("Удалить") { run { try await session.destroy(endpoint.id); result = "Удаление экрана подтверждено." } }
+                        Button("Remove") { run { try await session.destroy(endpoint.id); result = String(localized: "Screen removal confirmed.") } }
                             .disabled(busy)
                     }
                 }
@@ -69,17 +69,19 @@ struct VirtualDisplaysSettingsView: View {
 
     private func localizedError(_ error: Error) -> String {
         guard let failure = error as? ProviderFailure else {
-            return error is CancellationError ? "Операция отменена." : "Не удалось выполнить операцию: \(error.localizedDescription)"
+            // Definition validation errors come from VirtualDisplayProvider in English.
+            return error is CancellationError ? String(localized: "Operation cancelled.")
+                : String(localized: "Couldn’t complete the operation: \(error.localizedDescription.appLocalized)")
         }
         switch failure {
-        case .denied: return "Операция запрещена: проверьте разрешение экспериментальных функций, безопасный режим и наличие другого активного экрана."
-        case .busy: return "Другая операция ещё выполняется или достигнут предел четырёх виртуальных экранов."
-        case .unsupported: return "Эта версия macOS не поддерживает необходимый API."
-        case .timeout: return "macOS не подтвердила создание экрана за отведённое время."
-        case .providerError(let message), .partial(let message): return message
-        case .osRejected(let code): return "macOS отклонила операцию (код \(code))."
-        case .ambiguous: return "Не удалось однозначно определить экран."
-        case .unknown: return "Причина ошибки неизвестна."
+        case .denied: return String(localized: "Operation denied: check the experimental-features opt-in, Safe Mode, and that another display is active.")
+        case .busy: return String(localized: "Another operation is still running, or the limit of four virtual screens has been reached.")
+        case .unsupported: return String(localized: "This macOS version doesn’t support the required API.")
+        case .timeout: return String(localized: "macOS didn’t confirm the screen was created in time.")
+        case .providerError(let message), .partial(let message): return message.appLocalized
+        case .osRejected(let code): return String(localized: "macOS rejected the operation (code \(code)).")
+        case .ambiguous: return String(localized: "Couldn’t identify the screen unambiguously.")
+        case .unknown: return String(localized: "The cause of the error is unknown.")
         }
     }
 

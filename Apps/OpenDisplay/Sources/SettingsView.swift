@@ -33,14 +33,14 @@ struct SettingsView: View {
             case .displays: DisplaysSection()
             case .arrange: ArrangeSection()
             case .scenes: ScenesSection()
-            case .capture: CapturePanel().navigationTitle("Захват экрана")
+            case .capture: CapturePanel().navigationTitle("Screen Capture")
             case .advanced:
                 if let display = model.displays.first(where: { $0.recordID == model.selectedDisplayID }) ?? model.displays.first,
                    let id = display.cgDisplayID {
                     AdvancedDisplayToolsView(displayID: id, displayName: model.displayName(for: display))
                 } else {
-                    ContentUnavailableView("Сначала выберите подключённый монитор.", systemImage: "display")
-                        .navigationTitle("EDID и HiDPI")
+                    ContentUnavailableView("Select a connected display first.", systemImage: "display")
+                        .navigationTitle("EDID & HiDPI")
                 }
             case .automation: LocalControlPanel()
             case .virtual:
@@ -48,12 +48,12 @@ struct SettingsView: View {
                 VirtualDisplaysSettingsView(
                     safeMode: ProcessInfo.processInfo.arguments.contains("--safe-mode"),
                     session: virtualSession)
-                    .navigationTitle("Виртуальные экраны")
+                    .navigationTitle("Virtual Displays")
 #else
-                Text("Создание виртуальных мониторов недоступно в сборке только с публичными API.")
+                Text("Creating virtual displays isn’t available in the public-API-only build.")
                     .padding(ODSpacing.lg)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .navigationTitle("Виртуальные экраны")
+                    .navigationTitle("Virtual Displays")
 #endif
             case .health: HealthSection()
             case .about: AboutSection()
@@ -82,15 +82,15 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .displays: return "Мониторы"
-        case .arrange: return "Расположение"
-        case .scenes: return "Сцены"
-        case .virtual: return "Виртуальные экраны"
-        case .capture: return "Захват экрана"
-        case .advanced: return "EDID и HiDPI"
-        case .automation: return "Автоматизация"
-        case .health: return "Диагностика"
-        case .about: return "О программе"
+        case .displays: return String(localized: "Displays")
+        case .arrange: return String(localized: "Arrange")
+        case .scenes: return String(localized: "Scenes")
+        case .virtual: return String(localized: "Virtual Displays")
+        case .capture: return String(localized: "Screen Capture")
+        case .advanced: return String(localized: "EDID & HiDPI")
+        case .automation: return String(localized: "Automation")
+        case .health: return String(localized: "Diagnostics")
+        case .about: return String(localized: "About")
         }
     }
     var icon: String {
@@ -122,7 +122,7 @@ private struct DisplaysSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if model.displays.isEmpty {
-                ContentUnavailableView("Мониторы не обнаружены", systemImage: "display.trianglebadge.exclamationmark")
+                ContentUnavailableView("No Displays Found", systemImage: "display.trianglebadge.exclamationmark")
             } else {
                 if model.displays.count > 1 {
                     Picker("", selection: Binding(
@@ -141,7 +141,7 @@ private struct DisplaysSection: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .navigationTitle("Мониторы")
+        .navigationTitle("Displays")
     }
 }
 
@@ -154,7 +154,7 @@ private struct ArrangeSection: View {
         ScrollView {
             VStack(alignment: .leading, spacing: ODSpacing.md) {
                 DisplayArrangementView()
-                Text("Перетащите монитор, чтобы изменить расположение. Изменения применяются сразу; сохраните расположение в разделе «Сцены».")
+                Text("Drag a display to reposition it. Changes apply immediately; save the layout as a scene under Scenes.")
                     .font(.caption).foregroundStyle(.secondary)
                 ODDivider()
                 ProtectedLayoutCard()
@@ -162,7 +162,7 @@ private struct ArrangeSection: View {
             .padding(ODSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .navigationTitle("Расположение мониторов")
+        .navigationTitle("Arrange Displays")
     }
 }
 
@@ -176,14 +176,14 @@ private struct ProtectedLayoutCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
-            Text("Защищённое расположение").font(.title3)
+            Text("Protected layout").font(.title3)
             Toggle(isOn: Binding(
                 get: { model.settings.layoutProtectionEnabled },
                 set: { model.setLayoutProtectionEnabled($0) }
             )) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Восстанавливать расположение при изменениях")
-                    Text("Если macOS или другое приложение меняет расположение, разрешение или основной монитор, защищённая конфигурация восстанавливается, включая отключённые мониторы. Отключённый в OpenDisplay монитор остаётся отключённым после сна независимо от этой настройки.")
+                    Text("Put my arrangement back when it changes")
+                    Text("When macOS (or another app) moves a display, changes its resolution, or hands “main” to the other screen, the protected arrangement is restored — including which displays are switched off. A display you turned off in OpenDisplay is switched back off after sleep whether this is on or not.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -200,14 +200,14 @@ private struct CurrentLayoutProtectionRow: View {
 
     var body: some View {
         ODCard {
-            ODRow("Этот набор мониторов", secondary: status) {
+            ODRow(String(localized: "This display set"), secondary: status) {
                 HStack(spacing: 8) {
-                    Button(model.protectedLayoutForCurrentSet == nil ? "Защитить текущее расположение" : "Обновить") {
+                    Button(model.protectedLayoutForCurrentSet == nil ? "Protect Current Layout" : "Update") {
                         Task { await model.protectCurrentLayout() }
                     }
                     .controlSize(.small).disabled(model.busy)
                     if model.protectedLayoutForCurrentSet != nil {
-                        Button("Удалить") {
+                        Button("Remove") {
                             model.removeProtectedLayout(fingerprint: model.currentLayoutFingerprint)
                         }
                         .controlSize(.small)
@@ -218,12 +218,12 @@ private struct CurrentLayoutProtectionRow: View {
     }
 
     private var status: String {
-        guard let protected = model.protectedLayoutForCurrentSet else { return "Не защищено" }
+        guard let protected = model.protectedLayoutForCurrentSet else { return String(localized: "Not protected") }
         // Members, not observations: a display the arrangement keeps switched off is one of the
         // displays it covers, and on the experimental path it left no observation behind to count.
         let count = LayoutProtectionPolicy.members(of: protected).count
-        return "Защищено · мониторов: \(count) · сохранено "
-            + protected.capturedAt.formatted(.dateTime.month(.abbreviated).day())
+        let date = protected.capturedAt.formatted(.dateTime.month(.abbreviated).day())
+        return String(localized: "Protected · displays: \(count) · saved \(date)")
     }
 }
 
@@ -238,13 +238,12 @@ private struct OtherProtectedLayoutsList: View {
             .sorted { $0.key < $1.key }
         if !others.isEmpty {
             VStack(alignment: .leading, spacing: ODSpacing.xs) {
-                Text("Другие защищённые расположения").font(.caption).foregroundStyle(.secondary)
+                Text("Other protected layouts").font(.caption).foregroundStyle(.secondary)
                 ODCard {
                     ForEach(Array(others.enumerated()), id: \.element.key) { index, entry in
                         if index > 0 { ODDivider() }
                         ODRow(memberNames(of: entry.value),
-                              secondary: "сохранено " + entry.value.capturedAt.formatted(
-                                .dateTime.month(.abbreviated).day())) {
+                              secondary: savedLabel(entry.value.capturedAt)) {
                             Button(role: .destructive) {
                                 model.removeProtectedLayout(fingerprint: entry.key)
                             } label: { Image(systemName: "trash") }
@@ -265,6 +264,11 @@ private struct OtherProtectedLayoutsList: View {
             .sorted()
             .joined(separator: " + ")
     }
+
+    private func savedLabel(_ capturedAt: Date) -> String {
+        let date = capturedAt.formatted(.dateTime.month(.abbreviated).day())
+        return String(localized: "saved \(date)")
+    }
 }
 
 // MARK: - Scenes
@@ -279,15 +283,15 @@ private struct ScenesSection: View {
                     ODInlineBanner(tone: .orange, systemImage: "exclamationmark.triangle", title: warning)
                 }
                 if model.scenes.isEmpty {
-                    Text("Пока нет сохранённых сцен. Расположите мониторы и сохраните текущую конфигурацию ниже.")
+                    Text("No saved scenes yet. Arrange your displays, then save the current arrangement below.")
                         .font(.callout).foregroundStyle(.secondary)
                 } else {
                     ODCard {
                         ForEach(Array(model.scenes.enumerated()), id: \.element.id) { index, scene in
                             if index > 0 { ODDivider() }
-                            ODRow(scene.name, secondary: "Мониторов: \(scene.members.count)") {
+                            ODRow(scene.name, secondary: String(localized: "Displays: \(scene.members.count)")) {
                                 HStack(spacing: 8) {
-                                    Button("Применить") { Task { await model.applyScene(scene) } }
+                                    Button("Apply") { Task { await model.applyScene(scene) } }
                                         .controlSize(.small).disabled(model.busy)
                                     Button(role: .destructive) {
                                         Task { await model.deleteScene(scene) }
@@ -303,7 +307,7 @@ private struct ScenesSection: View {
             .padding(ODSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .navigationTitle("Сцены")
+        .navigationTitle("Scenes")
     }
 }
 
@@ -313,8 +317,8 @@ private struct SaveSceneRow: View {
 
     var body: some View {
         HStack(spacing: ODSpacing.sm) {
-            TextField("Название новой сцены", text: $name).textFieldStyle(.roundedBorder)
-            Button("Сохранить текущее расположение") {
+            TextField("New scene name", text: $name).textFieldStyle(.roundedBorder)
+            Button("Save Current Arrangement") {
                 let trimmed = name.trimmingCharacters(in: .whitespaces)
                 guard !trimmed.isEmpty else { return }
                 Task { await model.saveScene(named: trimmed); name = "" }
@@ -336,11 +340,11 @@ private struct DiagnosticsExportSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
-            Text("Диагностика").font(.title3)
-            Text("Если монитор работает неправильно, экспортируйте диагностику и приложите файл к обращению. Файл сохраняется на рабочий стол и никуда не отправляется. Он содержит:")
+            Text("Diagnostics").font(.title3)
+            Text("If a display misbehaves, export a diagnostics file and attach it to your issue. It is saved to your Desktop and is not sent anywhere. It contains:")
                 .font(.caption).foregroundStyle(.secondary)
             ForEach(DiagnosticsBundle.contents, id: \.self) { item in
-                Text("\u{2022} " + item).font(.caption).foregroundStyle(.secondary)
+                Text("\u{2022} " + item.appLocalized).font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: ODSpacing.sm) {
                 Button {
@@ -350,14 +354,14 @@ private struct DiagnosticsExportSection: View {
                         let url = await model.exportDiagnostics()
                         exporting = false
                         if let url {
-                            result = "Файл \(url.lastPathComponent) сохранён на рабочий стол."
+                            result = String(localized: "Saved \(url.lastPathComponent) to your Desktop.")
                             NSWorkspace.shared.activateFileViewerSelecting([url])
                         } else {
-                            result = "Не удалось записать файл диагностики."
+                            result = String(localized: "Couldn’t write the diagnostics file.")
                         }
                     }
                 } label: {
-                    Label(exporting ? "Сбор данных\u{2026}" : "Экспортировать диагностику\u{2026}",
+                    Label(exporting ? "Collecting…" : "Export Diagnostics…",
                           systemImage: "square.and.arrow.up")
                 }
                 .disabled(exporting)
@@ -373,23 +377,51 @@ private struct DiagnosticsExportSection: View {
 private struct HealthSection: View {
     @EnvironmentObject private var model: AppModel
 
+    /// `DisplayDiagnostic` carries the provider probe's raw values (`CapabilityStatus`,
+    /// `RiskLevel`, `CapabilityReason` raw values); these map each one to a label. An unknown
+    /// value is shown as-is rather than hidden.
     private func diagnosticStatus(_ value: String) -> String {
         switch value {
-        case "supported": return "поддерживается"
-        case "unsupported": return "не поддерживается"
-        case "degraded": return "ограниченная поддержка"
-        case "unavailable": return "недоступно"
+        case "supported": return String(localized: "supported")
+        case "unsupported": return String(localized: "unsupported")
+        case "unknown": return String(localized: "unknown")
+        case "degraded": return String(localized: "degraded")
+        case "disabledByPolicy": return String(localized: "disabled by policy")
         default: return value
         }
     }
 
     private func diagnosticRisk(_ value: String) -> String {
         switch value {
-        case "low": return "низкий"
-        case "medium": return "средний"
-        case "high": return "высокий"
+        case "normal": return String(localized: "normal")
+        case "hardwareDependent": return String(localized: "hardware-dependent")
+        case "experimental": return String(localized: "experimental")
+        case "recoveryCritical": return String(localized: "recovery-critical")
         default: return value
         }
+    }
+
+    private func diagnosticReason(_ value: String) -> String {
+        switch value {
+        case "osVersion": return String(localized: "macOS version")
+        case "architecture": return String(localized: "processor architecture")
+        case "displayClass": return String(localized: "display type")
+        case "route": return String(localized: "connection route")
+        case "permission": return String(localized: "permission")
+        case "buildFlavor": return String(localized: "build type")
+        case "providerHealth": return String(localized: "provider health")
+        case "userPolicy": return String(localized: "user setting")
+        case "safetyPolicy": return String(localized: "safety policy")
+        default: return value
+        }
+    }
+
+    private func diagnosticSummary(_ row: DisplayDiagnostic) -> String {
+        let status = diagnosticStatus(row.status)
+        let risk = diagnosticRisk(row.risk)
+        let summary = String(localized: "\(status) · risk: \(risk)")
+        guard !row.reasons.isEmpty else { return summary }
+        return summary + " · " + row.reasons.map(diagnosticReason).joined(separator: ", ")
     }
 
     /// A DatePicker binding over a minutes-since-midnight Int setting (the schedule fields store
@@ -410,32 +442,32 @@ private struct HealthSection: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: ODSpacing.md) {
-                Text("Провайдеры").font(.title3)
+                Text("Providers").font(.title3)
                 ForEach(model.diagnostics) { row in
                     HStack(spacing: ODSpacing.sm) {
                         Image(systemName: row.status == "supported" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                             .foregroundStyle(row.status == "supported" ? ODColor.connected : ODColor.caution)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.provider)
-                            Text("\(diagnosticStatus(row.status)) · риск \(diagnosticRisk(row.risk))\(row.reasons.isEmpty ? "" : " · \(row.reasons.joined(separator: ", "))")")
+                            Text(diagnosticSummary(row))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                        if row.experimental { ODBadge("Экспериментальные функции", tone: .orange) }
+                        if row.experimental { ODBadge(String(localized: "Labs"), tone: .orange) }
                         Spacer()
                     }
                 }
 
                 Divider()
 
-                Text("Восстановление").font(.title3)
-                LabeledContent("Политика сохранения", value: model.settings.persistencePolicy == .reconnectOnQuit ? "Подключать при выходе" : model.settings.persistencePolicy == .reconnectOnWake ? "Подключать при пробуждении" : "Сохранять отключение")
-                LabeledContent("Глобальная горячая клавиша",
-                               value: model.settings.reconnectAllHotkeyEnabled ? model.reconnectAllHotkey : "выключено")
-                LabeledContent("Контрольные точки", value: model.checkpointLocation)
+                Text("Recovery").font(.title3)
+                LabeledContent("Persistence policy", value: model.settings.persistencePolicy == .reconnectOnQuit ? String(localized: "Reconnect on quit") : model.settings.persistencePolicy == .reconnectOnWake ? String(localized: "Reconnect on wake") : String(localized: "Keep disconnected"))
+                LabeledContent("Global hotkey",
+                               value: model.settings.reconnectAllHotkeyEnabled ? model.reconnectAllHotkey : String(localized: "disabled"))
+                LabeledContent("Checkpoints", value: model.checkpointLocation)
                 Button {
                     Task { await model.reconnectAll() }
                 } label: {
-                    Label("Подключить все снова", systemImage: "arrow.triangle.2.circlepath")
+                    Label("Reconnect All", systemImage: "arrow.triangle.2.circlepath")
                 }
                 .disabled(model.busy)
 
@@ -449,15 +481,15 @@ private struct HealthSection: View {
 
                 Divider()
 
-                Text("Поведение").font(.title3)
+                Text("Behavior").font(.title3)
                 LaunchAtLoginToggle()
                 Toggle(isOn: Binding(
                     get: { model.settings.preventDisplaySleepWithExternal },
                     set: { model.setPreventDisplaySleepWithExternal($0) }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Не усыплять мониторы, пока подключён внешний")
-                        Text("Не даёт экранам уходить в сон, пока подключён хотя бы один внешний монитор. Блокировка автоматически снимается после отключения последнего внешнего монитора.")
+                        Text("Keep displays awake while an external is connected")
+                        Text("Keeps the screens from going to sleep while at least one external display is connected. Released automatically when the last external display is disconnected.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -466,8 +498,8 @@ private struct HealthSection: View {
                     set: { model.setAutoDisconnectBuiltInOnExternal($0) }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Отключать встроенный экран при подключении внешнего")
-                        Text("Автоматически отключает встроенный экран при подключении внешнего через тот же безопасный механизм, что и ручное отключение. Встроенный экран включается после отключения последнего внешнего.")
+                        Text("Turn the built-in display off when an external connects")
+                        Text("When an external display arrives, the built-in panel is turned off automatically (through the same safety-checked path as a manual disconnect). It comes back on when the last external is unplugged.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -476,14 +508,14 @@ private struct HealthSection: View {
                     set: { model.setDisplayNotificationsEnabled($0) }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Уведомлять о подключении и отключении мониторов")
-                        Text("Показывает системные уведомления о подключении и отключении внешнего монитора и автоматическом отключении встроенного экрана. При первом включении запрашивает разрешение на уведомления.")
+                        Text("Notify on display connect / disconnect")
+                        Text("Posts a system notification when an external display is connected or disconnected, and when the built-in is auto-disconnected. Asks for notification permission the first time you turn this on.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 if Bundle.main.object(forInfoDictionaryKey: "OpenDisplayLocalBuild") as? Bool == true {
-                    Text("Обновление локальной сборки").font(.headline)
-                    Text("Эта сборка обновляется из исходников: загрузите изменения проекта, соберите приложение и замените установленную версию. Автоматическая загрузка выпусков здесь недоступна.")
+                    Text("Updating a local build").font(.headline)
+                    Text("This build is updated from source: pull the project’s changes, build the app, and replace the installed copy. Automatic release downloads aren’t available here.")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
                     Toggle(isOn: Binding(
@@ -491,8 +523,8 @@ private struct HealthSection: View {
                         set: { model.setUpdateCheckEnabled($0) }
                     )) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Проверять обновления автоматически")
-                            Text("Проверяет список выпусков примерно раз в сутки и показывает обновления в меню. Загрузка начинается только с вашего согласия. Ручная проверка доступна всегда.")
+                            Text("Check for updates automatically")
+                            Text("Looks at the release feed about once a day and shows what it finds in the menu. Nothing is downloaded until you say so, and checking manually works either way.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -501,8 +533,8 @@ private struct HealthSection: View {
                         set: { model.setAutomaticUpdateDownloadEnabled($0) }
                     )) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Скачивать и устанавливать обновления автоматически")
-                            Text("Автоматически устанавливает новый выпуск и перезапускает OpenDisplay. Перед запуском проверяется подпись загрузки. Требует включённой автоматической проверки.")
+                            Text("Download and install updates automatically")
+                            Text("Installs a new release on its own and relaunches OpenDisplay into it. Every download’s signature is checked before it runs. Needs the automatic check above.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -512,32 +544,32 @@ private struct HealthSection: View {
 
                 Divider()
 
-                Text("Экранный индикатор").font(.title3)
+                Text("On-screen display").font(.title3)
                 Toggle(isOn: Binding(
                     get: { model.settings.osdEnabled },
                     set: { model.setOSDEnabled($0) }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Показывать индикатор яркости и громкости")
-                        Text("Показывает индикатор на выбранном мониторе при изменении яркости или громкости через меню или клавиши.")
+                        Text("Show an on-screen display for brightness & volume")
+                        Text("Shows a HUD on the affected display when brightness or volume changes, including changes made from the menu or the keys.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 if model.settings.osdEnabled {
                     HStack {
-                        Picker("Стиль", selection: Binding(
+                        Picker("Style", selection: Binding(
                             get: { model.settings.osdStyle }, set: { model.setOSDStyle($0) })) {
-                            Text("Системный").tag(OSDStyle.native)
-                            Text("Минимальный").tag(OSDStyle.minimal)
-                            Text("Классический").tag(OSDStyle.classicTahoe)
-                            Text("Только внешний индикатор").tag(OSDStyle.external)
+                            Text("Native").tag(OSDStyle.native)
+                            Text("Minimal").tag(OSDStyle.minimal)
+                            Text("Classic").tag(OSDStyle.classicTahoe)
+                            Text("External HUD only").tag(OSDStyle.external)
                         }
                         .fixedSize()
-                        Picker("Положение", selection: Binding(
+                        Picker("Position", selection: Binding(
                             get: { model.settings.osdPosition }, set: { model.setOSDPosition($0) })) {
-                            Text("Внизу").tag(OSDPosition.bottomCenter)
-                            Text("Вверху").tag(OSDPosition.topCenter)
-                            Text("По центру").tag(OSDPosition.center)
+                            Text("Bottom").tag(OSDPosition.bottomCenter)
+                            Text("Top").tag(OSDPosition.topCenter)
+                            Text("Center").tag(OSDPosition.center)
                         }
                         .fixedSize()
                     }
@@ -547,68 +579,68 @@ private struct HealthSection: View {
                     set: { model.setPublishOSDEventsEnabled($0) }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Передавать события приложениям внешних индикаторов")
-                        Text("Передаёт изменения яркости и громкости через распределённое уведомление dev.opendisplay.osd для внешних индикаторов. По умолчанию выключено.")
+                        Text("Broadcast display events for notch / external HUD apps")
+                        Text("Publishes each brightness and volume change over the dev.opendisplay.osd distributed notification for external HUD apps. Off by default.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
 
                 Divider()
 
-                Text("Мультимедийные клавиши").font(.title3)
+                Text("Media keys").font(.title3)
                 Toggle(isOn: Binding(
                     get: { model.settings.mediaKeyInterceptionEnabled },
                     set: { model.setMediaKeyInterceptionEnabled($0) }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Управлять мониторами клавишами яркости и громкости")
-                        Text("Клавиши яркости управляют выбранным монитором через аппаратный или программный способ. Клавиши громкости используют DDC только если звук идёт через этот монитор. Для перехвата нужен доступ в разделе «Универсальный доступ»; разрешение запрашивается после включения.")
+                        Text("Use the brightness & volume keys to control displays")
+                        Text("The brightness keys control the chosen display, in hardware or software. The volume keys use DDC only when the sound plays through that monitor. Capturing the keys needs Accessibility permission; nothing is requested until you turn this on.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 if model.settings.mediaKeyInterceptionEnabled {
-                    Picker("Клавиши яркости управляют", selection: Binding(
+                    Picker("Brightness keys control the", selection: Binding(
                         get: { model.settings.mediaKeyTargetMode }, set: { model.setMediaKeyTargetMode($0) })) {
-                        Text("Монитором под указателем").tag(MediaKeyTargetMode.underCursor)
-                        Text("Основным монитором").tag(MediaKeyTargetMode.mainDisplay)
-                        Text("Встроенным экраном").tag(MediaKeyTargetMode.builtInAlways)
-                        Text("Только внешними мониторами").tag(MediaKeyTargetMode.externalOnly)
+                        Text("Display under the pointer").tag(MediaKeyTargetMode.underCursor)
+                        Text("Main display").tag(MediaKeyTargetMode.mainDisplay)
+                        Text("Built-in display").tag(MediaKeyTargetMode.builtInAlways)
+                        Text("External displays only").tag(MediaKeyTargetMode.externalOnly)
                     }
                     .fixedSize()
-                    Toggle("Требовать Shift для клавиш яркости", isOn: Binding(
+                    Toggle("Require Shift for the brightness keys", isOn: Binding(
                         get: { model.settings.brightnessMediaKeysRequireShift },
                         set: { model.setBrightnessMediaKeysRequireShift($0) }))
-                    Text("Клавиши громкости управляют текущим устройством вывода звука.")
+                    Text("Volume keys follow the current sound output device.")
                         .font(.caption).foregroundStyle(.secondary)
                     if !MediaKeyTap.isAccessibilityTrusted {
                         HStack(spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                            Text("Для перехвата клавиш нужен доступ в разделе «Универсальный доступ».")
+                            Text("Accessibility permission needed to capture the keys.")
                                 .font(.caption).foregroundStyle(.secondary)
-                            Button("Открыть настройки универсального доступа\u{2026}") { openAccessibilitySettings() }
+                            Button("Open Accessibility Settings…") { openAccessibilitySettings() }
                                 .controlSize(.small)
                         }
                     } else {
-                        Text(model.mediaKeysActive ? "Перехват мультимедийных клавиш работает." : "Доступ разрешён, но перехват недоступен. Повторная попытка…")
+                        Text(model.mediaKeysActive ? "Media keys are active." : "Access granted, but the keys can’t be captured yet. Retrying…")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    Button("Повторить запуск перехвата клавиш") { model.retryMediaKeyCapture() }
+                    Button("Retry Key Capture") { model.retryMediaKeyCapture() }
                 }
 
                 #if !PUBLIC_API_ONLY
                 Divider()
 
                 HStack(spacing: 8) {
-                    Text("Адаптивное управление").font(.title3)
-                    ODBadge("Экспериментальные функции", tone: .orange)
+                    Text("Adaptive display").font(.title3)
+                    ODBadge(String(localized: "Labs"), tone: .orange)
                 }
                 Toggle(isOn: Binding(
                     get: { model.settings.adaptiveBrightnessSyncEnabled },
                     set: { model.setAdaptiveBrightnessSyncEnabled($0) }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Синхронизировать яркость внешнего монитора со встроенным")
-                        Text("Синхронизирует аппаратную яркость внешнего монитора со встроенным по DDC. Ручное изменение задаёт смещение и приостанавливает синхронизацию на минуту. При закрытой крышке используется расписание. Изменения кнопками монитора не отслеживаются. Мониторами в группе управляет группа.")
+                        Text("Match external brightness to the built-in display")
+                        Text("The monitor’s real backlight follows the built-in display over DDC. Moving a slider teaches it your preferred offset and pauses it for a minute. With the lid closed it follows the schedule instead. Brightness changed with the monitor’s own buttons isn’t tracked. Displays in a group are driven by their group.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -617,13 +649,13 @@ private struct HealthSection: View {
                     set: { model.setAdaptiveWarmthEnabled($0) }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Делать цвета монитора теплее вечером")
-                        Text("Вечером включает тёплый аппаратный цветовой режим, утром возвращает дневной. Следует состоянию Night Shift, если оно доступно, иначе использует расписание.")
+                        Text("Warm the monitor’s colours in the evening")
+                        Text("Switches the monitor’s hardware colour preset to a warm one in the evening and back each morning. Follows Night Shift’s on/off state when it can be read; otherwise the schedule decides.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 if model.settings.adaptiveWarmthEnabled {
-                    Picker("Вечерний режим", selection: Binding(
+                    Picker("Evening preset", selection: Binding(
                         get: { model.settings.adaptiveEveningPreset },
                         set: { model.setAdaptiveEveningPreset($0) })) {
                         ForEach([1, 2, 3, 4, 5], id: \.self) { code in
@@ -637,8 +669,8 @@ private struct HealthSection: View {
                     set: { model.setAdaptiveLocationModeEnabled($0) }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Учитывать положение солнца")
-                        Text("Меняет яркость по высоте солнца для указанного местоположения: темнее на рассвете и закате, ярче днём. Встроенный экран и датчик освещения имеют приоритет, если доступны. Явное расписание всегда имеет высший приоритет.")
+                        Text("Follow the sun’s position")
+                        Text("Drives brightness from the sun’s elevation at the location set below: dim near dawn and dusk, full once the sun is well up. The built-in display and the ambient light sensor still take priority when available, and an explicit schedule always wins.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -647,19 +679,19 @@ private struct HealthSection: View {
                 }
                 if model.settings.adaptiveBrightnessSyncEnabled || model.settings.adaptiveWarmthEnabled {
                     HStack(spacing: 16) {
-                        DatePicker("Начало дня", selection: minuteBinding(
+                        DatePicker("Day starts", selection: minuteBinding(
                             get: { model.settings.adaptiveDayStartMinute },
                             set: { model.setAdaptiveSchedule(dayStartMinute: $0,
                                                              nightStartMinute: model.settings.adaptiveNightStartMinute,
                                                              transitionMinutes: model.settings.adaptiveTransitionMinutes) }),
                                    displayedComponents: .hourAndMinute)
-                        DatePicker("Начало вечера", selection: minuteBinding(
+                        DatePicker("Evening starts", selection: minuteBinding(
                             get: { model.settings.adaptiveNightStartMinute },
                             set: { model.setAdaptiveSchedule(dayStartMinute: model.settings.adaptiveDayStartMinute,
                                                              nightStartMinute: $0,
                                                              transitionMinutes: model.settings.adaptiveTransitionMinutes) }),
                                    displayedComponents: .hourAndMinute)
-                        Stepper("Переход: \(model.settings.adaptiveTransitionMinutes) мин",
+                        Stepper("Ramp: \(model.settings.adaptiveTransitionMinutes) min",
                                 value: Binding(
                                     get: { model.settings.adaptiveTransitionMinutes },
                                     set: { model.setAdaptiveSchedule(dayStartMinute: model.settings.adaptiveDayStartMinute,
@@ -670,13 +702,13 @@ private struct HealthSection: View {
                     .fixedSize()
                     if model.settings.adaptiveBrightnessSyncEnabled {
                         HStack(spacing: 16) {
-                            Stepper("Дневная яркость: \(Int((model.settings.adaptiveFallbackDayLevel * 100).rounded()))%",
+                            Stepper("Day brightness: \(Int((model.settings.adaptiveFallbackDayLevel * 100).rounded()))%",
                                     value: Binding(
                                         get: { Double(model.settings.adaptiveFallbackDayLevel) },
                                         set: { model.setAdaptiveFallbackLevels(day: Float($0),
                                                                                night: model.settings.adaptiveFallbackNightLevel) }),
                                     in: 0.1...1, step: 0.05)
-                            Stepper("Ночная яркость: \(Int((model.settings.adaptiveFallbackNightLevel * 100).rounded()))%",
+                            Stepper("Night brightness: \(Int((model.settings.adaptiveFallbackNightLevel * 100).rounded()))%",
                                     value: Binding(
                                         get: { Double(model.settings.adaptiveFallbackNightLevel) },
                                         set: { model.setAdaptiveFallbackLevels(day: model.settings.adaptiveFallbackDayLevel,
@@ -685,7 +717,7 @@ private struct HealthSection: View {
                         }
                         .fixedSize()
                     }
-                    Text("Источники яркости по приоритету: активный встроенный экран, датчик освещения при открытой крышке, расписание при закрытой крышке. Тёплый режим использует расписание, если состояние Night Shift недоступно.")
+                    Text("Brightness sources, best available first: the active built-in display, the ambient light sensor while the lid is open, this schedule while the lid is closed. Warmth uses the schedule whenever Night Shift’s state can’t be read.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -698,12 +730,12 @@ private struct HealthSection: View {
 
                 Divider()
 
-                Text("Экспериментальные функции").font(.title3)
+                Text("Labs").font(.title3)
                 #if !PUBLIC_API_ONLY
                 Toggle(isOn: $model.experimentalRotationEnabled) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Экспериментальный поворот экрана")
-                        Text("Поворачивает экраны через закрытый API. По умолчанию выключено; используется изолированный помощник с проверками безопасности и автоматическим откатом. Недоступно в сборках App Store.")
+                        Text("Experimental display rotation")
+                        Text("Rotate displays via a private API. Off by default; runs through a safety-checked, isolated helper with automatic rollback, and is excluded from App Store builds.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -715,8 +747,8 @@ private struct HealthSection: View {
                     set: { model.setXDRBrightnessEnabled($0) }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Яркость XDR")
-                        Text("Использует запас яркости встроенного XDR-экрана для SDR. Экспериментально: HDR может терять детали, а длительная максимальная яркость нагревает панель. Усиление сбрасывается при выходе.")
+                        Text("XDR Brightness")
+                        Text("Unlock the built-in XDR panel’s full brightness for SDR content. Experimental: HDR content will look clipped while boosted, and sustained max brightness increases panel temperature. Never persists past quit.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -726,9 +758,9 @@ private struct HealthSection: View {
 
                 Divider()
 
-                Text("Последние действия").font(.title3)
+                Text("Recent Activity").font(.title3)
                 if model.recentActivity.isEmpty {
-                    Text("Пока нет записанных действий.").font(.caption).foregroundStyle(.secondary)
+                    Text("No recorded activity yet.").font(.caption).foregroundStyle(.secondary)
                 } else {
                     ForEach(Array(model.recentActivity.enumerated()), id: \.offset) { _, entry in
                         HStack(spacing: ODSpacing.sm) {
@@ -748,7 +780,7 @@ private struct HealthSection: View {
             .padding(ODSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .navigationTitle("Диагностика и восстановление")
+        .navigationTitle("Diagnostics & Recovery")
     }
 }
 
@@ -769,28 +801,28 @@ private struct XDRPowerAutomationRows: View {
                 get: { model.settings.xdrDisableOnBattery },
                 set: { model.setXDRDisableOnBattery($0) }
             )) {
-                Text("Отключать при питании от аккумулятора")
+                Text("Turn off on battery power")
             }
             Toggle(isOn: Binding(
                 get: { model.settings.xdrDisableInLowPowerMode },
                 set: { model.setXDRDisableInLowPowerMode($0) }
             )) {
-                Text("Отключать в режиме энергосбережения")
+                Text("Turn off in Low Power Mode")
             }
             HStack(spacing: 16) {
-                Picker("Отключать при заряде ниже", selection: Binding(
+                Picker("Turn off below", selection: Binding(
                     get: { model.settings.xdrLowBatteryCutoffPercent },
                     set: { model.setXDRLowBatteryCutoffPercent($0) })) {
-                    Text("Никогда").tag(Int?.none)
+                    Text("Never").tag(Int?.none)
                     ForEach(XDRPowerAutomation.lowBatteryCutoffOptions, id: \.self) { percent in
-                        Text("\(percent)% заряда").tag(Int?.some(percent))
+                        Text("\(percent)% battery").tag(Int?.some(percent))
                     }
                 }
                 .fixedSize()
-                Picker("Отключать через", selection: Binding(
+                Picker("Turn off after", selection: Binding(
                     get: { model.settings.xdrAutoOffMinutes },
                     set: { model.setXDRAutoOffMinutes($0) })) {
-                    Text("Никогда").tag(Int?.none)
+                    Text("Never").tag(Int?.none)
                     ForEach(XDRPowerAutomation.autoOffMinuteOptions, id: \.self) { minutes in
                         Text(Self.durationLabel(minutes)).tag(Int?.some(minutes))
                     }
@@ -801,9 +833,9 @@ private struct XDRPowerAutomationRows: View {
                 get: { model.settings.xdrRestoreOnPower },
                 set: { model.setXDRRestoreOnPower($0) }
             )) {
-                Text("Восстанавливать усиление при подключении питания")
+                Text("Bring the boost back when power returns")
             }
-            Text("Эти условия отключают усиление для экономии аккумулятора. После восстановления питания можно вернуть прежний уровень, если вы не меняли его вручную. Таймер не сбрасывает уже потраченное время.")
+            Text("These switch the boost off to save battery. When power returns, the last option can put your previous brightness back, unless you’ve changed it yourself since. The timer doesn’t give back time already spent.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(.leading, ODSpacing.lg)
@@ -811,9 +843,9 @@ private struct XDRPowerAutomationRows: View {
 
     /// "30 min" / "1 hour" / "2 hours" — minutes below an hour, whole hours above.
     private static func durationLabel(_ minutes: Int) -> String {
-        guard minutes >= 60 else { return "\(minutes) мин" }
+        guard minutes >= 60 else { return String(localized: "\(minutes) min") }
         let hours = minutes / 60
-        return hours == 1 ? "1 час" : "\(hours) ч"
+        return hours == 1 ? String(localized: "1 hour") : String(localized: "\(hours) hours")
     }
 }
 
@@ -832,18 +864,44 @@ private struct AboutSection: View {
                         ProjectLinkRow(link: link)
                     }
                 }
+                ODCard(title: String(localized: "Language")) {
+                    LanguageRow()
+                }
             }
             .padding(ODSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .navigationTitle("О программе")
+        .navigationTitle("About")
+    }
+}
+
+/// Interface language: follow macOS, or pin English/Russian for this app only. macOS reads the
+/// choice at launch, so a change offers a relaunch instead of half-switching the open windows.
+private struct LanguageRow: View {
+    @State private var choice = AppLanguage.current
+    private let launched = AppLanguage.current
+
+    var body: some View {
+        ODRow(String(localized: "Interface language"),
+              secondary: choice == launched ? nil : String(localized: "Takes effect after OpenDisplay relaunches.")) {
+            HStack(spacing: ODSpacing.sm) {
+                if choice != launched {
+                    Button("Relaunch") { AppLanguage.relaunch() }
+                }
+                Picker("Interface language", selection: $choice) {
+                    ForEach(AppLanguage.allCases) { Text(verbatim: $0.title).tag($0) }
+                }
+                .labelsHidden().fixedSize()
+                .onChange(of: choice) { _, new in new.apply() }
+            }
+        }
     }
 }
 
 /// App icon, name, and running version/build — the same bundle-info source `AboutView` reads.
 private struct AppIdentityRow: View {
     var body: some View {
-        ODRow("OpenDisplay", secondary: "Версия \(AboutView.version) (сборка \(AboutView.build))") {
+        ODRow("OpenDisplay", secondary: String(localized: "Version \(AboutView.version) (build \(AboutView.build))")) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable().frame(width: 28, height: 28)
                 .accessibilityHidden(true)
@@ -857,7 +915,7 @@ private struct AppIdentityRow: View {
 /// The check-for-updates affordance, reusing the same `UpdateCheckStatusView` the About window shows.
 private struct UpdateCheckRow: View {
     var body: some View {
-        ODRow("Обновления") {
+        ODRow(String(localized: "Updates")) {
             EmptyView()
         } trailing: {
             UpdateCheckStatusView()
@@ -875,7 +933,7 @@ private struct ProjectLinkRow: View {
         } trailing: {
             Image(systemName: "arrow.up.right").foregroundStyle(.secondary)
         }
-        .accessibilityHint("Откроется в браузере")
+        .accessibilityHint("Opens in your browser")
     }
 }
 
@@ -932,7 +990,7 @@ private struct DisplayTile: View {
             .overlay(
                 VStack(spacing: 1) {
                     Text(model.displayName(for: display)).font(.caption2).lineLimit(1).padding(.horizontal, 3)
-                    if display.isMain { Text("Основной").font(.system(size: 8)).foregroundStyle(.secondary) }
+                    if display.isMain { Text("Main").font(.system(size: 8)).foregroundStyle(.secondary) }
                 }
             )
             .frame(width: max(tileSize.width, 36), height: max(tileSize.height, 24))
@@ -963,14 +1021,14 @@ private struct ClockModeCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
-            Text("Расписание яркости").font(.title3)
+            Text("Clock Mode").font(.title3)
             Toggle(isOn: Binding(
                 get: { model.settings.clockScheduleEnabled },
                 set: { model.setClockScheduleEnabled($0) }
             )) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Менять яркость по расписанию")
-                    Text("Меняет яркость внешних мониторов в заданное время или относительно восхода, полудня и заката, со смещением и плавными переходами. Индикатор не показывается. Это расписание имеет приоритет над адаптивной синхронизацией.")
+                    Text("Follow a brightness schedule")
+                    Text("Sets external-display brightness at times you choose — fixed clock times or sunrise, solar noon, and sunset with an offset — gliding between points. Changes are silent (no HUD). This schedule takes priority over Adaptive brightness sync.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -988,7 +1046,7 @@ private struct ClockScheduleList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
             if model.settings.clockScheduleEntries.isEmpty {
-                Text("Пока нет точек расписания. Добавьте, например, яркость 70% за 30 минут до восхода.")
+                Text("No schedule points yet. Add one below — for example “70% thirty minutes before sunrise”.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 ODCard {
@@ -1004,7 +1062,7 @@ private struct ClockScheduleList: View {
                     ClockScheduleEntry(anchor: .time, timeMinute: 8 * 60, brightness: 0.7,
                                        transition: .ramp))
             } label: {
-                Label("Добавить точку расписания", systemImage: "plus")
+                Label("Add Schedule Point", systemImage: "plus")
             }
             .controlSize(.small)
         }
@@ -1019,10 +1077,10 @@ private struct ClockScheduleEntryRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: ODSpacing.sm) {
                 Picker("", selection: anchorBinding) {
-                    Text("Время").tag(ScheduleAnchor.time)
-                    Text("Восход").tag(ScheduleAnchor.sunrise)
-                    Text("Солнечный полдень").tag(ScheduleAnchor.solarNoon)
-                    Text("Закат").tag(ScheduleAnchor.sunset)
+                    Text("Time").tag(ScheduleAnchor.time)
+                    Text("Sunrise").tag(ScheduleAnchor.sunrise)
+                    Text("Solar noon").tag(ScheduleAnchor.solarNoon)
+                    Text("Sunset").tag(ScheduleAnchor.sunset)
                 }
                 .labelsHidden().fixedSize()
 
@@ -1040,13 +1098,13 @@ private struct ClockScheduleEntryRow: View {
                     .buttonStyle(.borderless)
             }
             HStack(spacing: ODSpacing.sm) {
-                Stepper("Яркость: \(Int((entry.brightness * 100).rounded()))%",
+                Stepper("Brightness: \(Int((entry.brightness * 100).rounded()))%",
                         value: brightnessBinding, in: 0...1, step: 0.05)
                     .fixedSize()
                 Picker("", selection: transitionBinding) {
-                    Text("Мгновенно").tag(ScheduleTransition.instant)
-                    Text("Переход за 30 минут").tag(ScheduleTransition.ramp)
-                    Text("Плавно").tag(ScheduleTransition.continuous)
+                    Text("Instant").tag(ScheduleTransition.instant)
+                    Text("30-min ramp").tag(ScheduleTransition.ramp)
+                    Text("Continuous").tag(ScheduleTransition.continuous)
                 }
                 .labelsHidden().fixedSize()
             }
@@ -1056,8 +1114,8 @@ private struct ClockScheduleEntryRow: View {
 
     private var offsetLabel: String {
         let minutes = entry.offsetMinutes
-        if minutes == 0 { return "в указанное время" }
-        return minutes < 0 ? "за \(-minutes) мин до события" : "через \(minutes) мин после события"
+        if minutes == 0 { return String(localized: "at the anchor") }
+        return minutes < 0 ? String(localized: "\(-minutes) min before") : String(localized: "\(minutes) min after")
     }
 
     private var anchorBinding: Binding<ScheduleAnchor> {
@@ -1098,11 +1156,11 @@ private struct ClockLocationRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: ODSpacing.sm) {
-                TextField("Широта", value: latitudeBinding, format: .number)
+                TextField("Latitude", value: latitudeBinding, format: .number)
                     .textFieldStyle(.roundedBorder).frame(width: 100)
-                TextField("Долгота", value: longitudeBinding, format: .number)
+                TextField("Longitude", value: longitudeBinding, format: .number)
                     .textFieldStyle(.roundedBorder).frame(width: 100)
-                Button("Использовать текущее местоположение") { model.useCurrentLocationForClock() }
+                Button("Use current location") { model.useCurrentLocationForClock() }
                     .controlSize(.small)
             }
             Text(locationCaption).font(.caption).foregroundStyle(.secondary)
@@ -1111,9 +1169,9 @@ private struct ClockLocationRow: View {
 
     private var locationCaption: String {
         if model.settings.clockManualLocation == nil {
-            return "Для восхода, полудня и заката нужно местоположение. Фиксированное время работает без него."
+            return String(localized: "Sunrise / noon / sunset anchors need a location. Time anchors work without one.")
         }
-        return "Для солнечных событий используется это местоположение. Кнопка текущего местоположения получает его через Core Location."
+        return String(localized: "Solar anchors use this location. “Use current location” fills it from Core Location.")
     }
 
     private var latitudeBinding: Binding<Double> {
@@ -1140,16 +1198,16 @@ private struct AppPresetsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
             HStack(spacing: 8) {
-                Text("Профили приложений").font(.title3)
-                ODBadge("Экспериментальные функции", tone: .orange)
+                Text("App Presets").font(.title3)
+                ODBadge(String(localized: "Labs"), tone: .orange)
             }
             Toggle(isOn: Binding(
                 get: { model.settings.appPresetsEnabled },
                 set: { model.setAppPresetsEnabled($0) }
             )) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Менять профиль монитора при переключении приложения")
-                    Text("При переключении на выбранное приложение меняет яркость и при необходимости контрастность и цветовой режим монитора. После переключения на другое приложение восстанавливает значения. Индикатор не показывается; адаптивное управление на время приостанавливается.")
+                    Text("Switch a display preset when an app comes to the front")
+                    Text("When a chosen app becomes frontmost, its display’s brightness — and optionally contrast and colour preset — switch to the values you set, and are restored when the app leaves. Changes are silent (no HUD) and pause Adaptive display meanwhile.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -1166,7 +1224,7 @@ private struct AppPresetList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
             if model.settings.appPresets.isEmpty {
-                Text("Пока нет профилей приложений. Добавьте, например, яркость 40% для Final Cut.")
+                Text("No app presets yet. Add one below — for example “dim to 40% when Final Cut is in front”.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 ODCard {
@@ -1195,7 +1253,7 @@ private struct AddAppPresetMenu: View {
                 }
             }
         } label: {
-            Label("Добавить профиль приложения", systemImage: "plus")
+            Label("Add App Preset", systemImage: "plus")
         }
         .menuStyle(.borderlessButton)
         .controlSize(.small)
@@ -1219,7 +1277,7 @@ private struct AppPresetRow: View {
                 Text(preset.applicationName).bold()
                 Spacer()
                 Picker("", selection: targetBinding) {
-                    Text("Все мониторы").tag(AppPresetPolicy.Target.allDisplays)
+                    Text("All displays").tag(AppPresetPolicy.Target.allDisplays)
                     ForEach(externalDisplays, id: \.recordID) { observation in
                         Text(model.displayName(for: observation))
                             .tag(AppPresetPolicy.Target.display(observation.recordID.rawValue))
@@ -1232,7 +1290,7 @@ private struct AppPresetRow: View {
                     .buttonStyle(.borderless)
             }
             HStack(spacing: ODSpacing.md) {
-                Toggle("Яркость", isOn: brightnessEnabledBinding)
+                Toggle("Brightness", isOn: brightnessEnabledBinding)
                 if preset.brightness != nil {
                     Stepper("\(Int(((preset.brightness ?? 0) * 100).rounded()))%", value: brightnessBinding,
                             in: 0...1, step: 0.05)
@@ -1240,7 +1298,7 @@ private struct AppPresetRow: View {
                 }
             }
             HStack(spacing: ODSpacing.md) {
-                Toggle("Контрастность", isOn: contrastEnabledBinding)
+                Toggle("Contrast", isOn: contrastEnabledBinding)
                 if preset.contrast != nil {
                     Stepper("\(Int(((preset.contrast ?? 0) * 100).rounded()))%", value: contrastBinding,
                             in: 0...1, step: 0.05)
@@ -1248,7 +1306,7 @@ private struct AppPresetRow: View {
                 }
             }
             HStack(spacing: ODSpacing.md) {
-                Toggle("Цветовой режим", isOn: colorPresetEnabledBinding)
+                Toggle("Colour preset", isOn: colorPresetEnabledBinding)
                 if preset.colorPreset != nil {
                     Picker("", selection: colorPresetBinding) {
                         ForEach([1, 2, 3, 4, 5, 6], id: \.self) { code in

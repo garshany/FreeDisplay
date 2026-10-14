@@ -7,11 +7,11 @@ public enum EDIDError: LocalizedError, Equatable, Sendable {
     case invalidLength, invalidHeader, extensionCountMismatch, checksum(block: Int), invalidManufacturer
     public var errorDescription: String? {
         switch self {
-        case .invalidLength: "Размер EDID должен составлять от 128 до 32768 байт и быть кратным 128."
-        case .invalidHeader: "Неверный заголовок EDID."
-        case .extensionCountMismatch: "Число расширений EDID не соответствует размеру файла."
-        case .checksum(let block): "Неверная контрольная сумма блока EDID №\(block + 1)."
-        case .invalidManufacturer: "Недопустимый код производителя EDID."
+        case .invalidLength: "EDID size must be 128 to 32768 bytes and a multiple of 128."
+        case .invalidHeader: "Invalid EDID header."
+        case .extensionCountMismatch: "The EDID extension count does not match the file size."
+        case .checksum(let block): "Invalid checksum in EDID block #\(block + 1)."
+        case .invalidManufacturer: "Invalid EDID manufacturer code."
         }
     }
 }
@@ -67,8 +67,8 @@ public enum HiDPIPlanError: LocalizedError, Equatable {
     case invalidDimensions, exceedsLimit
     public var errorDescription: String? {
         switch self {
-        case .invalidDimensions: "Ширина и высота должны быть положительными."
-        case .exceedsLimit: "Логические размеры не должны превышать 8192 пикселя."
+        case .invalidDimensions: "Width and height must be positive."
+        case .exceedsLimit: "Logical dimensions must not exceed 8192 pixels."
         }
     }
 }
@@ -87,10 +87,10 @@ public struct HiDPIConfigurationPlan: Codable, Sendable, Equatable {
         guard width <= 8192, height <= 8192 else { throw HiDPIPlanError.exceedsLimit }
         logicalWidth = width; logicalHeight = height
         pixelWidth = width * 2; pixelHeight = height * 2
-        installationStatus = "Только план: публичный провайдер не поддерживает добавление пользовательских режимов физического дисплея."
-        recoverySteps = ["Перед внешними изменениями запишите текущее разрешение и частоту обновления.",
-                         "Перед установкой сохраните резервную копию существующих файлов конфигурации дисплея.",
-                         "При пропадании изображения используйте исправный дисплей или безопасный режим и восстановите точную резервную копию.",
-                         "Удалите только новую конфигурацию, перезагрузите компьютер и проверьте исходный режим."]
+        installationStatus = "Plan only: the public provider cannot add custom modes to a physical display."
+        recoverySteps = ["Before making external changes, write down the current resolution and refresh rate.",
+                         "Before installing, back up the existing display configuration files.",
+                         "If the picture disappears, use a working display or Safe Mode and restore the exact backup.",
+                         "Remove only the new configuration, restart the computer, and check the original mode."]
     }
 }

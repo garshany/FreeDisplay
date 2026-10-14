@@ -85,8 +85,8 @@ final class SoftwareUpdater: NSObject {
     func checkForUpdates() {
         if isLocalBuild {
             let alert = NSAlert()
-            alert.messageText = "Локальная открытая сборка"
-            alert.informativeText = "Обновляйте эту сборку из исходников проекта. Автоматическая установка исходной версии отключена, чтобы сохранить ваши доработки."
+            alert.messageText = String(localized: "Local Open-Source Build")
+            alert.informativeText = String(localized: "Update this build from the project’s sources. Installing the upstream release automatically is turned off so your changes are kept.")
             alert.runModal()
             return
         }
@@ -143,8 +143,7 @@ private struct DowngradeRefused: LocalizedError {
     let running: String
 
     var errorDescription: String? {
-        "The update feed offers OpenDisplay \(advertised), which is older than the \(running) you are "
-            + "running. Nothing was installed."
+        String(localized: "The update feed offers OpenDisplay \(advertised), which is older than the \(running) you are running. Nothing was installed.")
     }
 }
 

@@ -114,10 +114,12 @@ struct OSDHUDView: View {
 
     private var accessibilityDescription: String {
         switch content.kind {
-        case .brightness: return "Яркость: \(content.percent)%"
-        case .volume: return "Громкость: \(content.percent)%"
-        case .mute: return "Звук выключен"
-        case .input: return "Источник сигнала: \(content.label ?? "не указан")"
+        case .brightness: return String(localized: "Brightness: \(content.percent)%")
+        case .volume: return String(localized: "Volume: \(content.percent)%")
+        case .mute: return String(localized: "Muted")
+        case .input:
+            let input = content.label ?? String(localized: "not specified")
+            return String(localized: "Input source: \(input)")
         }
     }
 

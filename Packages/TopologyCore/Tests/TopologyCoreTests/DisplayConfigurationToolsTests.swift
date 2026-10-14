@@ -65,7 +65,7 @@ final class DisplayConfigurationToolsTests: XCTestCase {
         XCTAssertEqual(plist["DisplayVendorID"] as? Int, 1091)
         XCTAssertEqual(plist["DisplayProductID"] as? Int, 0x1234)
     }
-    func testPlansRoundTripBoundariesAndRussianRecovery() throws {
+    func testPlansRoundTripBoundariesAndRecoverySteps() throws {
         for dimensions in [(1, 1), (8192, 8192), (1920, 1080)] {
             let plan = try HiDPIConfigurationPlan(width: dimensions.0, height: dimensions.1)
             XCTAssertEqual(plan.pixelWidth, dimensions.0 * 2)
@@ -73,10 +73,10 @@ final class DisplayConfigurationToolsTests: XCTestCase {
             let data = try JSONEncoder().encode(plan)
             XCTAssertEqual(try JSONDecoder().decode(HiDPIConfigurationPlan.self, from: data), plan)
             XCTAssertEqual(plan.recoverySteps.count, 4)
-            XCTAssertTrue(plan.recoverySteps[1].contains("резервную копию"))
-            XCTAssertTrue(plan.recoverySteps[2].contains("безопасный режим"))
-            XCTAssertTrue(plan.recoverySteps[3].contains("только новую"))
-            XCTAssertTrue(plan.installationStatus.contains("Только план"))
+            XCTAssertTrue(plan.recoverySteps[1].contains("back up"))
+            XCTAssertTrue(plan.recoverySteps[2].contains("Safe Mode"))
+            XCTAssertTrue(plan.recoverySteps[3].contains("only the new"))
+            XCTAssertTrue(plan.installationStatus.contains("Plan only"))
         }
         for dimensions in [(-1, 1), (1, 0), (8193, 1), (1, 8193), (Int.max, Int.max)] {
             XCTAssertThrowsError(try HiDPIConfigurationPlan(width: dimensions.0, height: dimensions.1))
@@ -84,7 +84,7 @@ final class DisplayConfigurationToolsTests: XCTestCase {
         for error in [EDIDError.invalidLength, .invalidHeader, .extensionCountMismatch, .checksum(block: 0), .invalidManufacturer] {
             XCTAssertNotNil(error.errorDescription)
         }
-        XCTAssertTrue(HiDPIPlanError.invalidDimensions.localizedDescription.contains("положительными"))
+        XCTAssertTrue(HiDPIPlanError.invalidDimensions.localizedDescription.contains("positive"))
         XCTAssertTrue(HiDPIPlanError.exceedsLimit.localizedDescription.contains("8192"))
     }
     func testPlanValidatesBeforeMultiplication() throws {

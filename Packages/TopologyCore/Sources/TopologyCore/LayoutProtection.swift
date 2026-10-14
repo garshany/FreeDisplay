@@ -425,32 +425,50 @@ public enum LayoutProtectionPolicy {
 
     // MARK: - User-facing copy
 
-    /// A human summary of what drifted, for the restore notification: per display, the fields that
-    /// moved, plus the main-display change when it happened.
-    public static func summary(of analysis: DisplayConfigDrifter.DriftAnalysis,
-                               names: [DisplayRecordID: String]) -> String {
-        var fieldsByDisplay: [DisplayRecordID: [String]] = [:]
+    /// One kind of drift a restore put back, as the summary names it. The raw value is the
+    /// summary's English word.
+    public enum DriftedField: String, Hashable, Sendable {
+        case position, resolution, rotation, mirroring
+        case onOff = "on/off"
+    }
+
+    /// What `summary(of:names:)` says, before it is put into words — for a host that words it in
+    /// the user's language: per display (sorted by name), the fields that moved, and whether the
+    /// main display changed.
+    public static func driftedFields(of analysis: DisplayConfigDrifter.DriftAnalysis,
+                                     names: [DisplayRecordID: String])
+        -> (displays: [(name: String, fields: [DriftedField])], mainMoved: Bool) {
+        var fieldsByDisplay: [DisplayRecordID: [DriftedField]] = [:]
         var mainMoved = false
         for change in analysis.changes {
             switch change {
-            case .originMoved(let displayID): fieldsByDisplay[displayID, default: []].append("position")
-            case .modeChanged(let displayID): fieldsByDisplay[displayID, default: []].append("resolution")
-            case .rotationChanged(let displayID): fieldsByDisplay[displayID, default: []].append("rotation")
-            case .mirrorChanged(let displayID): fieldsByDisplay[displayID, default: []].append("mirroring")
+            case .originMoved(let displayID): fieldsByDisplay[displayID, default: []].append(.position)
+            case .modeChanged(let displayID): fieldsByDisplay[displayID, default: []].append(.resolution)
+            case .rotationChanged(let displayID): fieldsByDisplay[displayID, default: []].append(.rotation)
+            case .mirrorChanged(let displayID): fieldsByDisplay[displayID, default: []].append(.mirroring)
             // `appeared` reaches here only for a display the arrangement wants off — macOS switched
             // it back on and the restore switched it away again, which reads as "on/off" like any
             // other activity change.
             case .activeChanged(let displayID), .appeared(let displayID):
-                fieldsByDisplay[displayID, default: []].append("on/off")
+                fieldsByDisplay[displayID, default: []].append(.onOff)
             case .mainChanged: mainMoved = true
             case .disconnected: break
             }
         }
-        var parts = fieldsByDisplay
+        let displays = fieldsByDisplay
             .map { (name: names[$0.key] ?? $0.key.rawValue, fields: $0.value) }
             .sorted { $0.name < $1.name }
-            .map { "\($0.name): \($0.fields.joined(separator: ", "))" }
-        if mainMoved { parts.append("main display") }
+        return (displays, mainMoved)
+    }
+
+    /// A human summary of what drifted, for the restore notification: per display, the fields that
+    /// moved, plus the main-display change when it happened.
+    public static func summary(of analysis: DisplayConfigDrifter.DriftAnalysis,
+                               names: [DisplayRecordID: String]) -> String {
+        let drift = driftedFields(of: analysis, names: names)
+        var parts = drift.displays
+            .map { "\($0.name): \($0.fields.map(\.rawValue).joined(separator: ", "))" }
+        if drift.mainMoved { parts.append("main display") }
         return parts.joined(separator: " · ")
     }
 

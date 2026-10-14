@@ -28,12 +28,12 @@ enum HardwareControl: CaseIterable, Hashable {
     }
     var label: String {
         switch self {
-        case .contrast: return "Контрастность"
-        case .volume: return "Громкость"
-        case .sharpness: return "Резкость"
-        case .redGain: return "Красный канал"
-        case .greenGain: return "Зелёный канал"
-        case .blueGain: return "Синий канал"
+        case .contrast: return String(localized: "Contrast")
+        case .volume: return String(localized: "Volume")
+        case .sharpness: return String(localized: "Sharpness")
+        case .redGain: return String(localized: "Red gain")
+        case .greenGain: return String(localized: "Green gain")
+        case .blueGain: return String(localized: "Blue gain")
         }
     }
     var icon: String {
@@ -59,8 +59,8 @@ enum BrightnessMethod: String, Hashable {
     var caption: String? {
         switch self {
         case .native: return nil
-        case .hardware: return "Аппаратная · DDC"
-        case .software: return "Программная · гамма"
+        case .hardware: return String(localized: "Hardware · DDC")
+        case .software: return String(localized: "Software · gamma")
         }
     }
 }
@@ -89,7 +89,7 @@ enum FeatureFlags {
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var displays: [DisplayObservation] = []
-    @Published private(set) var statusText = "Поиск…"
+    @Published private(set) var statusText = String(localized: "Scanning…")
     @Published private(set) var busy = false
     @Published private(set) var diagnostics: [DisplayDiagnostic] = []
     @Published private(set) var phase: DisplayLoadPhase = .scanning
@@ -152,10 +152,11 @@ final class AppModel: ObservableObject {
     /// menu offers the advertised codes (or a bounded 1...max guess) and labels the standard ones,
     /// falling back to "Preset N".
     static let presetNames: [Int: String] = [
-        1: "sRGB", 2: "Заводской", 3: "4000K", 4: "5000K", 5: "6500K",
-        6: "7500K", 7: "8200K", 8: "9300K", 9: "10000K", 10: "11500K", 11: "Пользовательский 1", 12: "Пользовательский 2",
+        1: "sRGB", 2: String(localized: "Display native"), 3: "4000K", 4: "5000K", 5: "6500K",
+        6: "7500K", 7: "8200K", 8: "9300K", 9: "10000K", 10: "11500K",
+        11: String(localized: "User 1"), 12: String(localized: "User 2"),
     ]
-    func presetName(_ code: Int) -> String { Self.presetNames[code] ?? "Режим \(code)" }
+    func presetName(_ code: Int) -> String { Self.presetNames[code] ?? String(localized: "Preset \(code)") }
 
     /// Common DDC/CI input-source codes (VCP 0x60). Monitors mostly follow these; the menu shows the
     /// live code too, so a non-standard panel is still legible.
@@ -166,7 +167,7 @@ final class AppModel: ObservableObject {
 
     /// Human label for a DDC input code, or "Code N" if non-standard.
     func inputName(_ code: Int) -> String {
-        Self.standardInputs.first { $0.code == code }?.name ?? "Код \(code)"
+        Self.standardInputs.first { $0.code == code }?.name ?? String(localized: "Code \(code)")
     }
 
     /// A display OpenDisplay turned off — remembered (and persisted) so it stays visible and
@@ -520,9 +521,10 @@ final class AppModel: ObservableObject {
         if let screen = observation.cgDisplayID.flatMap(Self.screen(for:)) {
             return screen.localizedName
         }
-        if observation.displayClass == .builtIn { return "Встроенный экран" }
+        if observation.displayClass == .builtIn { return String(localized: "Built-in Display") }
         if let mode = observation.mode {
-            return "\(observation.displayClass.rawValue.capitalized) · \(mode.pixelWidth)×\(mode.pixelHeight)"
+            // The class word is a fixed English label per `DisplayClass`, looked up in the catalog.
+            return "\(observation.displayClass.rawValue.capitalized.appLocalized) · \(mode.pixelWidth)×\(mode.pixelHeight)"
         }
         return observation.recordID.rawValue
     }
@@ -537,7 +539,7 @@ final class AppModel: ObservableObject {
 
     /// Where the rescue-readable checkpoints live, shown in Settings → Diagnostics & Recovery.
     var checkpointLocation: String {
-        (try? DiskCheckpointStore.defaultDirectory().path) ?? "(unavailable)"
+        (try? DiskCheckpointStore.defaultDirectory().path) ?? String(localized: "(unavailable)")
     }
 
     /// The bound global recovery hotkey, shown in Settings.
@@ -559,10 +561,10 @@ final class AppModel: ObservableObject {
         // Probes are static for a given environment, so republish only when something actually changed
         // (this is read on every topology event to drive the menu-bar "degraded" banner via isDegraded).
         let updated = [
-            DisplayDiagnostic(provider: "Core Graphics (наблюдение)", status: observation.status.rawValue,
+            DisplayDiagnostic(provider: String(localized: "Core Graphics (observation)"), status: observation.status.rawValue,
                               risk: observation.risk.rawValue, experimental: observer.isExperimental,
                               reasons: observation.reasons.map(\.rawValue)),
-            DisplayDiagnostic(provider: "Отключение и восстановление", status: lifecycleProbe.status.rawValue,
+            DisplayDiagnostic(provider: String(localized: "Lifecycle (disconnect / reconnect)"), status: lifecycleProbe.status.rawValue,
                               risk: lifecycleProbe.risk.rawValue, experimental: lifecycle.isExperimental,
                               reasons: lifecycleProbe.reasons.map(\.rawValue))
         ]
@@ -955,9 +957,9 @@ final class AppModel: ObservableObject {
     /// mode this whole feature would otherwise introduce. Reasons that carry no body (the built-in
     /// going away) stay silent by design — see `SuspensionReason.notificationBody`.
     private func postXDRAutomationNotification(_ reason: XDRPowerAutomation.SuspensionReason) {
-        guard settings.displayNotificationsEnabled, let body = reason.notificationBody else { return }
-        NotificationDelivery.post(NotificationPolicy.DisplayNotification(
-            title: XDRPowerAutomation.notificationTitle, body: body))
+        guard settings.displayNotificationsEnabled, reason.notificationBody != nil,
+              let note = NotificationDelivery.notification(for: reason) else { return }
+        NotificationDelivery.post(note)
     }
 
     /// Turn an active boost off when the Mac switches to battery power.
@@ -1043,27 +1045,43 @@ final class AppModel: ObservableObject {
     func displayInfo(for observation: DisplayObservation) -> [(label: String, value: String)] {
         guard let cgID = observation.cgDisplayID else { return [] }
         var info: [(String, String)] = [
-            ("Название", displayName(for: observation)),
-            ("Тип", observation.displayClass == .builtIn ? "Встроенный" : "Внешний"),
+            (String(localized: "Name"), displayName(for: observation)),
+            (String(localized: "Type"), observation.displayClass == .builtIn
+                ? String(localized: "Built-in") : String(localized: "External")),
         ]
         let vendor = CGDisplayVendorNumber(cgID)
         let model = CGDisplayModelNumber(cgID)
         let serial = CGDisplaySerialNumber(cgID)
-        if vendor != 0, vendor != 0xFFFF_FFFF { info.append(("Производитель", String(vendor))) }
-        if model != 0, model != 0xFFFF_FFFF { info.append(("Модель", String(model))) }
-        if serial != 0 { info.append(("Серийный номер", String(serial))) }
+        if vendor != 0, vendor != 0xFFFF_FFFF { info.append((String(localized: "Vendor"), String(vendor))) }
+        if model != 0, model != 0xFFFF_FFFF { info.append((String(localized: "Model"), String(model))) }
+        if serial != 0 { info.append((String(localized: "Serial"), String(serial))) }
         if let mode = observation.mode {
-            info.append(("Рабочая область", "\(mode.pointWidth) × \(mode.pointHeight) логических точек"))
-            info.append(("Буфер изображения", "\(mode.pixelWidth) × \(mode.pixelHeight) пикселей"))
-            info.append(("Частота", mode.refreshHz > 0 ? String(format: "%.2f Гц", mode.refreshHz) : "Не сообщена macOS"))
-            info.append(("Плотность", mode.isHiDPI ? "HiDPI" : "Без HiDPI"))
+            info.append((String(localized: "Work area"),
+                         String(localized: "\(mode.pointWidth) × \(mode.pointHeight) logical points")))
+            info.append((String(localized: "Framebuffer"),
+                         String(localized: "\(mode.pixelWidth) × \(mode.pixelHeight) pixels")))
+            info.append((String(localized: "Refresh"), mode.refreshHz > 0
+                ? String(format: String(localized: "%.2f Hz"), mode.refreshHz)
+                : String(localized: "Not reported by macOS")))
+            info.append((String(localized: "Density"), mode.isHiDPI ? "HiDPI" : String(localized: "No HiDPI")))
         }
         let size = CGDisplayScreenSize(cgID)
         if size.width > 0, size.height > 0 {
             let inches = (size.width * size.width + size.height * size.height).squareRoot() / 25.4
-            info.append(("Размер", String(format: "%.1f дюйма", inches)))
+            info.append((String(localized: "Size"), String(format: String(localized: "%.1f-inch"), inches)))
         }
         return info
+    }
+
+    /// `DisplayModeChoices.label` in the interface language: the same fields in the same order. The
+    /// package words it in English only (it also builds on Linux, without catalog lookups), and an
+    /// interpolated runtime string can't be looked up afterwards.
+    nonisolated static func modeLabel(_ mode: DisplayMode) -> String {
+        let hz = mode.refreshHz.formatted(.number.precision(.fractionLength(0...2)))
+        let refresh = mode.refreshHz > 0 ? String(localized: "\(hz) Hz") : String(localized: "refresh unknown")
+        let density = mode.isHiDPI ? "HiDPI" : String(localized: "no HiDPI")
+        let depth = mode.bitDepth.map { bits in " · " + String(localized: "\(bits)-bit") } ?? ""
+        return String(localized: "\(mode.pointWidth) × \(mode.pointHeight) pt · framebuffer \(mode.pixelWidth) × \(mode.pixelHeight) px · \(refresh) · \(density)\(depth)")
     }
 
     /// Applies a saved scene's positions + modes to the current displays (user-triggered).
@@ -1083,7 +1101,7 @@ final class AppModel: ObservableObject {
         await refresh()
         await noteLayoutSelfChange()
         sceneWarning = rotationSkipped
-            ? "Применено. Поворот из сцены пропущен: эта версия macOS его не поддерживает."
+            ? String(localized: "Applied. Rotation in this scene was skipped — not supported on this macOS version.")
             : nil
     }
 
@@ -1219,7 +1237,7 @@ final class AppModel: ObservableObject {
         }
         // Guard against a no-op republish: the active/total count string is usually unchanged across
         // a refresh, and reassigning @Published fires objectWillChange and re-evaluates every view.
-        let status = "Активных: \(snapshot.activeDisplays.count) · всего: \(snapshot.observations.count)"
+        let status = String(localized: "\(snapshot.activeDisplays.count) active · \(snapshot.observations.count) total")
         if statusText != status { statusText = status }
         phase = displays.isEmpty ? .empty : .ready
         await resolveRecords(snapshot)
@@ -1333,9 +1351,14 @@ final class AppModel: ObservableObject {
     /// The caption for a display's brightness slider ("Hardware · DDC", "Software · gamma"), or nil for
     /// native control where no qualifier is needed.
     func brightnessCaption(for observation: DisplayObservation) -> String? {
-        brightnessMethod[observation.recordID] == .software
-            ? "Программная · \(settings.dimmingMethod == .gamma ? "гамма" : settings.dimmingMethod == .overlay ? "чёрный слой" : "комбинированная")"
-            : brightnessMethod[observation.recordID]?.caption
+        guard brightnessMethod[observation.recordID] == .software else {
+            return brightnessMethod[observation.recordID]?.caption
+        }
+        switch settings.dimmingMethod {
+        case .gamma: return String(localized: "Software · gamma")
+        case .overlay: return String(localized: "Software · overlay")
+        case .combined: return String(localized: "Software · combined")
+        }
     }
 
     /// Sets a display's brightness (0...1) through whichever route was resolved for it, updating the
@@ -1913,15 +1936,15 @@ final class AppModel: ObservableObject {
     func switchInputByHotkey(_ entry: InputSwitchBinding) async {
         #if !PUBLIC_API_ONLY
         guard let observation = displays.first(where: { $0.recordID == entry.displayID }) else {
-            await notifyInputSwitchFailed(entry.displayID, reason: "отключён")
+            await notifyInputSwitchFailed(entry.displayID, reason: .offline)
             return
         }
         guard let controller = await ddcController(for: observation) else {
-            await notifyInputSwitchFailed(entry.displayID, reason: "не поддерживает управление DDC")
+            await notifyInputSwitchFailed(entry.displayID, reason: .noDDC)
             return
         }
         guard await controller.write(.inputSource, entry.inputCode) else {
-            await notifyInputSwitchFailed(entry.displayID, reason: "отклонил смену источника сигнала")
+            await notifyInputSwitchFailed(entry.displayID, reason: .rejected)
             return
         }
         inputSource[entry.displayID] = entry.inputCode
@@ -1933,10 +1956,19 @@ final class AppModel: ObservableObject {
     /// Posts the "couldn't switch" notification (Batch-2 #5's delivery path) for a hotkey target
     /// that's offline or NAKed the write. Named from the persistent registry, not `records`, since an
     /// offline display has no live observation to read a name from.
-    private func notifyInputSwitchFailed(_ displayID: DisplayRecordID, reason: String) async {
+    private enum InputSwitchFailure { case offline, noDDC, rejected }
+
+    private func notifyInputSwitchFailed(_ displayID: DisplayRecordID, reason: InputSwitchFailure) async {
         let name = await registry?.record(for: displayID)?.displayName ?? displayID.rawValue
+        // Whole sentences per reason: a name + predicate pasted together can't be translated.
+        let body: String
+        switch reason {
+        case .offline: body = String(localized: "\(name) is offline.")
+        case .noDDC: body = String(localized: "\(name) has no DDC control.")
+        case .rejected: body = String(localized: "\(name) rejected the input switch.")
+        }
         NotificationDelivery.post(NotificationPolicy.DisplayNotification(
-            title: "Не удалось сменить источник сигнала", body: "\(name) \(reason)."
+            title: String(localized: "Input switch failed"), body: body
         ))
     }
     #endif
@@ -2461,32 +2493,33 @@ final class AppModel: ObservableObject {
         let clockTarget = clockOn ? clockScheduleBrightness(atMinute: minuteOfDay, on: now) : nil
         if let clockTarget {
             // Clock Mode governs brightness and outranks the adaptive mirror.
-            parts.append("по расписанию \(Int((clockTarget * 100).rounded()))%")
+            parts.append(String(localized: "clock \(Int((clockTarget * 100).rounded()))%"))
         } else if settings.adaptiveBrightnessSyncEnabled || settings.adaptiveLocationModeEnabled {
             if let manualAt = state?.manualBrightnessAt,
                Date() < manualAt.addingTimeInterval(settings.adaptiveConfig.manualCooldown) {
-                parts.append("яркость приостановлена вручную")
+                parts.append(String(localized: "brightness paused (manual)"))
             } else if settings.adaptiveBrightnessSyncEnabled,
                       displays.contains(where: { $0.displayClass == .builtIn && $0.isActive }) {
                 let offset = Int(((state?.brightnessOffset ?? 0) * 100).rounded())
-                parts.append(offset == 0 ? "синхронизация со встроенным экраном"
-                                         : "синхронизация со встроенным экраном (" + String(format: "%+d%%", offset) + ")")
+                parts.append(offset == 0 ? String(localized: "following built-in")
+                                         : String(format: String(localized: "following built-in (%+d%%)"), offset))
             } else if settings.adaptiveBrightnessSyncEnabled, let lux = ambientLuxEMA {
-                parts.append("по освещению комнаты (\(Int(lux.rounded())) лк)")
+                parts.append(String(localized: "following room light (\(Int(lux.rounded())) lx)"))
             } else if let elevation = locationElevationDegrees(at: now) {
-                parts.append("по положению солнца (\(Int(elevation.rounded()))°)")
+                parts.append(String(localized: "following sun position (\(Int(elevation.rounded()))°)"))
             } else {
-                parts.append("по расписанию (нет датчика освещения)")
+                parts.append(String(localized: "on schedule (no light sensor)"))
             }
         }
         if settings.adaptiveWarmthEnabled {
-            parts.append(state?.warmthPhase == .evening ? "вечерний тёплый режим включён" : "дневной цветовой режим")
+            parts.append(state?.warmthPhase == .evening ? String(localized: "evening warmth active")
+                                                        : String(localized: "day colour"))
         }
         guard !parts.isEmpty else { return nil }
         let usesAdaptive = settings.adaptiveBrightnessSyncEnabled || settings.adaptiveWarmthEnabled
             || settings.adaptiveLocationModeEnabled
-        let prefix = usesAdaptive ? "Адаптивное управление: " : "Расписание: "
-        return prefix + parts.joined(separator: " · ")
+        let joined = parts.joined(separator: " · ")
+        return usesAdaptive ? String(localized: "Adaptive: \(joined)") : String(localized: "Clock Mode: \(joined)")
     }
 
     func setAdaptiveBrightnessSyncEnabled(_ enabled: Bool) {
@@ -2822,7 +2855,7 @@ final class AppModel: ObservableObject {
 
     /// The "synced with <group>" caption for a display's detail row, or nil when it isn't grouped.
     func groupSyncCaption(for observation: DisplayObservation) -> String? {
-        displayGroup(containing: observation.recordID).map { "Синхронизация с \($0.name)" }
+        displayGroup(containing: observation.recordID).map { String(localized: "Synced with \($0.name)") }
     }
 
     /// A name for a display that may not be present right now: its live/aliased name when the
@@ -2841,6 +2874,12 @@ final class AppModel: ObservableObject {
         }
         guard let record = records[display] ?? registryKnownRecords[display] else {
             return display.rawValue
+        }
+        // With no alias or model name the package falls back to a fixed English class label
+        // ("Built-in Display", "External display"…), looked up in the catalog. A user's alias is
+        // never looked up: it could collide with a catalog key.
+        if (record.alias ?? "").isEmpty, (record.fingerprint.modelName ?? "").isEmpty {
+            return record.friendlyName().appLocalized
         }
         return record.friendlyName()
     }
@@ -3041,24 +3080,24 @@ final class AppModel: ObservableObject {
     /// and reverts itself unless confirmed within the window.
     func setMode(_ mode: DisplayMode, for observation: DisplayObservation) async {
         guard !modeChangeInProgress, pendingRevert == nil else {
-            modeChangeError = "Сначала подтвердите или отмените предыдущее изменение режима."
+            modeChangeError = String(localized: "Confirm or revert the previous mode change first.")
             return
         }
         modeChangeError = nil
         guard let cgID = observation.cgDisplayID, DisplayModeChoices.isValid(mode) else {
-            modeChangeError = "Экран или выбранный режим недоступен."
+            modeChangeError = String(localized: "The display or the selected mode is unavailable.")
             return
         }
         modeChangeInProgress = true
         defer { modeChangeInProgress = false }
         let before = await observer.currentSnapshot().observations
         guard let prior = before.first(where: { $0.cgDisplayID == cgID && $0.recordID == observation.recordID }), prior.isActive else {
-            modeChangeError = "Экран больше не активен. Обновите список экранов."
+            modeChangeError = String(localized: "The display is no longer active. Refresh the display list.")
             return
         }
         if let actual = prior.mode, DisplayModeChoices.matches(actual, requested: mode) { return }
         guard observer.allModes(for: cgID).contains(where: { DisplayModeChoices.matches($0, requested: mode) }) else {
-            modeChangeError = "Этот точный режим больше недоступен. Другой буфер или частота автоматически не подставляются."
+            modeChangeError = String(localized: "This exact mode is no longer available. A different framebuffer or refresh rate is never substituted automatically.")
             return
         }
         // Persist the original arrangement BEFORE the write so a crash during verification can recover.
@@ -3080,12 +3119,12 @@ final class AppModel: ObservableObject {
             } ?? false
             if restorationVerified { Self.clearRevertMarker() }
             modeChangeError = restorationVerified
-                ? "macOS не подтвердила выбранный режим. Предыдущий режим восстановлен."
-                : "macOS не подтвердила выбранный режим и восстановление. Используйте аварийное восстановление; сохранена запись предыдущих настроек."
+                ? String(localized: "macOS did not confirm the selected mode. The previous mode was restored.")
+                : String(localized: "macOS confirmed neither the selected mode nor the restore. Use emergency recovery; a record of the previous settings was saved.")
             return
         }
         await noteLayoutSelfChange()
-        beginRevertWindow(before: before, message: "Изменён режим: \(displayName(for: observation))")
+        beginRevertWindow(before: before, message: String(localized: "Resolution changed on \(displayName(for: observation))"))
     }
 
     /// Whether `mode` is a pinned favourite for this display (Batch-2 #3).
@@ -3369,7 +3408,7 @@ final class AppModel: ObservableObject {
         stampReconnectFailure(Date(), for: offline)
         await appendAudit(ReconnectVerification.failureAudit(of: offline, actor: .ui, at: Date()))
         if settings.displayNotificationsEnabled {
-            NotificationDelivery.post(ReconnectVerification.failureNotification(for: offline))
+            NotificationDelivery.post(NotificationDelivery.reconnectFailureNotification(for: offline))
         }
     }
 
@@ -3455,12 +3494,12 @@ final class AppModel: ObservableObject {
         let names = Dictionary(
             (prior + displays).map { ($0.recordID, displayName(for: $0)) }, uniquingKeysWith: { _, b in b }
         )
-        let notes = NotificationPolicy.notifications(
+        let events = NotificationPolicy.events(
             prior: prior, current: displays, names: names,
             builtInAutoDisconnected: builtInAutoDisconnected,
             enabled: settings.displayNotificationsEnabled
         )
-        for note in notes { NotificationDelivery.post(note) }
+        for event in events { NotificationDelivery.post(NotificationDelivery.notification(for: event)) }
     }
 
     /// Toggle for display notifications (Batch-2 #5). Persists and, when turned on, requests
@@ -3877,7 +3916,7 @@ final class AppModel: ObservableObject {
             context: layoutProtectionContext(), state: layoutProtectionState)
         layoutProtectionState = evaluation.state
         if evaluation.shouldNotifyFailure,
-           let note = LayoutProtectionPolicy.failureNotification(
+           let note = NotificationDelivery.layoutRestoreFailureNotification(
             enabled: settings.displayNotificationsEnabled) {
             NotificationDelivery.post(note)
         }
@@ -3943,7 +3982,7 @@ final class AppModel: ObservableObject {
             protected: config.snapshot, current: settled, context: layoutProtectionContext())
         let restored = !(residual?.hasDrifted ?? false)
         await appendLayoutProtectionAudit(status: restored ? "committed" : "partial", analysis: analysis)
-        guard restored, let note = LayoutProtectionPolicy.restoreNotification(
+        guard restored, let note = NotificationDelivery.layoutRestoreNotification(
             for: analysis, names: layoutProtectionDisplayNames(), enabled: settings.displayNotificationsEnabled)
         else { return }
         NotificationDelivery.post(note)

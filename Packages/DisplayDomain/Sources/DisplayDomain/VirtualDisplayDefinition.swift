@@ -17,16 +17,16 @@ public struct VirtualDisplayDefinition: Codable, Hashable, Sendable, Identifiabl
 
     public var validationError: String? {
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name.utf8.count > 128 || name.contains("\0") {
-            return "Введите название экрана длиной 1–128 байт без нулевых символов."
+            return "Enter a display name of 1–128 bytes with no null characters."
         }
         if !(640...8192).contains(pixelWidth) || !(480...8192).contains(pixelHeight) {
-            return "Размеры должны быть от 640 × 480 до 8192 × 8192 пикселей."
+            return "Dimensions must be between 640 × 480 and 8192 × 8192 pixels."
         }
         if !refreshRate.isFinite || !(24...120).contains(refreshRate) {
-            return "Частота обновления должна быть от 24 до 120 Гц."
+            return "The refresh rate must be between 24 and 120 Hz."
         }
         if hiDPI && (pixelWidth % 2 != 0 || pixelHeight % 2 != 0) {
-            return "Для HiDPI ширина и высота в пикселях должны быть чётными."
+            return "For HiDPI, the pixel width and height must be even."
         }
         return nil
     }

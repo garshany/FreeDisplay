@@ -15,10 +15,10 @@ struct LaunchAtLoginToggle: View {
     var body: some View {
         Toggle(isOn: Binding(get: { Self.isOn(status) }, set: { setEnabled($0) })) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Запускать при входе в систему")
+                Text("Launch at login")
                 Text(caption).font(.caption).foregroundStyle(.secondary)
                 if status == .requiresApproval {
-                    Button("Открыть настройки объектов входа\u{2026}") {
+                    Button("Open Login Items Settings…") {
                         SMAppService.openSystemSettingsLoginItems()
                     }
                     .buttonStyle(.link).font(.caption)
@@ -37,13 +37,11 @@ struct LaunchAtLoginToggle: View {
     }
 
     private var caption: String {
-        if let failure { return "Не удалось изменить автозапуск: \(failure)" }
+        if let failure { return String(localized: "Couldn’t change the login item: \(failure)") }
         if status == .requiresApproval {
-            return "macOS ожидает разрешения для OpenDisplay в настройках: "
-                + "«Основные» → «Объекты входа»."
+            return String(localized: "macOS is holding this until you allow OpenDisplay under System Settings → General → Login Items.")
         }
-        return "Запускает OpenDisplay при входе в систему для применения правил мониторов "
-            + "и синхронизации яркости."
+        return String(localized: "Starts OpenDisplay when you log in, so its display rules and brightness sync are there without you opening it.")
     }
 
     private func setEnabled(_ enabled: Bool) {

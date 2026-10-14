@@ -8,7 +8,7 @@ import SwiftUI
 struct LocalControlPanel: View {
     @EnvironmentObject private var model: AppModel
     @State private var server = LocalControlServer()
-    @State private var status = "Остановлен"
+    @State private var status = String(localized: "Stopped")
     @State private var busy = false
     @State private var started = false
     @State private var tokenAvailable = false
@@ -18,29 +18,29 @@ struct LocalControlPanel: View {
 
     var body: some View {
         Form {
-            Section("Локальное HTTP-управление") {
-                Text("Управление на 127.0.0.1 действует только в текущем сеансе. Запросам нужен секретный токен. При закрытии раздела сервер останавливается.")
+            Section("Local HTTP control") {
+                Text("Control on 127.0.0.1 lasts only for the current session. Requests need the secret token. The server stops when you leave this section.")
                 Text(status).textSelection(.enabled)
                 HStack {
-                    Button("Запустить локальный сервер") { start() }.disabled(busy || started)
-                    Button("Остановить", action: stop).disabled(!started && !busy)
-                    Button("Скопировать токен сеанса") {
+                    Button("Start Local Server") { start() }.disabled(busy || started)
+                    Button("Stop", action: stop).disabled(!started && !busy)
+                    Button("Copy Session Token") {
                         guard let token = server.token else { return }
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(token, forType: .string)
                     }.disabled(!tokenAvailable)
                 }
-                Text("GET /v1/displays · POST /v1/brightness · POST /v1/reconnect-all")
+                Text(verbatim: "GET /v1/displays · POST /v1/brightness · POST /v1/reconnect-all")  // routes, not prose
                     .font(.system(.caption, design: .monospaced))
-                Text("Изменение яркости возвращает статус запроса; аппаратный результат не подтверждён. Протоколы телевизоров и AV-ресиверов, а также HDMI-CEC в этой сборке не реализованы.").font(.caption)
+                Text("A brightness change returns the request status; the hardware result is not verified. TV and AV-receiver protocols and HDMI-CEC are not implemented in this build.").font(.caption)
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Автоматизация")
+        .navigationTitle("Automation")
         .onAppear { visible = true }
         .task {
             while !Task.isCancelled {
-                if let port = server.port { status = "Сервер работает: http://127.0.0.1:\(port)" }
+                if let port = server.port { status = String(localized: "Server running: http://127.0.0.1:\(port)") }
                 else if let failure = server.failure { status = failure; started = false }
                 tokenAvailable = server.token != nil && server.port != nil
                 try? await Task.sleep(for: .milliseconds(300))
@@ -53,7 +53,7 @@ struct LocalControlPanel: View {
         generation = UUID()
         startTask?.cancel(); startTask = nil
         server.stop(); started = false; busy = false
-        tokenAvailable = false; status = "Остановлен"
+        tokenAvailable = false; status = String(localized: "Stopped")
     }
 
     private func start() {
@@ -79,7 +79,8 @@ struct LocalControlPanel: View {
                     case .brightness(let id, let value):
                         guard value.isFinite, (0...1).contains(value),
                               let display = model.displays.first(where: { $0.recordID.rawValue == id && $0.isActive }) else {
-                            return encode(["status": "rejected", "error": "Активный дисплей не найден или задана недопустимая яркость"])
+                            // API payload for HTTP clients, not UI: kept as stable, unlocalized English.
+                            return encode(["status": "rejected", "error": "No active display with this ID, or the brightness is out of range"])
                         }
                         model.setBrightness(Float(value), for: display)
                         return encode(["status": "requested", "displayId": id, "value": value,
@@ -88,8 +89,8 @@ struct LocalControlPanel: View {
                         return encode(["status": "rejected"])
                     }
                 }
-                started = true; status = "Запуск…"
-            } catch { status = "Не удалось запустить сервер: \(error.localizedDescription)" }
+                started = true; status = String(localized: "Starting…")
+            } catch { status = String(localized: "Couldn’t start the server: \(error.localizedDescription)") }
         }
     }
 }

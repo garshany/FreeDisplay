@@ -12,12 +12,10 @@ struct DisplayGroupsCard: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        ODCard(title: "Группы экранов",
-               footnote: "Изменение яркости одного экрана меняет яркость всей группы с учётом индивидуальных поправок. "
-                       + "Если сразу после синхронизации изменить яркость ведомого экрана, программа запомнит новую поправку. "
-                       + "Экраны в группах не участвуют в адаптивной регулировке.") {
+        ODCard(title: String(localized: "Display groups"),
+               footnote: String(localized: "Moving any member’s brightness moves the rest, each at its own offset. Nudging a display right after it follows re-teaches that offset instead of moving the group. Grouped displays are left out of Adaptive Display.")) {
             if model.settings.displayGroups.isEmpty {
-                Text("Объедините экраны для совместной регулировки яркости.")
+                Text("Group displays to move their brightness together.")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .padding(.horizontal, 11).padding(.vertical, 10)
             } else {
@@ -38,25 +36,25 @@ private struct DisplayGroupSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ODRow("Название группы", secondary: memberSummary) {
+            ODRow(String(localized: "Group name"), secondary: memberSummary) {
                 HStack(spacing: ODSpacing.sm) {
-                    TextField("Название группы", text: $draftName)
+                    TextField("Group name", text: $draftName)
                         .textFieldStyle(.roundedBorder).frame(width: 140)
                         .onSubmit { commitName() }
                     Button(role: .destructive) {
                         model.deleteDisplayGroup(group)
                     } label: { Image(systemName: "trash") }
                         .buttonStyle(.borderless)
-                        .accessibilityLabel("Удалить группу «\(group.name)»")
+                        .accessibilityLabel("Delete group “\(group.name)”")
                 }
             }
             ODDivider()
-            ODRow("Синхронизация") {
+            ODRow(String(localized: "Sync")) {
                 HStack(spacing: ODSpacing.md) {
-                    Toggle("Яркость", isOn: Binding(
+                    Toggle("Brightness", isOn: Binding(
                         get: { group.syncBrightness },
                         set: { model.setDisplayGroupSyncBrightness($0, for: group) }))
-                    Toggle("Контраст", isOn: Binding(
+                    Toggle("Contrast", isOn: Binding(
                         get: { group.syncContrast },
                         set: { model.setDisplayGroupSyncContrast($0, for: group) }))
                 }
@@ -74,7 +72,7 @@ private struct DisplayGroupSection: View {
         let connected = group.memberRecordIDs.filter { member in
             model.displays.contains { $0.recordID == member }
         }
-        return "Экранов: \(group.memberRecordIDs.count) \u{00B7} подключено: \(connected.count)"
+        return String(localized: "Displays: \(group.memberRecordIDs.count) · connected: \(connected.count)")
     }
 
     /// Every display that could sit in this group: the ones connected right now plus every display
@@ -106,14 +104,14 @@ private struct DisplayGroupMemberRow: View {
                         .font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
                         .frame(width: 44, alignment: .trailing)
                     Slider(value: offsetBinding, in: offsetRange).frame(width: 110)
-                        .accessibilityLabel("Поправка яркости экрана \(model.rememberedDisplayName(for: member))")
-                        .help("Индивидуальная поправка яркости при общей регулировке группы")
+                        .accessibilityLabel("Brightness offset for \(model.rememberedDisplayName(for: member))")
+                        .help("This display’s own brightness offset when the group moves together")
                 }
                 Toggle("", isOn: Binding(
                     get: { isMember },
                     set: { model.setDisplayGroupMembership(member, in: group, isMember: $0) }))
                     .labelsHidden()
-                    .accessibilityLabel("Включить экран \(model.rememberedDisplayName(for: member)) в группу «\(group.name)»")
+                    .accessibilityLabel("Include \(model.rememberedDisplayName(for: member)) in group “\(group.name)”")
             }
         }
     }
@@ -124,8 +122,8 @@ private struct DisplayGroupMemberRow: View {
     /// moves it here, since a display belongs to one group), and a display that isn't plugged in —
     /// which the list now offers from the registry, so the row has to say so.
     private var membershipNote: String? {
-        if !isMember, let other = model.displayGroup(containing: member) { return "В группе «\(other.name)»" }
-        return isConnected ? nil : "Не подключён"
+        if !isMember, let other = model.displayGroup(containing: member) { return String(localized: "In group “\(other.name)”") }
+        return isConnected ? nil : String(localized: "Not connected")
     }
 
     private var isConnected: Bool {
@@ -156,12 +154,12 @@ private struct NewDisplayGroupRow: View {
     @State private var draftName = ""
 
     var body: some View {
-        ODRow("Новая группа") {
+        ODRow(String(localized: "New group")) {
             HStack(spacing: ODSpacing.sm) {
-                TextField("Название", text: $draftName)
+                TextField("Name", text: $draftName)
                     .textFieldStyle(.roundedBorder).frame(width: 140)
                     .onSubmit { create() }
-                Button("Добавить") { create() }
+                Button("Add") { create() }
                     .disabled(draftName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }

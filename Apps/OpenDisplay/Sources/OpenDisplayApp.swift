@@ -177,7 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             let hosting = NSHostingController(rootView: SettingsView().environmentObject(model))
             let created = NSWindow(contentViewController: hosting)
-            created.title = "Настройки OpenDisplay"
+            created.title = String(localized: "OpenDisplay Settings")
             created.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             created.isReleasedWhenClosed = false
             created.setContentSize(NSSize(width: 900, height: 660))
@@ -207,7 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             let hosting = NSHostingController(rootView: AboutView().environmentObject(model))
             let created = NSWindow(contentViewController: hosting)
-            created.title = "Об OpenDisplay"
+            created.title = String(localized: "About OpenDisplay")
             created.styleMask = [.titled, .closable]
             created.isReleasedWhenClosed = false
             aboutWindow = created
@@ -255,7 +255,7 @@ extension Notification.Name {
     /// Posted across processes by a second copy of the app as it bows out to the one already
     /// running (see `enforceSingleInstance`), asking that one to show its Settings window.
     static let openDisplayShowSettingsFromSibling = Notification.Name("dev.opendisplay.app.showSettings")
-    /// Posted by the menu's "Об OpenDisplay" item; the delegate owns the About window.
+    /// Posted by the menu's "About OpenDisplay" item; the delegate owns the About window.
     static let openDisplayShowAbout = Notification.Name("OpenDisplayShowAbout")
 }
 #endif

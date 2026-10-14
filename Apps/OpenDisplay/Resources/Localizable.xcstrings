@@ -1,7 +1,6686 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-
+    "" : {},
+    "%.1f-inch" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%.1f дюйма"
+          }
+        }
+      }
+    },
+    "%.2f Hz" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%.2f Гц"
+          }
+        }
+      }
+    },
+    "%@ (factory)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ (заводской)"
+          }
+        }
+      }
+    },
+    "%@ didn’t come back on" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ не включился"
+          }
+        }
+      }
+    },
+    "%@ has no DDC control." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ не поддерживает управление DDC."
+          }
+        }
+      }
+    },
+    "%@ Hz" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ Гц"
+          }
+        }
+      }
+    },
+    "%@ is offline." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ отключён."
+          }
+        }
+      }
+    },
+    "%@ rejected the input switch." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ отклонил смену источника сигнала."
+          }
+        }
+      }
+    },
+    "%@ · reverting in %llds" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · возврат через %lld с"
+          }
+        }
+      }
+    },
+    "%@ · risk: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · риск: %@"
+          }
+        }
+      }
+    },
+    "%@. Reverting in %llds…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@. Отмена через %lld с…"
+          }
+        }
+      }
+    },
+    "%lld active · %lld total" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Активных: %lld · всего: %lld"
+          }
+        }
+      }
+    },
+    "%lld hours" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld ч"
+          }
+        }
+      }
+    },
+    "%lld K" : {},
+    "%lld min" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld мин"
+          }
+        }
+      }
+    },
+    "%lld min after" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "через %lld мин после события"
+          }
+        }
+      }
+    },
+    "%lld min before" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "за %lld мин до события"
+          }
+        }
+      }
+    },
+    "%lld × %lld logical points" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld × %lld логических точек"
+          }
+        }
+      }
+    },
+    "%lld × %lld pixels" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld × %lld пикселей"
+          }
+        }
+      }
+    },
+    "%lld × %lld pt · framebuffer %lld × %lld px · %@ · %@%@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld × %lld лог. · буфер %lld × %lld пикс. · %@ · %@%@"
+          }
+        }
+      }
+    },
+    "%lld%%" : {},
+    "%lld%% battery" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld%% заряда"
+          }
+        }
+      }
+    },
+    "%lld-bit" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld бит"
+          }
+        }
+      }
+    },
+    "%lld°" : {},
+    "%u × %u" : {},
+    "(factory)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(заводской)"
+          }
+        }
+      }
+    },
+    "(unavailable)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(недоступно)"
+          }
+        }
+      }
+    },
+    "1 hour" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 час"
+          }
+        }
+      }
+    },
+    "120 Hz" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "120 Гц"
+          }
+        }
+      }
+    },
+    "30 Hz" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "30 Гц"
+          }
+        }
+      }
+    },
+    "30-min ramp" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переход за 30 минут"
+          }
+        }
+      }
+    },
+    "60 Hz" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "60 Гц"
+          }
+        }
+      }
+    },
+    "A black overlay at adjustable opacity, applied on top of the picture. The menu bar stays available so you can always find your way back." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чёрный слой с регулируемой прозрачностью поверх изображения. Строка меню остаётся доступной для восстановления."
+          }
+        }
+      }
+    },
+    "A brightness change returns the request status; the hardware result is not verified. TV and AV-receiver protocols and HDMI-CEC are not implemented in this build." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изменение яркости возвращает статус запроса; аппаратный результат не подтверждён. Протоколы телевизоров и AV-ресиверов, а также HDMI-CEC в этой сборке не реализованы."
+          }
+        }
+      }
+    },
+    "A display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дисплей"
+          }
+        }
+      }
+    },
+    "A mode is applied only when you click Apply." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбор режима применяется только кнопкой «Применить»."
+          }
+        }
+      }
+    },
+    "A picture-in-picture window of any display or window, rotation, flipping, and LUTs are set up in the capture window." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Окно «картинка в картинке» с любого экрана или окна, поворот, отражение и LUT настраиваются в окне захвата."
+          }
+        }
+      }
+    },
+    "About" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "О программе"
+          }
+        }
+      }
+    },
+    "About OpenDisplay" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Об OpenDisplay"
+          }
+        }
+      }
+    },
+    "Access granted, but the keys can’t be captured yet. Retrying…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Доступ разрешён, но перехват недоступен. Повторная попытка…"
+          }
+        }
+      }
+    },
+    "Accessibility permission needed to capture the keys." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для перехвата клавиш нужен доступ в разделе «Универсальный доступ»."
+          }
+        }
+      }
+    },
+    "Adaptive display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Адаптивное управление"
+          }
+        }
+      }
+    },
+    "Adaptive: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Адаптивное управление: %@"
+          }
+        }
+      }
+    },
+    "Add" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить"
+          }
+        }
+      }
+    },
+    "Add App Preset" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить профиль приложения"
+          }
+        }
+      }
+    },
+    "Add input hotkey" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить сочетание для смены источника"
+          }
+        }
+      }
+    },
+    "Add input hotkey…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить сочетание клавиш…"
+          }
+        }
+      }
+    },
+    "Add Schedule Point" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить точку расписания"
+          }
+        }
+      }
+    },
+    "Add the current mode to favourites or remove it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить текущий режим в избранное или убрать его"
+          }
+        }
+      }
+    },
+    "Add to favorites" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В избранное"
+          }
+        }
+      }
+    },
+    "After switching, the monitor shows the other input — switch back with the monitor's buttons." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "После переключения монитор покажет другой вход — вернуть можно кнопками на мониторе."
+          }
+        }
+      }
+    },
+    "Airplay" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AirPlay"
+          }
+        }
+      }
+    },
+    "Airplay display" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дисплей AirPlay"
+          }
+        }
+      }
+    },
+    "All displays" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Все мониторы"
+          }
+        }
+      }
+    },
+    "All modes" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Все режимы"
+          }
+        }
+      }
+    },
+    "All settings…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Все настройки…"
+          }
+        }
+      }
+    },
+    "Allow creating experimental virtual screens" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешить создание экспериментальных виртуальных экранов"
+          }
+        }
+      }
+    },
+    "Another operation is still running, or the limit of four virtual screens has been reached." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Другая операция ещё выполняется или достигнут предел четырёх виртуальных экранов."
+          }
+        }
+      }
+    },
+    "App Presets" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Профили приложений"
+          }
+        }
+      }
+    },
+    "Appearance" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изображение"
+          }
+        }
+      }
+    },
+    "Application" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Приложение"
+          }
+        }
+      }
+    },
+    "Applied. Rotation in this scene was skipped — not supported on this macOS version." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Применено. Поворот из сцены пропущен: эта версия macOS его не поддерживает."
+          }
+        }
+      }
+    },
+    "Apply" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Применить"
+          }
+        }
+      }
+    },
+    "Applying mode…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Применяю режим…"
+          }
+        }
+      }
+    },
+    "Arrange" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расположение"
+          }
+        }
+      }
+    },
+    "Arrange Displays" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расположение мониторов"
+          }
+        }
+      }
+    },
+    "Ask the monitor which colour modes it supports" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запросить поддерживаемые цветовые режимы"
+          }
+        }
+      }
+    },
+    "at the anchor" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "в указанное время"
+          }
+        }
+      }
+    },
+    "Automation" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоматизация"
+          }
+        }
+      }
+    },
+    "Automation and HTTP…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоматизация и HTTP…"
+          }
+        }
+      }
+    },
+    "Available EDR headroom" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Доступный запас EDR"
+          }
+        }
+      }
+    },
+    "Battery at %lld%%." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заряд аккумулятора: %lld%%."
+          }
+        }
+      }
+    },
+    "Behavior" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поведение"
+          }
+        }
+      }
+    },
+    "Black Out" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Затемнить полностью"
+          }
+        }
+      }
+    },
+    "blacked out" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "затемнён"
+          }
+        }
+      }
+    },
+    "Blue gain" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Синий канал"
+          }
+        }
+      }
+    },
+    "Both" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оба"
+          }
+        }
+      }
+    },
+    "Bottom" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Внизу"
+          }
+        }
+      }
+    },
+    "Brightness" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Яркость"
+          }
+        }
+      }
+    },
+    "Brightness control isn’t available in this build." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Управление яркостью недоступно в этой сборке."
+          }
+        }
+      }
+    },
+    "Brightness keys control the" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клавиши яркости управляют"
+          }
+        }
+      }
+    },
+    "Brightness offset for %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поправка яркости экрана %@"
+          }
+        }
+      }
+    },
+    "brightness paused (manual)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "яркость приостановлена вручную"
+          }
+        }
+      }
+    },
+    "Brightness sources, best available first: the active built-in display, the ambient light sensor while the lid is open, this schedule while the lid is closed. Warmth uses the schedule whenever Night Shift’s state can’t be read." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Источники яркости по приоритету: активный встроенный экран, датчик освещения при открытой крышке, расписание при закрытой крышке. Тёплый режим использует расписание, если состояние Night Shift недоступно."
+          }
+        }
+      }
+    },
+    "Brightness: %lld%%" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Яркость: %lld%%"
+          }
+        }
+      }
+    },
+    "Bring the boost back when power returns" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Восстанавливать усиление при подключении питания"
+          }
+        }
+      }
+    },
+    "Broadcast display events for notch / external HUD apps" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Передавать события приложениям внешних индикаторов"
+          }
+        }
+      }
+    },
+    "build type" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "тип сборки"
+          }
+        }
+      }
+    },
+    "Built-in" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встроенный"
+          }
+        }
+      }
+    },
+    "Built-in Display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встроенный экран"
+          }
+        }
+      }
+    },
+    "Built-in display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встроенным экраном"
+          }
+        }
+      }
+    },
+    "Built-in display turned off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встроенный дисплей выключен"
+          }
+        }
+      }
+    },
+    "Cancel" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отмена"
+          }
+        }
+      }
+    },
+    "Capture and Picture in Picture…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Захват и картинка в картинке…"
+          }
+        }
+      }
+    },
+    "Capture ended: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Захват завершён: %@"
+          }
+        }
+      }
+    },
+    "Capture failed: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ошибка захвата: %@"
+          }
+        }
+      }
+    },
+    "Capture stopped." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Захват остановлен."
+          }
+        }
+      }
+    },
+    "Capture stopped. Load sources to request Screen Recording access." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Захват остановлен. Загрузите источники для запроса доступа к записи экрана."
+          }
+        }
+      }
+    },
+    "Center" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "По центру"
+          }
+        }
+      }
+    },
+    "Change mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изменение режима"
+          }
+        }
+      }
+    },
+    "Check for updates automatically" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверять обновления автоматически"
+          }
+        }
+      }
+    },
+    "Check for Updates…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверить обновления…"
+          }
+        }
+      }
+    },
+    "Checking for updates…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверка обновлений…"
+          }
+        }
+      }
+    },
+    "Checkpoints" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Контрольные точки"
+          }
+        }
+      }
+    },
+    "Checks for a new version, then downloads and installs it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверяет наличие новой версии, затем скачивает и устанавливает её"
+          }
+        }
+      }
+    },
+    "Checksums of all EDID blocks verified. Extension blocks are kept as-is, uninterpreted." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Контрольные суммы всех блоков EDID проверены. Расширения сохраняются без интерпретации."
+          }
+        }
+      }
+    },
+    "Choose a mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выберите режим"
+          }
+        }
+      }
+    },
+    "Choose a source" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выберите источник"
+          }
+        }
+      }
+    },
+    "Choose a source and start capture. Only the selected source is captured." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выберите источник и запустите захват. Будет захвачен только выбранный источник."
+          }
+        }
+      }
+    },
+    "Choose from Favourites" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрать из избранного"
+          }
+        }
+      }
+    },
+    "Choose mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрать режим"
+          }
+        }
+      }
+    },
+    "Classic" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Классический"
+          }
+        }
+      }
+    },
+    "clock %lld%%" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "по расписанию %lld%%"
+          }
+        }
+      }
+    },
+    "Clock Mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расписание яркости"
+          }
+        }
+      }
+    },
+    "Clock Mode: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расписание: %@"
+          }
+        }
+      }
+    },
+    "Code %lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Код %lld"
+          }
+        }
+      }
+    },
+    "Collapse or expand. ⌥-click to identify the display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свернуть или развернуть. ⌥-клик — показать, какой это экран"
+          }
+        }
+      }
+    },
+    "collapsed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "свёрнуто"
+          }
+        }
+      }
+    },
+    "Collecting…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбор данных…"
+          }
+        }
+      }
+    },
+    "Color profile" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цветовой профиль"
+          }
+        }
+      }
+    },
+    "Color temperature" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цветовая температура"
+          }
+        }
+      }
+    },
+    "Colour mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цветовой режим"
+          }
+        }
+      }
+    },
+    "Colour preset" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цветовой режим"
+          }
+        }
+      }
+    },
+    "Colour profile" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цветовой профиль"
+          }
+        }
+      }
+    },
+    "Colour temperature" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цветовая температура"
+          }
+        }
+      }
+    },
+    "Combined" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Комбинированный"
+          }
+        }
+      }
+    },
+    "Configuration export failed: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ошибка экспорта конфигурации: %@"
+          }
+        }
+      }
+    },
+    "Confirm or revert the previous mode change first." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала подтвердите или отмените предыдущее изменение режима."
+          }
+        }
+      }
+    },
+    "Confirm the other display's change at the bottom of the panel first" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала подтвердите изменение другого экрана внизу панели"
+          }
+        }
+      }
+    },
+    "connection route" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "способ подключения"
+          }
+        }
+      }
+    },
+    "Continuous" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Плавно"
+          }
+        }
+      }
+    },
+    "Contrast" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Контрастность"
+          }
+        }
+      }
+    },
+    "Control on 127.0.0.1 lasts only for the current session. Requests need the secret token. The server stops when you leave this section." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Управление на 127.0.0.1 действует только в текущем сеансе. Запросам нужен секретный токен. При закрытии раздела сервер останавливается."
+          }
+        }
+      }
+    },
+    "Controls" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Управление"
+          }
+        }
+      }
+    },
+    "Copy Session Token" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скопировать токен сеанса"
+          }
+        }
+      }
+    },
+    "Core Graphics (observation)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Core Graphics (наблюдение)"
+          }
+        }
+      }
+    },
+    "Couldn’t change the login item: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось изменить автозапуск: %@"
+          }
+        }
+      }
+    },
+    "Couldn’t complete the operation: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось выполнить операцию: %@"
+          }
+        }
+      }
+    },
+    "Couldn’t confirm that the displays were restored." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось подтвердить восстановление дисплеев."
+          }
+        }
+      }
+    },
+    "Couldn’t create a secure session token" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось создать безопасный токен сеанса"
+          }
+        }
+      }
+    },
+    "Couldn’t identify the screen unambiguously." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось однозначно определить экран."
+          }
+        }
+      }
+    },
+    "Couldn’t load sources: %@. Check Screen Recording access in System Settings; a relaunch may be required." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось загрузить источники: %@. Проверьте доступ к записи экрана в Системных настройках; может потребоваться перезапуск."
+          }
+        }
+      }
+    },
+    "Couldn’t restore your protected layout" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось восстановить защищённое расположение"
+          }
+        }
+      }
+    },
+    "Couldn’t set the brightness." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось изменить яркость."
+          }
+        }
+      }
+    },
+    "Couldn’t start the server: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось запустить сервер: %@"
+          }
+        }
+      }
+    },
+    "Couldn’t write the diagnostics file." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось записать файл диагностики."
+          }
+        }
+      }
+    },
+    "Create Virtual Screen" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Создать виртуальный экран"
+          }
+        }
+      }
+    },
+    "Creating virtual displays isn’t available in the public-API-only build." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Создание виртуальных мониторов недоступно в сборке только с публичными API."
+          }
+        }
+      }
+    },
+    "Crop / zoom" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обрезка / масштаб"
+          }
+        }
+      }
+    },
+    "Current mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Текущий режим"
+          }
+        }
+      }
+    },
+    "Day brightness: %lld%%" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дневная яркость: %lld%%"
+          }
+        }
+      }
+    },
+    "day colour" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "дневной цветовой режим"
+          }
+        }
+      }
+    },
+    "Day starts" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Начало дня"
+          }
+        }
+      }
+    },
+    "default" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "по умолч."
+          }
+        }
+      }
+    },
+    "degraded" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ограниченная поддержка"
+          }
+        }
+      }
+    },
+    "Delete group “%@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить группу «%@»"
+          }
+        }
+      }
+    },
+    "Density" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Плотность"
+          }
+        }
+      }
+    },
+    "Detect displays" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переопределить экраны"
+          }
+        }
+      }
+    },
+    "Detect supported modes" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Определить поддерживаемые режимы"
+          }
+        }
+      }
+    },
+    "Detecting asks the monitor which modes it supports. A few monitors stop answering DDC afterwards until power-cycled." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запрашивает поддерживаемые режимы. Некоторые мониторы после запроса перестают отвечать по DDC до выключения и включения питания."
+          }
+        }
+      }
+    },
+    "Detecting…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Определение…"
+          }
+        }
+      }
+    },
+    "Detect…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Определить…"
+          }
+        }
+      }
+    },
+    "Diagnostics" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Диагностика"
+          }
+        }
+      }
+    },
+    "Diagnostics & Recovery" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Диагностика и восстановление"
+          }
+        }
+      }
+    },
+    "Didn’t come back on" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экран не включился"
+          }
+        }
+      }
+    },
+    "Dimensions must be between 640 × 480 and 8192 × 8192 pixels." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размеры должны быть от 640 × 480 до 8192 × 8192 пикселей."
+          }
+        }
+      }
+    },
+    "Dimming" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Затемнение"
+          }
+        }
+      }
+    },
+    "disabled" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "выключено"
+          }
+        }
+      }
+    },
+    "disabled by policy" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "отключено политикой"
+          }
+        }
+      }
+    },
+    "Display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитор"
+          }
+        }
+      }
+    },
+    "Display %u (%lld × %lld)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дисплей %u (%lld × %lld)"
+          }
+        }
+      }
+    },
+    "Display arrangement…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расположение экранов…"
+          }
+        }
+      }
+    },
+    "Display connected" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дисплей подключён"
+          }
+        }
+      }
+    },
+    "Display disconnected" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дисплей отключён"
+          }
+        }
+      }
+    },
+    "Display groups" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Группы экранов"
+          }
+        }
+      }
+    },
+    "Display mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Режим экрана"
+          }
+        }
+      }
+    },
+    "Display name" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Название монитора"
+          }
+        }
+      }
+    },
+    "Display native" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заводской"
+          }
+        }
+      }
+    },
+    "Display on" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экран включён"
+          }
+        }
+      }
+    },
+    "Display rotation" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поворот экрана"
+          }
+        }
+      }
+    },
+    "display type" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "тип монитора"
+          }
+        }
+      }
+    },
+    "Display under the pointer" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитором под указателем"
+          }
+        }
+      }
+    },
+    "Displays" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мониторы"
+          }
+        }
+      }
+    },
+    "Displays and virtual displays" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экраны и виртуальные экраны"
+          }
+        }
+      }
+    },
+    "Displays reconnected: %lld." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключено дисплеев: %lld."
+          }
+        }
+      }
+    },
+    "Displays reconnected: %lld. Some displays couldn’t be restored." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключено дисплеев: %lld. Некоторые дисплеи восстановить не удалось."
+          }
+        }
+      }
+    },
+    "Displays: %lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мониторов: %lld"
+          }
+        }
+      }
+    },
+    "Displays: %lld · connected: %lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экранов: %lld · подключено: %lld"
+          }
+        }
+      }
+    },
+    "Download and install updates automatically" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скачивать и устанавливать обновления автоматически"
+          }
+        }
+      }
+    },
+    "Drag a display to reposition it. Changes apply immediately; save the layout as a scene under Scenes." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перетащите монитор, чтобы изменить расположение. Изменения применяются сразу; сохраните расположение в разделе «Сцены»."
+          }
+        }
+      }
+    },
+    "Drives brightness from the sun’s elevation at the location set below: dim near dawn and dusk, full once the sun is well up. The built-in display and the ambient light sensor still take priority when available, and an explicit schedule always wins." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Меняет яркость по высоте солнца для указанного местоположения: темнее на рассвете и закате, ярче днём. Встроенный экран и датчик освещения имеют приоритет, если доступны. Явное расписание всегда имеет высший приоритет."
+          }
+        }
+      }
+    },
+    "EDID & HiDPI" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EDID и HiDPI"
+          }
+        }
+      }
+    },
+    "EDID and HiDPI…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EDID и HiDPI…"
+          }
+        }
+      }
+    },
+    "EDID rejected: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EDID отклонён: %@"
+          }
+        }
+      }
+    },
+    "EDID size must be 128 to 32768 bytes and a multiple of 128." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер EDID должен составлять от 128 до 32768 байт и быть кратным 128."
+          }
+        }
+      }
+    },
+    "EDID tools — export only" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Инструменты EDID — только экспорт"
+          }
+        }
+      }
+    },
+    "EDR headroom describes macOS’s current output. It doesn’t confirm that HDR reaches the display, and it doesn’t turn on hardware HDR." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запас EDR описывает текущий вывод macOS. Он не подтверждает передачу HDR на монитор и не включает аппаратный HDR."
+          }
+        }
+      }
+    },
+    "Enter a display name of 1–128 bytes with no null characters." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Введите название экрана длиной 1–128 байт без нулевых символов."
+          }
+        }
+      }
+    },
+    "Enter valid positive pixel dimensions." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Введите допустимые положительные размеры в пикселях."
+          }
+        }
+      }
+    },
+    "Evening preset" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вечерний режим"
+          }
+        }
+      }
+    },
+    "Evening starts" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Начало вечера"
+          }
+        }
+      }
+    },
+    "evening warmth active" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "вечерний тёплый режим включён"
+          }
+        }
+      }
+    },
+    "expanded" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "развёрнуто"
+          }
+        }
+      }
+    },
+    "experimental" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "экспериментальный"
+          }
+        }
+      }
+    },
+    "Experimental" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспериментально"
+          }
+        }
+      }
+    },
+    "Experimental capture and picture in picture" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспериментальный захват и «картинка в картинке»"
+          }
+        }
+      }
+    },
+    "Experimental display rotation" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспериментальный поворот экрана"
+          }
+        }
+      }
+    },
+    "Experimental feature. If it fails, the displays reconnect automatically." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспериментальная функция. При сбое экраны переподключатся автоматически."
+          }
+        }
+      }
+    },
+    "Export diagnostics" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспорт диагностики"
+          }
+        }
+      }
+    },
+    "Export Diagnostics…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспортировать диагностику…"
+          }
+        }
+      }
+    },
+    "Export failed: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ошибка экспорта: %@"
+          }
+        }
+      }
+    },
+    "Export HiDPI Plan…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспортировать план HiDPI…"
+          }
+        }
+      }
+    },
+    "Export Validated Configuration…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспортировать проверенную конфигурацию…"
+          }
+        }
+      }
+    },
+    "Exported %@. Display settings were not changed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспортирован %@. Настройки дисплея не изменены."
+          }
+        }
+      }
+    },
+    "External" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Внешний"
+          }
+        }
+      }
+    },
+    "External display" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Внешний монитор"
+          }
+        }
+      }
+    },
+    "External displays only" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только внешними мониторами"
+          }
+        }
+      }
+    },
+    "External HUD only" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только внешний индикатор"
+          }
+        }
+      }
+    },
+    "FaceLight" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свет для камеры"
+          }
+        }
+      }
+    },
+    "Factory Default" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заводской профиль"
+          }
+        }
+      }
+    },
+    "Factory default" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заводской профиль"
+          }
+        }
+      }
+    },
+    "Factory reset…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заводские настройки…"
+          }
+        }
+      }
+    },
+    "Favorites" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Избранные"
+          }
+        }
+      }
+    },
+    "Favourite modes" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Избранные режимы"
+          }
+        }
+      }
+    },
+    "Flip horizontally" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отразить по горизонтали"
+          }
+        }
+      }
+    },
+    "Follow a brightness schedule" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Менять яркость по расписанию"
+          }
+        }
+      }
+    },
+    "Follow the sun’s position" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Учитывать положение солнца"
+          }
+        }
+      }
+    },
+    "following built-in" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "синхронизация со встроенным экраном"
+          }
+        }
+      }
+    },
+    "following built-in (%+d%%)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "следует за встроенным (%+d%%)"
+          }
+        }
+      }
+    },
+    "following room light (%lld lx)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "по освещению комнаты (%lld лк)"
+          }
+        }
+      }
+    },
+    "following sun position (%lld°)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "по положению солнца (%lld°)"
+          }
+        }
+      }
+    },
+    "For HiDPI, the pixel width and height must be even." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для HiDPI ширина и высота в пикселях должны быть чётными."
+          }
+        }
+      }
+    },
+    "Framebuffer" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Буфер изображения"
+          }
+        }
+      }
+    },
+    "Full mode: logical size, framebuffer, refresh rate and HiDPI" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Полный режим: логические размеры, буфер изображения, частота и HiDPI"
+          }
+        }
+      }
+    },
+    "fully black screen" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "полностью чёрный экран"
+          }
+        }
+      }
+    },
+    "Gamma" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Гамма"
+          }
+        }
+      }
+    },
+    "Gamma dimming plus a black overlay on top — darker than either method alone, and still never fully black." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сочетает затемнение гаммой и чёрный слой. Темнее каждого способа по отдельности, но не делает экран полностью чёрным."
+          }
+        }
+      }
+    },
+    "Global hotkey" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Глобальная горячая клавиша"
+          }
+        }
+      }
+    },
+    "Green gain" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зелёный канал"
+          }
+        }
+      }
+    },
+    "Group displays to move their brightness together." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Объедините экраны для совместной регулировки яркости."
+          }
+        }
+      }
+    },
+    "Group name" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Название группы"
+          }
+        }
+      }
+    },
+    "Hardware controls sent over DDC/CI. Availability depends on the monitor." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Аппаратные команды передаются по DDC/CI. Поддержка зависит от монитора."
+          }
+        }
+      }
+    },
+    "Hardware · DDC" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Аппаратная · DDC"
+          }
+        }
+      }
+    },
+    "hardware-dependent" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "зависит от оборудования"
+          }
+        }
+      }
+    },
+    "HDR capabilities" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Возможности HDR"
+          }
+        }
+      }
+    },
+    "Headlessadapter" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Адаптер без монитора"
+          }
+        }
+      }
+    },
+    "Headlessadapter display" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Адаптер без монитора"
+          }
+        }
+      }
+    },
+    "Height in pixels" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Высота в пикселях"
+          }
+        }
+      }
+    },
+    "Hide" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скрыть"
+          }
+        }
+      }
+    },
+    "Hide display settings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скрыть настройки экрана"
+          }
+        }
+      }
+    },
+    "HiDPI mode planning" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Планирование режима HiDPI"
+          }
+        }
+      }
+    },
+    "HiDPI: half the logical desktop size" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HiDPI: логический размер рабочего стола вдвое меньше"
+          }
+        }
+      }
+    },
+    "Hotkeys and diagnostics…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Горячие клавиши и диагностика…"
+          }
+        }
+      }
+    },
+    "Identify" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать на экране"
+          }
+        }
+      }
+    },
+    "If a display misbehaves, export a diagnostics file and attach it to your issue. It is saved to your Desktop and is not sent anywhere. It contains:" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Если монитор работает неправильно, экспортируйте диагностику и приложите файл к обращению. Файл сохраняется на рабочий стол и никуда не отправляется. Он содержит:"
+          }
+        }
+      }
+    },
+    "if the monitor ignores DDC" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "если монитор игнорирует DDC"
+          }
+        }
+      }
+    },
+    "If this monitor supported hardware control before, its DDC channel may be stuck — try turning the monitor off and on with its own power button, then reopen this pane." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Если аппаратное управление работало раньше, канал DDC мог зависнуть. Выключите и включите монитор его кнопкой питания, затем откройте эту панель снова."
+          }
+        }
+      }
+    },
+    "Import a monitor’s binary EDID to validate it and export a configuration." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импортируйте двоичный EDID монитора для проверки и экспорта конфигурации."
+          }
+        }
+      }
+    },
+    "Import EDID…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импортировать EDID…"
+          }
+        }
+      }
+    },
+    "In group “%@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В группе «%@»"
+          }
+        }
+      }
+    },
+    "Inactive" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Неактивен"
+          }
+        }
+      }
+    },
+    "Include %@ in group “%@”" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включить экран %@ в группу «%@»"
+          }
+        }
+      }
+    },
+    "Information" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Информация"
+          }
+        }
+      }
+    },
+    "Input" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Источник"
+          }
+        }
+      }
+    },
+    "Input hotkeys" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клавиши смены источника"
+          }
+        }
+      }
+    },
+    "Input source" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Источник сигнала"
+          }
+        }
+      }
+    },
+    "Input source: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Источник сигнала: %@"
+          }
+        }
+      }
+    },
+    "Input switch failed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось сменить источник сигнала"
+          }
+        }
+      }
+    },
+    "Installing update…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установка обновления…"
+          }
+        }
+      }
+    },
+    "Installs a new release on its own and relaunches OpenDisplay into it. Every download’s signature is checked before it runs. Needs the automatic check above." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоматически устанавливает новый выпуск и перезапускает OpenDisplay. Перед запуском проверяется подпись загрузки. Требует включённой автоматической проверки."
+          }
+        }
+      }
+    },
+    "Instant" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мгновенно"
+          }
+        }
+      }
+    },
+    "Interface language" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Язык интерфейса"
+          }
+        }
+      }
+    },
+    "Invalid checksum in EDID block #%lld." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Неверная контрольная сумма блока EDID №%lld."
+          }
+        }
+      }
+    },
+    "Invalid EDID header." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Неверный заголовок EDID."
+          }
+        }
+      }
+    },
+    "Invalid EDID manufacturer code." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недопустимый код производителя EDID."
+          }
+        }
+      }
+    },
+    "Invalid HiDPI plan: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недопустимый план HiDPI: %@"
+          }
+        }
+      }
+    },
+    "Jump a display straight to an input (HDMI, DisplayPort, USB-C…) with a global shortcut." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переключайте источник сигнала монитора (HDMI, DisplayPort, USB-C) глобальной горячей клавишей."
+          }
+        }
+      }
+    },
+    "Keep" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оставить"
+          }
+        }
+      }
+    },
+    "Keep disconnected" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранять отключение"
+          }
+        }
+      }
+    },
+    "Keep displays awake while an external is connected" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не усыплять мониторы, пока подключён внешний"
+          }
+        }
+      }
+    },
+    "Keep displays awake while external connected" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не гасить экраны при подключённом мониторе"
+          }
+        }
+      }
+    },
+    "Keep the new mode?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оставить новый режим?"
+          }
+        }
+      }
+    },
+    "Keep these display settings?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранить эти настройки монитора?"
+          }
+        }
+      }
+    },
+    "Keeps the screens from going to sleep while at least one external display is connected. Released automatically when the last external display is disconnected." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не даёт экранам уходить в сон, пока подключён хотя бы один внешний монитор. Блокировка автоматически снимается после отключения последнего внешнего монитора."
+          }
+        }
+      }
+    },
+    "Labs" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспериментальные функции"
+          }
+        }
+      }
+    },
+    "Labs in Settings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Labs в настройках"
+          }
+        }
+      }
+    },
+    "Language" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Язык"
+          }
+        }
+      }
+    },
+    "Latitude" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Широта"
+          }
+        }
+      }
+    },
+    "Launch at login" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запускать при входе в систему"
+          }
+        }
+      }
+    },
+    "License (GPL-3.0)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лицензия GPL-3.0"
+          }
+        }
+      }
+    },
+    "Lifecycle (disconnect / reconnect)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключение и восстановление"
+          }
+        }
+      }
+    },
+    "Load .cube LUT…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Загрузить LUT .cube…"
+          }
+        }
+      }
+    },
+    "Load sources to begin. macOS may ask for Screen Recording access. The preview stays in memory; protected content may appear blank." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Загрузите источники для начала. macOS может запросить доступ к записи экрана. Предпросмотр хранится в памяти; защищённое содержимое может быть пустым."
+          }
+        }
+      }
+    },
+    "Load Sources…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Загрузить источники…"
+          }
+        }
+      }
+    },
+    "Local build · updates from source" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Локальная сборка · обновление из исходников"
+          }
+        }
+      }
+    },
+    "Local HTTP control" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Локальное HTTP-управление"
+          }
+        }
+      }
+    },
+    "Local Open-Source Build" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Локальная открытая сборка"
+          }
+        }
+      }
+    },
+    "Local server error: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ошибка локального сервера: %@"
+          }
+        }
+      }
+    },
+    "Logical dimensions must not exceed 8192 pixels." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Логические размеры не должны превышать 8192 пикселя."
+          }
+        }
+      }
+    },
+    "Logical disconnect — reconnectable" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Логическое отключение с возможностью подключения"
+          }
+        }
+      }
+    },
+    "Logical height" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Логическая высота"
+          }
+        }
+      }
+    },
+    "Logical size sets the workspace. The framebuffer is the size of the image macOS renders; it doesn’t report the panel’s physical resolution. A large HiDPI framebuffer may be scaled again and doesn’t guarantee sharper output on every monitor. A selection takes effect only after you click Apply, and it must be confirmed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Логический размер определяет рабочую область. Буфер — размер изображения, которое рисует macOS; он не сообщает физическое разрешение матрицы. Большой буфер HiDPI может дополнительно масштабироваться и не гарантирует лучшую чёткость на любом мониторе. Выбор вступает в силу только после нажатия «Применить» и требует подтверждения."
+          }
+        }
+      }
+    },
+    "Logical width" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Логическая ширина"
+          }
+        }
+      }
+    },
+    "Longitude" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Долгота"
+          }
+        }
+      }
+    },
+    "Looks at the release feed about once a day and shows what it finds in the menu. Nothing is downloaded until you say so, and checking manually works either way." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверяет список выпусков примерно раз в сутки и показывает обновления в меню. Загрузка начинается только с вашего согласия. Ручная проверка доступна всегда."
+          }
+        }
+      }
+    },
+    "Low Power Mode is on." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включён режим энергосбережения."
+          }
+        }
+      }
+    },
+    "LUT" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LUT"
+          }
+        }
+      }
+    },
+    "LUT exceeds 16 MB" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LUT превышает 16 МБ"
+          }
+        }
+      }
+    },
+    "LUT rejected: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LUT отклонён: %@"
+          }
+        }
+      }
+    },
+    "M" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "M"
+          }
+        }
+      }
+    },
+    "macOS confirmed neither the selected mode nor the restore. Use emergency recovery; a record of the previous settings was saved." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS не подтвердила выбранный режим и восстановление. Используйте аварийное восстановление; сохранена запись предыдущих настроек."
+          }
+        }
+      }
+    },
+    "macOS did not confirm the selected mode. The previous mode was restored." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS не подтвердила выбранный режим. Предыдущий режим восстановлен."
+          }
+        }
+      }
+    },
+    "macOS didn’t confirm the screen was created in time." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS не подтвердила создание экрана за отведённое время."
+          }
+        }
+      }
+    },
+    "macOS didn’t report the current mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS не сообщила текущий режим"
+          }
+        }
+      }
+    },
+    "macOS doesn't allow changing this display's profile." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS не даёт менять профиль этого экрана."
+          }
+        }
+      }
+    },
+    "macOS is holding this until you allow OpenDisplay under System Settings → General → Login Items." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS ожидает разрешения для OpenDisplay в настройках: «Основные» → «Объекты входа»."
+          }
+        }
+      }
+    },
+    "macOS kept the arrangement it had. Protect the current layout again to accept it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS сохранила прежнее расположение. Чтобы принять его, снова защитите текущее расположение."
+          }
+        }
+      }
+    },
+    "macOS rejected the operation (code %lld)." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS отклонила операцию (код %lld)."
+          }
+        }
+      }
+    },
+    "macOS rejected the virtual display parameters." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS отклонила параметры виртуального экрана."
+          }
+        }
+      }
+    },
+    "macOS version" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "версия macOS"
+          }
+        }
+      }
+    },
+    "macOS's saved display configuration, now and as copied before recent disconnects" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранённая конфигурация мониторов macOS — текущая и копии, сделанные перед недавними отключениями"
+          }
+        }
+      }
+    },
+    "Main" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Основной"
+          }
+        }
+      }
+    },
+    "main display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "основной монитор"
+          }
+        }
+      }
+    },
+    "Main display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Основной экран"
+          }
+        }
+      }
+    },
+    "Main display (menu bar and Dock)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Основной экран (строка меню и Dock)"
+          }
+        }
+      }
+    },
+    "Manage display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Управление экраном"
+          }
+        }
+      }
+    },
+    "Manufacturer" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Производитель"
+          }
+        }
+      }
+    },
+    "Match external brightness to the built-in display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Синхронизировать яркость внешнего монитора со встроенным"
+          }
+        }
+      }
+    },
+    "Media keys" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мультимедийные клавиши"
+          }
+        }
+      }
+    },
+    "Media keys are active." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перехват мультимедийных клавиш работает."
+          }
+        }
+      }
+    },
+    "menu bar and Dock" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "строка меню и Dock"
+          }
+        }
+      }
+    },
+    "Menu bar and Dock appear here" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Здесь будут строка меню и Dock"
+          }
+        }
+      }
+    },
+    "Method" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Способ"
+          }
+        }
+      }
+    },
+    "Minimal" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Минимальный"
+          }
+        }
+      }
+    },
+    "Mirror the main display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дублировать основной экран"
+          }
+        }
+      }
+    },
+    "Mirror to main display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дублировать основной монитор"
+          }
+        }
+      }
+    },
+    "mirrored" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "зеркало"
+          }
+        }
+      }
+    },
+    "Mirroring" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зеркалирование"
+          }
+        }
+      }
+    },
+    "mirroring" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "зеркалирование"
+          }
+        }
+      }
+    },
+    "Mirroring works only with the main display." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зеркалирование возможно только с основным экраном."
+          }
+        }
+      }
+    },
+    "Mode, refresh rate, color, rotation, monitor controls…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Режим, частота, цвет, поворот, управление монитором…"
+          }
+        }
+      }
+    },
+    "Model" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Модель"
+          }
+        }
+      }
+    },
+    "Modes macOS already offers are chosen in the regular resolution list. Custom physical modes need external setup with administrator rights. Only the sizes and the restore steps are exported here." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Доступные режимы macOS выбираются в обычном списке разрешений. Пользовательские физические режимы требуют внешней настройки с правами администратора. Здесь экспортируются только размеры и порядок восстановления."
+          }
+        }
+      }
+    },
+    "Monitor color mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цветовой режим монитора"
+          }
+        }
+      }
+    },
+    "Monitor controls" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Управление монитором"
+          }
+        }
+      }
+    },
+    "Monitor volume over DDC. Click the icon to mute or unmute" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Громкость монитора по DDC. Значок — выключить/включить звук"
+          }
+        }
+      }
+    },
+    "More" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ещё"
+          }
+        }
+      }
+    },
+    "More display settings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ещё настройки экрана"
+          }
+        }
+      }
+    },
+    "More modes" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дополнительные режимы"
+          }
+        }
+      }
+    },
+    "Moving any member’s brightness moves the rest, each at its own offset. Nudging a display right after it follows re-teaches that offset instead of moving the group. Grouped displays are left out of Adaptive Display." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изменение яркости одного экрана меняет яркость всей группы с учётом индивидуальных поправок. Если сразу после синхронизации изменить яркость ведомого экрана, программа запомнит новую поправку. Экраны в группах не участвуют в адаптивной регулировке."
+          }
+        }
+      }
+    },
+    "Muted" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Звук выключен"
+          }
+        }
+      }
+    },
+    "Name" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Название"
+          }
+        }
+      }
+    },
+    "native" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "родное"
+          }
+        }
+      }
+    },
+    "Native" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Системный"
+          }
+        }
+      }
+    },
+    "Native and recommended" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Родные и рекомендуемые"
+          }
+        }
+      }
+    },
+    "native, no scaling" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "родное, без масштабирования"
+          }
+        }
+      }
+    },
+    "neutral" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "нейтрально"
+          }
+        }
+      }
+    },
+    "Never" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Никогда"
+          }
+        }
+      }
+    },
+    "New display mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новый режим экрана"
+          }
+        }
+      }
+    },
+    "New group" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новая группа"
+          }
+        }
+      }
+    },
+    "New scene name" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Название новой сцены"
+          }
+        }
+      }
+    },
+    "Night brightness: %lld%%" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ночная яркость: %lld%%"
+          }
+        }
+      }
+    },
+    "No app presets yet. Add one below — for example “dim to 40% when Final Cut is in front”." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пока нет профилей приложений. Добавьте, например, яркость 40% для Final Cut."
+          }
+        }
+      }
+    },
+    "No built-in display found." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встроенный дисплей не найден."
+          }
+        }
+      }
+    },
+    "No capabilities reported" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитор не сообщил о возможностях"
+          }
+        }
+      }
+    },
+    "No displays detected" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экраны не найдены"
+          }
+        }
+      }
+    },
+    "No Displays Found" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мониторы не обнаружены"
+          }
+        }
+      }
+    },
+    "No displays needed reconnecting." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нет дисплеев, требующих подключения."
+          }
+        }
+      }
+    },
+    "no HiDPI" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "без HiDPI"
+          }
+        }
+      }
+    },
+    "No HiDPI" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Без HiDPI"
+          }
+        }
+      }
+    },
+    "No modes available" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нет доступных режимов"
+          }
+        }
+      }
+    },
+    "No NSScreen data for this display." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для этого дисплея нет данных NSScreen."
+          }
+        }
+      }
+    },
+    "No other adjustable hardware controls reported" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Другие аппаратные настройки не обнаружены"
+          }
+        }
+      }
+    },
+    "No recorded activity yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пока нет записанных действий."
+          }
+        }
+      }
+    },
+    "No saved scenes yet. Arrange your displays, then save the current arrangement below." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пока нет сохранённых сцен. Расположите мониторы и сохраните текущую конфигурацию ниже."
+          }
+        }
+      }
+    },
+    "No saved scenes. A scene remembers the arrangement and modes of all displays." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранённых сцен нет. Сцена запоминает расположение и режимы всех экранов."
+          }
+        }
+      }
+    },
+    "No schedule points yet. Add one below — for example “70% thirty minutes before sunrise”." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пока нет точек расписания. Добавьте, например, яркость 70% за 30 минут до восхода."
+          }
+        }
+      }
+    },
+    "Non-HiDPI variants are hidden by default when a HiDPI mode exists for the same logical size. The current mode always stays visible." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "По умолчанию скрыты варианты без HiDPI, если для того же логического размера есть HiDPI. Текущий режим всегда остаётся видимым."
+          }
+        }
+      }
+    },
+    "None" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нет"
+          }
+        }
+      }
+    },
+    "normal" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "обычный"
+          }
+        }
+      }
+    },
+    "Not connected" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не подключён"
+          }
+        }
+      }
+    },
+    "Not protected" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не защищено"
+          }
+        }
+      }
+    },
+    "Not reported by macOS" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не сообщена macOS"
+          }
+        }
+      }
+    },
+    "Not specified" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не указано"
+          }
+        }
+      }
+    },
+    "not specified" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "не указан"
+          }
+        }
+      }
+    },
+    "Notify on display connect / disconnect" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уведомлять о подключении и отключении мониторов"
+          }
+        }
+      }
+    },
+    "Now running on battery power." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac перешёл на питание от аккумулятора."
+          }
+        }
+      }
+    },
+    "off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "выключено"
+          }
+        }
+      }
+    },
+    "Off" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выключено"
+          }
+        }
+      }
+    },
+    "On" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "вкл."
+          }
+        }
+      }
+    },
+    "on" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "включено"
+          }
+        }
+      }
+    },
+    "on schedule (no light sensor)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "по расписанию (нет датчика освещения)"
+          }
+        }
+      }
+    },
+    "On some monitors, a capabilities request hangs DDC until the power is cycled." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запрос возможностей у некоторых мониторов подвешивает DDC до выключения питания."
+          }
+        }
+      }
+    },
+    "On-screen display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экранный индикатор"
+          }
+        }
+      }
+    },
+    "on/off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "вкл./выкл."
+          }
+        }
+      }
+    },
+    "Only the standard 0…1 domain is supported" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поддерживается только стандартный диапазон 0…1"
+          }
+        }
+      }
+    },
+    "Open Accessibility Settings…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть настройки универсального доступа…"
+          }
+        }
+      }
+    },
+    "Open Login Items Settings…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть настройки объектов входа…"
+          }
+        }
+      }
+    },
+    "Open Screen Capture…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть захват экрана…"
+          }
+        }
+      }
+    },
+    "Open-source display control for macOS. Local build with custom changes." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открытое управление дисплеями macOS. Локальная сборка с доработками."
+          }
+        }
+      }
+    },
+    "OpenDisplay" : {},
+    "OpenDisplay asked macOS to turn it on and nothing appeared. It is still listed in the menu, with recovery steps." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenDisplay попросил macOS включить его, но изображение так и не появилось. Он по-прежнему есть в меню вместе с шагами восстановления."
+          }
+        }
+      }
+    },
+    "OpenDisplay Settings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройки OpenDisplay"
+          }
+        }
+      }
+    },
+    "OpenDisplay Workspace" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рабочий экран OpenDisplay"
+          }
+        }
+      }
+    },
+    "OpenDisplay — Capture Preview" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenDisplay — предпросмотр захвата"
+          }
+        }
+      }
+    },
+    "OpenDisplay's own records: the display event timeline, the audit log, the list of displays it turned off, its display registry, and its settings (location and app presets removed)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Собственные записи OpenDisplay: хронология событий мониторов, журнал действий, список отключённых им мониторов, реестр мониторов и настройки (без местоположения и профилей приложений)"
+          }
+        }
+      }
+    },
+    "Opens in your browser" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Откроется в браузере"
+          }
+        }
+      }
+    },
+    "Operation cancelled." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Операция отменена."
+          }
+        }
+      }
+    },
+    "Operation denied: check the experimental-features opt-in, Safe Mode, and that another display is active." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Операция запрещена: проверьте разрешение экспериментальных функций, безопасный режим и наличие другого активного экрана."
+          }
+        }
+      }
+    },
+    "Other protected layouts" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Другие защищённые расположения"
+          }
+        }
+      }
+    },
+    "Other sizes" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Другие размеры"
+          }
+        }
+      }
+    },
+    "Overlay" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чёрный слой"
+          }
+        }
+      }
+    },
+    "permission" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "разрешение"
+          }
+        }
+      }
+    },
+    "Persistence policy" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Политика сохранения"
+          }
+        }
+      }
+    },
+    "Picture" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изображение"
+          }
+        }
+      }
+    },
+    "Picture in Picture and streaming" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Картинка в картинке и трансляция"
+          }
+        }
+      }
+    },
+    "Pin: stay open on a click outside" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закрепить: не закрываться при клике мимо"
+          }
+        }
+      }
+    },
+    "Position" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Положение"
+          }
+        }
+      }
+    },
+    "position" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "положение"
+          }
+        }
+      }
+    },
+    "Posts a system notification when an external display is connected or disconnected, and when the built-in is auto-disconnected. Asks for notification permission the first time you turn this on." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывает системные уведомления о подключении и отключении внешнего монитора и автоматическом отключении встроенного экрана. При первом включении запрашивает разрешение на уведомления."
+          }
+        }
+      }
+    },
+    "Potential EDR headroom" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Потенциальный запас EDR"
+          }
+        }
+      }
+    },
+    "Power" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Питание"
+          }
+        }
+      }
+    },
+    "Preset %lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Режим %lld"
+          }
+        }
+      }
+    },
+    "Preview closed; stopping the system capture reported: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Предпросмотр закрыт; системная остановка сообщила: %@"
+          }
+        }
+      }
+    },
+    "processor architecture" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "архитектура процессора"
+          }
+        }
+      }
+    },
+    "Product code" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Код модели"
+          }
+        }
+      }
+    },
+    "Projector" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проектор"
+          }
+        }
+      }
+    },
+    "Projector display" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проектор"
+          }
+        }
+      }
+    },
+    "Protect Current Layout" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Защитить текущее расположение"
+          }
+        }
+      }
+    },
+    "Protected layout" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Защищённое расположение"
+          }
+        }
+      }
+    },
+    "Protected · displays: %lld · saved %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Защищено · мониторов: %lld · сохранено %@"
+          }
+        }
+      }
+    },
+    "provider health" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "состояние провайдера"
+          }
+        }
+      }
+    },
+    "Providers" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Провайдеры"
+          }
+        }
+      }
+    },
+    "Publishes each brightness and volume change over the dev.opendisplay.osd distributed notification for external HUD apps. Off by default." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Передаёт изменения яркости и громкости через распределённое уведомление dev.opendisplay.osd для внешних индикаторов. По умолчанию выключено."
+          }
+        }
+      }
+    },
+    "Put my arrangement back when it changes" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Восстанавливать расположение при изменениях"
+          }
+        }
+      }
+    },
+    "Quit OpenDisplay" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выйти из OpenDisplay"
+          }
+        }
+      }
+    },
+    "Quit OpenDisplay — reconnects any displays it turned off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выйти из OpenDisplay — отключённые экраны подключатся"
+          }
+        }
+      }
+    },
+    "Ramp: %lld min" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переход: %lld мин"
+          }
+        }
+      }
+    },
+    "Recent Activity" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Последние действия"
+          }
+        }
+      }
+    },
+    "recommended by macOS" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "рекомендуемое macOS"
+          }
+        }
+      }
+    },
+    "Reconnect all" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключить все экраны"
+          }
+        }
+      }
+    },
+    "Reconnect All" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключить все"
+          }
+        }
+      }
+    },
+    "Reconnect All Displays" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключить все дисплеи"
+          }
+        }
+      }
+    },
+    "Reconnect on quit" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключать при выходе"
+          }
+        }
+      }
+    },
+    "Reconnect on wake" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключать при пробуждении"
+          }
+        }
+      }
+    },
+    "Reconnect the display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключить экран"
+          }
+        }
+      }
+    },
+    "Reconnecting…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключение…"
+          }
+        }
+      }
+    },
+    "Reconnects every display OpenDisplay turned off — the always-available recovery action." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключает все дисплеи, отключённые через OpenDisplay. Команда восстановления доступна всегда."
+          }
+        }
+      }
+    },
+    "Recovery" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Восстановление"
+          }
+        }
+      }
+    },
+    "Recovery steps…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Как восстановить…"
+          }
+        }
+      }
+    },
+    "recovery-critical" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "критичен для восстановления"
+          }
+        }
+      }
+    },
+    "Red gain" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Красный канал"
+          }
+        }
+      }
+    },
+    "Refresh" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Частота"
+          }
+        }
+      }
+    },
+    "Refresh rate" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Частота обновления"
+          }
+        }
+      }
+    },
+    "refresh unknown" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "частота неизвестна"
+          }
+        }
+      }
+    },
+    "Relaunch" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапустить"
+          }
+        }
+      }
+    },
+    "release to apply" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "отпустите, чтобы применить"
+          }
+        }
+      }
+    },
+    "release — the previous step will be kept" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "отпустите — предыдущий шаг сохранится"
+          }
+        }
+      }
+    },
+    "Remove" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить"
+          }
+        }
+      }
+    },
+    "Remove from favorites" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Убрать из избранного"
+          }
+        }
+      }
+    },
+    "Remove input hotkey" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить сочетание клавиш"
+          }
+        }
+      }
+    },
+    "Requested built-in display brightness: %lld%%. The hardware result isn’t verified." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запрошена яркость встроенного дисплея: %lld%%. Аппаратный результат не подтверждён."
+          }
+        }
+      }
+    },
+    "Require Shift for the brightness keys" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Требовать Shift для клавиш яркости"
+          }
+        }
+      }
+    },
+    "Reset" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сброс"
+          }
+        }
+      }
+    },
+    "Reset LUT" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбросить LUT"
+          }
+        }
+      }
+    },
+    "Reset monitor" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбросить монитор"
+          }
+        }
+      }
+    },
+    "Reset Selection" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбросить выбор"
+          }
+        }
+      }
+    },
+    "Reset temperature" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбросить температуру"
+          }
+        }
+      }
+    },
+    "Reset to defaults" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сброс к заводским настройкам"
+          }
+        }
+      }
+    },
+    "Reset to Defaults" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбросить настройки"
+          }
+        }
+      }
+    },
+    "Reset to defaults…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбросить настройки…"
+          }
+        }
+      }
+    },
+    "Reset “%@” to defaults?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбросить настройки монитора «%@»?"
+          }
+        }
+      }
+    },
+    "Resetting…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сброс…"
+          }
+        }
+      }
+    },
+    "resolution" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "разрешение"
+          }
+        }
+      }
+    },
+    "Resolution" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешение"
+          }
+        }
+      }
+    },
+    "Resolution and scaling" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешение и масштабирование"
+          }
+        }
+      }
+    },
+    "Resolution changed on %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изменён режим: %@"
+          }
+        }
+      }
+    },
+    "Restored your protected layout" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Защищённое расположение восстановлено"
+          }
+        }
+      }
+    },
+    "Restores the monitor’s factory settings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Восстанавливает заводские настройки монитора"
+          }
+        }
+      }
+    },
+    "Retry DDC probe" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повторить опрос DDC"
+          }
+        }
+      }
+    },
+    "Retry Key Capture" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повторить запуск перехвата клавиш"
+          }
+        }
+      }
+    },
+    "Revert" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вернуть"
+          }
+        }
+      }
+    },
+    "Revert Now" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отменить сейчас"
+          }
+        }
+      }
+    },
+    "RGB values must be finite numbers from 0 to 1" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Значения RGB должны быть конечными числами от 0 до 1"
+          }
+        }
+      }
+    },
+    "Rotate displays via a private API. Off by default; runs through a safety-checked, isolated helper with automatic rollback, and is excluded from App Store builds." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поворачивает экраны через закрытый API. По умолчанию выключено; используется изолированный помощник с проверками безопасности и автоматическим откатом. Недоступно в сборках App Store."
+          }
+        }
+      }
+    },
+    "Rotation" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поворот"
+          }
+        }
+      }
+    },
+    "rotation" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "поворот"
+          }
+        }
+      }
+    },
+    "Rotation changes are not safely supported on this macOS version." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Безопасный поворот экрана недоступен в этой версии macOS."
+          }
+        }
+      }
+    },
+    "Rotation is off. Turn it on in “%@ → Labs”." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поворот выключен. Включается в «%@ → Labs»."
+          }
+        }
+      }
+    },
+    "Safe rotation isn't available on this version of macOS." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Безопасный поворот недоступен в этой версии macOS."
+          }
+        }
+      }
+    },
+    "safety policy" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "политика безопасности"
+          }
+        }
+      }
+    },
+    "Save Current Arrangement" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранить текущее расположение"
+          }
+        }
+      }
+    },
+    "Save or edit scenes…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранить или изменить сцены…"
+          }
+        }
+      }
+    },
+    "saved %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "сохранено %@"
+          }
+        }
+      }
+    },
+    "Saved %@ to your Desktop." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Файл %@ сохранён на рабочий стол."
+          }
+        }
+      }
+    },
+    "Scanning displays…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поиск экранов…"
+          }
+        }
+      }
+    },
+    "Scanning…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поиск…"
+          }
+        }
+      }
+    },
+    "Scenes" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сцены"
+          }
+        }
+      }
+    },
+    "Screen %u is active. Pixel dimensions confirmed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экран %u активен. Размеры в пикселях подтверждены."
+          }
+        }
+      }
+    },
+    "Screen Capture" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Захват экрана"
+          }
+        }
+      }
+    },
+    "Screen removal confirmed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удаление экрана подтверждено."
+          }
+        }
+      }
+    },
+    "SDR preview only. HDR accuracy, colour calibration, protected content and hardware routes are not verified." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только предпросмотр SDR. Точность HDR, калибровка цвета, защищённый контент и аппаратные маршруты не проверены."
+          }
+        }
+      }
+    },
+    "SDR preview running. Audio and recording to file are off." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Предпросмотр SDR запущен. Звук и запись в файл отключены."
+          }
+        }
+      }
+    },
+    "Select a connected display first." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала выберите подключённый монитор."
+          }
+        }
+      }
+    },
+    "Serial" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Серийный номер"
+          }
+        }
+      }
+    },
+    "Server running: http://127.0.0.1:%u" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сервер работает: http://127.0.0.1:%u"
+          }
+        }
+      }
+    },
+    "Set Brightness" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установить яркость"
+          }
+        }
+      }
+    },
+    "Set Display Brightness" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установить яркость дисплея"
+          }
+        }
+      }
+    },
+    "Sets external-display brightness at times you choose — fixed clock times or sunrise, solar noon, and sunset with an offset — gliding between points. Changes are silent (no HUD). This schedule takes priority over Adaptive brightness sync." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Меняет яркость внешних мониторов в заданное время или относительно восхода, полудня и заката, со смещением и плавными переходами. Индикатор не показывается. Это расписание имеет приоритет над адаптивной синхронизацией."
+          }
+        }
+      }
+    },
+    "Sets the built-in display’s brightness (0–100%)." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Устанавливает яркость встроенного дисплея (0–100%)."
+          }
+        }
+      }
+    },
+    "Settings (⌥-click the icon)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройки (⌥-клик по значку)"
+          }
+        }
+      }
+    },
+    "Settings…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройки…"
+          }
+        }
+      }
+    },
+    "Set…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Применить…"
+          }
+        }
+      }
+    },
+    "Sharpness" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Резкость"
+          }
+        }
+      }
+    },
+    "Shortcut" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сочетание клавиш"
+          }
+        }
+      }
+    },
+    "Show all variants (non-HiDPI, all refresh rates)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывать все варианты (без HiDPI, все частоты)"
+          }
+        }
+      }
+    },
+    "Show an on-screen display for brightness & volume" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывать индикатор яркости и громкости"
+          }
+        }
+      }
+    },
+    "Show non-HiDPI" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывать без HiDPI"
+          }
+        }
+      }
+    },
+    "Show non-HiDPI alternatives" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывать альтернативы без HiDPI"
+          }
+        }
+      }
+    },
+    "Show this display on:" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывать этот экран на:"
+          }
+        }
+      }
+    },
+    "Shows a HUD on the affected display when brightness or volume changes, including changes made from the menu or the keys." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывает индикатор на выбранном мониторе при изменении яркости или громкости через меню или клавиши."
+          }
+        }
+      }
+    },
+    "Sidecar display" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дисплей Sidecar"
+          }
+        }
+      }
+    },
+    "Size" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер"
+          }
+        }
+      }
+    },
+    "Size in pixels" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер в пикселях"
+          }
+        }
+      }
+    },
+    "Software brightness" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Программная яркость"
+          }
+        }
+      }
+    },
+    "Software dimming" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Программное затемнение"
+          }
+        }
+      }
+    },
+    "Software gamma dimming, applied on top of hardware brightness. Works below the hardware minimum." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Программное затемнение гаммой поверх аппаратной яркости. Работает ниже аппаратного минимума."
+          }
+        }
+      }
+    },
+    "Software · combined" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Программная · комбинированная"
+          }
+        }
+      }
+    },
+    "Software · gamma" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Программная · гамма"
+          }
+        }
+      }
+    },
+    "Software · overlay" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Программная · чёрный слой"
+          }
+        }
+      }
+    },
+    "Solar anchors use this location. “Use current location” fills it from Core Location." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для солнечных событий используется это местоположение. Кнопка текущего местоположения получает его через Core Location."
+          }
+        }
+      }
+    },
+    "Solar noon" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Солнечный полдень"
+          }
+        }
+      }
+    },
+    "Some displays can’t wake over DDC once off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Некоторые мониторы нельзя разбудить по DDC после выключения"
+          }
+        }
+      }
+    },
+    "Some features are unavailable" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Часть функций недоступна"
+          }
+        }
+      }
+    },
+    "Some monitors can't be woken over DDC — turn them on with the power button." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Некоторые мониторы нельзя разбудить по DDC — тогда включите кнопкой."
+          }
+        }
+      }
+    },
+    "Source" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Источник"
+          }
+        }
+      }
+    },
+    "Source check failed; capture stopped: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ошибка проверки источника; захват остановлен: %@"
+          }
+        }
+      }
+    },
+    "Specify a single 3D LUT size from 2 to 64" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Укажите один размер 3D LUT от 2 до 64"
+          }
+        }
+      }
+    },
+    "Standby" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Режим ожидания"
+          }
+        }
+      }
+    },
+    "Start Local Server" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запустить локальный сервер"
+          }
+        }
+      }
+    },
+    "Start PIP" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запустить PIP"
+          }
+        }
+      }
+    },
+    "Starting…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запуск…"
+          }
+        }
+      }
+    },
+    "Starts OpenDisplay when you log in, so its display rules and brightness sync are there without you opening it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запускает OpenDisplay при входе в систему для применения правил мониторов и синхронизации яркости."
+          }
+        }
+      }
+    },
+    "Stop" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановить"
+          }
+        }
+      }
+    },
+    "Stopped" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановлен"
+          }
+        }
+      }
+    },
+    "Style" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Стиль"
+          }
+        }
+      }
+    },
+    "Sunrise" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Восход"
+          }
+        }
+      }
+    },
+    "Sunrise / noon / sunset anchors need a location. Time anchors work without one." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для восхода, полудня и заката нужно местоположение. Фиксированное время работает без него."
+          }
+        }
+      }
+    },
+    "Sunset" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закат"
+          }
+        }
+      }
+    },
+    "supported" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "поддерживается"
+          }
+        }
+      }
+    },
+    "Switch a display preset when an app comes to the front" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Менять профиль монитора при переключении приложения"
+          }
+        }
+      }
+    },
+    "Switches the monitor’s hardware colour preset to a warm one in the evening and back each morning. Follows Night Shift’s on/off state when it can be read; otherwise the schedule decides." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вечером включает тёплый аппаратный цветовой режим, утром возвращает дневной. Следует состоянию Night Shift, если оно доступно, иначе использует расписание."
+          }
+        }
+      }
+    },
+    "Sync" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Синхронизация"
+          }
+        }
+      }
+    },
+    "Synced with %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Синхронизация с %@"
+          }
+        }
+      }
+    },
+    "System" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Системный"
+          }
+        }
+      }
+    },
+    "System Displays settings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Системные «Дисплеи»"
+          }
+        }
+      }
+    },
+    "Takes effect after OpenDisplay relaunches." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Применится после перезапуска OpenDisplay."
+          }
+        }
+      }
+    },
+    "Television" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Телевизор"
+          }
+        }
+      }
+    },
+    "Television display" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Телевизор"
+          }
+        }
+      }
+    },
+    "That shortcut is already assigned." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это сочетание клавиш уже назначено."
+          }
+        }
+      }
+    },
+    "The auto-off timer elapsed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Истёк таймер автоотключения."
+          }
+        }
+      }
+    },
+    "The brightness keys control the chosen display, in hardware or software. The volume keys use DDC only when the sound plays through that monitor. Capturing the keys needs Accessibility permission; nothing is requested until you turn this on." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клавиши яркости управляют выбранным монитором через аппаратный или программный способ. Клавиши громкости используют DDC только если звук идёт через этот монитор. Для перехвата нужен доступ в разделе «Универсальный доступ»; разрешение запрашивается после включения."
+          }
+        }
+      }
+    },
+    "The cause of the error is unknown." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Причина ошибки неизвестна."
+          }
+        }
+      }
+    },
+    "The dimming method is shared by all displays. Temperature and dimming stay until you quit OpenDisplay." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Способ затемнения общий для всех экранов. Температура и затемнение действуют до выхода из OpenDisplay."
+          }
+        }
+      }
+    },
+    "The display is no longer active. Refresh the display list." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экран больше не активен. Обновите список экранов."
+          }
+        }
+      }
+    },
+    "The display or the selected mode is unavailable." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экран или выбранный режим недоступен."
+          }
+        }
+      }
+    },
+    "The display was released, but macOS still reports it as connected. Use recovery if needed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экран освобождён, но macOS всё ещё считает его подключённым. При необходимости используйте восстановление."
+          }
+        }
+      }
+    },
+    "The EDID extension count does not match the file size." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Число расширений EDID не соответствует размеру файла."
+          }
+        }
+      }
+    },
+    "The imported file isn’t matched to a display automatically. Check the manufacturer and product code before installing it by other means. OpenDisplay doesn’t install system configurations." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импортированный файл не сопоставляется с дисплеем автоматически. Перед внешней установкой проверьте производителя и код модели. OpenDisplay не устанавливает системные конфигурации."
+          }
+        }
+      }
+    },
+    "The last 30 minutes of display-related system log lines" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Записи системного журнала о мониторах за последние 30 минут"
+          }
+        }
+      }
+    },
+    "The last active display can't be turned off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Последний активный экран отключить нельзя"
+          }
+        }
+      }
+    },
+    "The monitor didn't apply the change — its current picture mode may be blocking it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитор не применил изменение — текущий режим изображения может блокировать его."
+          }
+        }
+      }
+    },
+    "The monitor didn't respond over DDC. If control worked before, turn the monitor off and on with its power button and retry." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитор не ответил по DDC. Если управление раньше работало, выключите и включите монитор его кнопкой питания и повторите опрос."
+          }
+        }
+      }
+    },
+    "the monitor ignored the value" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "монитор не применил значение"
+          }
+        }
+      }
+    },
+    "The monitor ignored this change. Its picture mode may lock this setting." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитор не применил изменение. Текущий режим изображения может блокировать эту настройку."
+          }
+        }
+      }
+    },
+    "The monitor kept the “%@” mode." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитор оставил режим «%@»."
+          }
+        }
+      }
+    },
+    "The monitor restores its factory settings — brightness, contrast, colour mode, and anything else it resets. OpenDisplay also clears its software dimming and colour temperature for this display." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Восстанавливает заводские настройки монитора: яркость, контрастность, цветовой режим и остальные параметры, которые сбрасывает сам монитор. OpenDisplay также снимает программное затемнение и цветовую температуру."
+          }
+        }
+      }
+    },
+    "The monitor stayed on %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитор сохранил режим «%@»."
+          }
+        }
+      }
+    },
+    "The monitor will restore its factory brightness, contrast, color mode, and everything else." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитор вернёт заводские яркость, контраст, цветовой режим и остальное."
+          }
+        }
+      }
+    },
+    "The monitor’s real backlight follows the built-in display over DDC. Moving a slider teaches it your preferred offset and pauses it for a minute. With the lid closed it follows the schedule instead. Brightness changed with the monitor’s own buttons isn’t tracked. Displays in a group are driven by their group." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Синхронизирует аппаратную яркость внешнего монитора со встроенным по DDC. Ручное изменение задаёт смещение и приостанавливает синхронизацию на минуту. При закрытой крышке используется расписание. Изменения кнопками монитора не отслеживаются. Мониторами в группе управляет группа."
+          }
+        }
+      }
+    },
+    "The refresh rate must be between 24 and 120 Hz." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Частота обновления должна быть от 24 до 120 Гц."
+          }
+        }
+      }
+    },
+    "The source disappeared. Load sources again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Источник исчез. Загрузите источники снова."
+          }
+        }
+      }
+    },
+    "The source disappeared; capture stopped." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Источник исчез; захват остановлен."
+          }
+        }
+      }
+    },
+    "The update feed offers OpenDisplay %@, which is older than the %@ you are running. Nothing was installed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Источник обновлений предлагает OpenDisplay %@ — эта версия старше установленной %@. Ничего не установлено."
+          }
+        }
+      }
+    },
+    "These switch the boost off to save battery. When power returns, the last option can put your previous brightness back, unless you’ve changed it yourself since. The timer doesn’t give back time already spent." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эти условия отключают усиление для экономии аккумулятора. После восстановления питания можно вернуть прежний уровень, если вы не меняли его вручную. Таймер не сбрасывает уже потраченное время."
+          }
+        }
+      }
+    },
+    "This build is updated from source: pull the project’s changes, build the app, and replace the installed copy. Automatic release downloads aren’t available here." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эта сборка обновляется из исходников: загрузите изменения проекта, соберите приложение и замените установленную версию. Автоматическая загрузка выпусков здесь недоступна."
+          }
+        }
+      }
+    },
+    "This display set" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этот набор мониторов"
+          }
+        }
+      }
+    },
+    "This display’s own brightness offset when the group moves together" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Индивидуальная поправка яркости при общей регулировке группы"
+          }
+        }
+      }
+    },
+    "This exact mode is no longer available. A different framebuffer or refresh rate is never substituted automatically." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этот точный режим больше недоступен. Другой буфер или частота автоматически не подставляются."
+          }
+        }
+      }
+    },
+    "This macOS version doesn’t support the required API." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эта версия macOS не поддерживает необходимый API."
+          }
+        }
+      }
+    },
+    "This macOS version lacks the required virtual screen API." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В этой версии macOS отсутствует необходимый API виртуальных экранов."
+          }
+        }
+      }
+    },
+    "Time" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Время"
+          }
+        }
+      }
+    },
+    "Toggles" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переключатели"
+          }
+        }
+      }
+    },
+    "Too many samples" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слишком много образцов"
+          }
+        }
+      }
+    },
+    "Tools" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Инструменты"
+          }
+        }
+      }
+    },
+    "Top" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вверху"
+          }
+        }
+      }
+    },
+    "Turn built-in off when an external connects" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключать встроенный экран при подключении монитора"
+          }
+        }
+      }
+    },
+    "Turn display off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключить монитор"
+          }
+        }
+      }
+    },
+    "Turn off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выключить"
+          }
+        }
+      }
+    },
+    "Turn Off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключить"
+          }
+        }
+      }
+    },
+    "Turn off after" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключать через"
+          }
+        }
+      }
+    },
+    "Turn off below" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключать при заряде ниже"
+          }
+        }
+      }
+    },
+    "Turn off in Low Power Mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключать в режиме энергосбережения"
+          }
+        }
+      }
+    },
+    "Turn off on battery power" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключать при питании от аккумулятора"
+          }
+        }
+      }
+    },
+    "Turn off the display (turn it back on with the same switch)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключить экран (вернуть — этим же переключателем)"
+          }
+        }
+      }
+    },
+    "Turn the built-in display off when an external connects" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключать встроенный экран при подключении внешнего"
+          }
+        }
+      }
+    },
+    "Turn this on if DDC values change but the picture doesn’t. Software brightness uses the dimming method selected below." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включите, если значения DDC меняются, а изображение — нет. Программная яркость использует выбранный ниже способ затемнения."
+          }
+        }
+      }
+    },
+    "Turned off automatically because an external display connected." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выключен автоматически после подключения внешнего дисплея."
+          }
+        }
+      }
+    },
+    "Turned off by OpenDisplay" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключён OpenDisplay"
+          }
+        }
+      }
+    },
+    "Type" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тип"
+          }
+        }
+      }
+    },
+    "Unavailable" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недоступно"
+          }
+        }
+      }
+    },
+    "Unavailable in Safe Mode." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недоступно в безопасном режиме."
+          }
+        }
+      }
+    },
+    "unknown" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "неизвестно"
+          }
+        }
+      }
+    },
+    "Unknown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Неизвестный"
+          }
+        }
+      }
+    },
+    "Unknown display" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Неизвестный монитор"
+          }
+        }
+      }
+    },
+    "Unlock the built-in XDR panel’s full brightness for SDR content. Experimental: HDR content will look clipped while boosted, and sustained max brightness increases panel temperature. Never persists past quit." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Использует запас яркости встроенного XDR-экрана для SDR. Экспериментально: HDR может терять детали, а длительная максимальная яркость нагревает панель. Усиление сбрасывается при выходе."
+          }
+        }
+      }
+    },
+    "Unpin: close on a click outside" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открепить: закрываться при клике мимо"
+          }
+        }
+      }
+    },
+    "unsupported" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "не поддерживается"
+          }
+        }
+      }
+    },
+    "Unsupported directive or missing size" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Неподдерживаемая директива или отсутствующий размер"
+          }
+        }
+      }
+    },
+    "Up to date" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установлена последняя версия"
+          }
+        }
+      }
+    },
+    "Update" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обновить"
+          }
+        }
+      }
+    },
+    "Update available" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Доступно обновление"
+          }
+        }
+      }
+    },
+    "Update this build from the project’s sources. Installing the upstream release automatically is turned off so your changes are kept." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обновляйте эту сборку из исходников проекта. Автоматическая установка исходной версии отключена, чтобы сохранить ваши доработки."
+          }
+        }
+      }
+    },
+    "Updates" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обновления"
+          }
+        }
+      }
+    },
+    "Updating a local build" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обновление локальной сборки"
+          }
+        }
+      }
+    },
+    "Upstream issues" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обсуждения исходного проекта"
+          }
+        }
+      }
+    },
+    "Upstream project" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Исходный проект"
+          }
+        }
+      }
+    },
+    "Upstream release history" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "История исходного проекта"
+          }
+        }
+      }
+    },
+    "Use as" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Роль монитора"
+          }
+        }
+      }
+    },
+    "Use as main display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сделать основным монитором"
+          }
+        }
+      }
+    },
+    "Use current location" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Использовать текущее местоположение"
+          }
+        }
+      }
+    },
+    "Use software brightness for this monitor" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Использовать программную яркость для этого монитора"
+          }
+        }
+      }
+    },
+    "Use the brightness & volume keys to control displays" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Управлять мониторами клавишами яркости и громкости"
+          }
+        }
+      }
+    },
+    "User 1" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пользовательский 1"
+          }
+        }
+      }
+    },
+    "User 2" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пользовательский 2"
+          }
+        }
+      }
+    },
+    "user setting" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "настройка пользователя"
+          }
+        }
+      }
+    },
+    "Validated blocks" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверенные блоки"
+          }
+        }
+      }
+    },
+    "Vendor" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Производитель"
+          }
+        }
+      }
+    },
+    "Version %@ (build %@)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Версия %@ (сборка %@)"
+          }
+        }
+      }
+    },
+    "Version %@, build %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Версия %@, сборка %@"
+          }
+        }
+      }
+    },
+    "Virtual" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Виртуальный"
+          }
+        }
+      }
+    },
+    "Virtual display" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Виртуальный монитор"
+          }
+        }
+      }
+    },
+    "Virtual Displays" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Виртуальные экраны"
+          }
+        }
+      }
+    },
+    "Virtual displays…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Виртуальные экраны…"
+          }
+        }
+      }
+    },
+    "Virtual screens use private macOS APIs and last until the app quits. Keep a physical display available for recovery." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Виртуальные экраны используют закрытые API macOS и работают до завершения приложения. Оставьте физический экран доступным для восстановления."
+          }
+        }
+      }
+    },
+    "Virtual screens · Experimental" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Виртуальные экраны · Экспериментально"
+          }
+        }
+      }
+    },
+    "Volume" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Громкость"
+          }
+        }
+      }
+    },
+    "Volume keys follow the current sound output device." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клавиши громкости управляют текущим устройством вывода звука."
+          }
+        }
+      }
+    },
+    "Volume: %lld%%" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Громкость: %lld%%"
+          }
+        }
+      }
+    },
+    "Warm the monitor’s colours in the evening" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Делать цвета монитора теплее вечером"
+          }
+        }
+      }
+    },
+    "What macOS reports about the displays, the graphics link, and Thunderbolt devices (model names and serial numbers of displays and docks)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сведения macOS о мониторах, видеосоединении и устройствах Thunderbolt (модели и серийные номера мониторов и док-станций)"
+          }
+        }
+      }
+    },
+    "When a chosen app becomes frontmost, its display’s brightness — and optionally contrast and colour preset — switch to the values you set, and are restored when the app leaves. Changes are silent (no HUD) and pause Adaptive display meanwhile." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "При переключении на выбранное приложение меняет яркость и при необходимости контрастность и цветовой режим монитора. После переключения на другое приложение восстанавливает значения. Индикатор не показывается; адаптивное управление на время приостанавливается."
+          }
+        }
+      }
+    },
+    "When an external display arrives, the built-in panel is turned off automatically (through the same safety-checked path as a manual disconnect). It comes back on when the last external is unplugged." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоматически отключает встроенный экран при подключении внешнего через тот же безопасный механизм, что и ручное отключение. Встроенный экран включается после отключения последнего внешнего."
+          }
+        }
+      }
+    },
+    "When macOS (or another app) moves a display, changes its resolution, or hands “main” to the other screen, the protected arrangement is restored — including which displays are switched off. A display you turned off in OpenDisplay is switched back off after sleep whether this is on or not." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Если macOS или другое приложение меняет расположение, разрешение или основной монитор, защищённая конфигурация восстанавливается, включая отключённые мониторы. Отключённый в OpenDisplay монитор остаётся отключённым после сна независимо от этой настройки."
+          }
+        }
+      }
+    },
+    "white screen light" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "белая подсветка экрана"
+          }
+        }
+      }
+    },
+    "Width and height must be positive." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ширина и высота должны быть положительными."
+          }
+        }
+      }
+    },
+    "Width in pixels" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ширина в пикселях"
+          }
+        }
+      }
+    },
+    "Will apply" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Будет применено"
+          }
+        }
+      }
+    },
+    "Window" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Окно"
+          }
+        }
+      }
+    },
+    "Work area" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рабочая область"
+          }
+        }
+      }
+    },
+    "Wrong number of samples" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Неверное число образцов"
+          }
+        }
+      }
+    },
+    "XDR boost" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Усиление XDR"
+          }
+        }
+      }
+    },
+    "XDR boost: SDR brightness above the normal maximum" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Усиление XDR: яркость SDR выше обычного максимума"
+          }
+        }
+      }
+    },
+    "XDR Brightness" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Яркость XDR"
+          }
+        }
+      }
+    },
+    "XDR Brightness turned off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Яркость XDR выключена"
+          }
+        }
+      }
+    },
+    "You can keep adjusting · confirm at the bottom" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Можно двигать дальше · подтверждение внизу"
+          }
+        }
+      }
+    },
+    "© 2026 OpenDisplay contributors" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "© 2026 участники проекта OpenDisplay"
+          }
+        }
+      }
+    },
+    "×" : {},
+    "“Native” is the sharpest: the picture is drawn 1:1, without scaling. A new mode has to be confirmed, or it reverts on its own." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чётче всего — «родное»: картинка рисуется 1:1, без масштабирования. Новый режим нужно подтвердить, иначе он вернётся сам."
+          }
+        }
+      }
+    }
   },
   "version" : "1.0"
 }

@@ -20,12 +20,12 @@ struct DisplayDetailView: View {
                     // Timed auto-revert prompt for a change made here in Settings (Issue 6).
                     VStack(alignment: .leading, spacing: 6) {
                         ODInlineBanner(tone: .orange, systemImage: "clock.arrow.circlepath",
-                                       title: "Сохранить эти настройки монитора?",
-                                       message: "\(pending.message). Отмена через \(pending.secondsRemaining) с…")
+                                       title: String(localized: "Keep these display settings?"),
+                                       message: String(localized: "\(pending.message). Reverting in \(pending.secondsRemaining)s…"))
                         HStack(spacing: 8) {
-                            Button("Сохранить") { model.confirmArrangementChange() }
+                            Button("Keep") { model.confirmArrangementChange() }
                                 .keyboardShortcut(.defaultAction)
-                            Button("Отменить сейчас") { Task { await model.revertArrangementChange() } }
+                            Button("Revert Now") { Task { await model.revertArrangementChange() } }
                             Spacer()
                         }
                     }
@@ -87,30 +87,30 @@ struct ResolutionCard: View {
     }
 
     var body: some View {
-        ODCard(title: compact ? nil : "Разрешение и масштабирование",
-               footnote: compact ? "Выбор режима применяется только кнопкой «Применить»." : "Логический размер определяет рабочую область. Буфер — размер изображения, которое рисует macOS; он не сообщает физическое разрешение матрицы. Большой буфер HiDPI может дополнительно масштабироваться и не гарантирует лучшую чёткость на любом мониторе. Выбор вступает в силу только после нажатия «Применить» и требует подтверждения.") {
+        ODCard(title: compact ? nil : String(localized: "Resolution and scaling"),
+               footnote: compact ? String(localized: "A mode is applied only when you click Apply.") : String(localized: "Logical size sets the workspace. The framebuffer is the size of the image macOS renders; it doesn’t report the panel’s physical resolution. A large HiDPI framebuffer may be scaled again and doesn’t guarantee sharper output on every monitor. A selection takes effect only after you click Apply, and it must be confirmed.")) {
             if compact {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Текущий режим").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text("Current mode").font(.system(size: 11)).foregroundStyle(.secondary)
                     currentModeText
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("Выбрать режим").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text("Choose mode").font(.system(size: 11)).foregroundStyle(.secondary)
                     modePicker.frame(maxWidth: .infinity)
                 }.padding(10)
             } else {
-                ODRow("Текущий режим") {
+                ODRow(String(localized: "Current mode")) {
                     currentModeText.multilineTextAlignment(.trailing)
                         .frame(maxWidth: 380, alignment: .trailing)
                 }
                 ODDivider()
-                ODRow("Выбрать режим") { modePicker.frame(maxWidth: 380) }
+                ODRow(String(localized: "Choose mode")) { modePicker.frame(maxWidth: 380) }
             }
             ODDivider()
-            ODRow("Дополнительные режимы") {
-                Toggle(compact ? "Показывать без HiDPI" : "Показывать альтернативы без HiDPI", isOn: $showLowerDensity)
+            ODRow(String(localized: "More modes")) {
+                Toggle(compact ? "Show non-HiDPI" : "Show non-HiDPI alternatives", isOn: $showLowerDensity)
                     .font(.system(size: 11)).disabled(applying || model.pendingRevert != nil)
-                    .help("По умолчанию скрыты варианты без HiDPI, если для того же логического размера есть HiDPI. Текущий режим всегда остаётся видимым.")
+                    .help("Non-HiDPI variants are hidden by default when a HiDPI mode exists for the same logical size. The current mode always stays visible.")
             }
             if let error = model.modeChangeError {
                 ODDivider()
@@ -121,13 +121,13 @@ struct ResolutionCard: View {
                 ODDivider()
                 if compact {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Будет применено").foregroundStyle(.secondary)
-                        Text(DisplayModeChoices.label(selectedMode))
+                        Text("Will apply").foregroundStyle(.secondary)
+                        Text(AppModel.modeLabel(selectedMode))
                     }
                     .font(.system(size: 11)).frame(maxWidth: .infinity, alignment: .leading).padding(10)
                 } else {
-                    ODRow("Будет применено") {
-                        Text(DisplayModeChoices.label(selectedMode))
+                    ODRow(String(localized: "Will apply")) {
+                        Text(AppModel.modeLabel(selectedMode))
                             .font(.system(size: 11)).multilineTextAlignment(.trailing)
                             .frame(maxWidth: 380, alignment: .trailing)
                     }
@@ -135,16 +135,16 @@ struct ResolutionCard: View {
             }
             if !compact, let current = display.mode {
                 ODDivider()
-                ODRow("Избранные режимы") {
+                ODRow(String(localized: "Favourite modes")) {
                     HStack(spacing: 8) {
                         Button { model.toggleFavoriteResolution(current, for: display) } label: {
                             Image(systemName: model.isFavoriteResolution(current, for: display) ? "star.fill" : "star")
                         }
                         .buttonStyle(.plain)
-                        .help("Добавить текущий режим в избранное или убрать его")
-                        Menu("Выбрать из избранного") {
+                        .help("Add the current mode to favourites or remove it")
+                        Menu("Choose from Favourites") {
                             ForEach(model.favoriteResolutions(among: choices, for: display), id: \.self) { favorite in
-                                Button(DisplayModeChoices.label(favorite)) { selectedMode = favorite }
+                                Button(AppModel.modeLabel(favorite)) { selectedMode = favorite }
                             }
                         }
                         .disabled(model.favoriteResolutions(among: choices, for: display).isEmpty
@@ -156,7 +156,7 @@ struct ResolutionCard: View {
             if compact {
                 actionButtons.frame(maxWidth: .infinity, alignment: .trailing).padding(10)
             } else {
-                ODRow("Изменение режима") { actionButtons }
+                ODRow(String(localized: "Change mode")) { actionButtons }
             }
         }
         .task(id: display.cgDisplayID) {
@@ -174,31 +174,32 @@ struct ResolutionCard: View {
     }
 
     private var currentModeText: some View {
-        Text(display.mode.map(DisplayModeChoices.label) ?? "macOS не сообщила текущий режим")
+        Text(display.mode.map { AppModel.modeLabel($0) }
+             ?? String(localized: "macOS didn’t report the current mode"))
             .font(.system(size: 11)).foregroundStyle(.secondary).textSelection(.enabled)
     }
 
     @ViewBuilder private var modePicker: some View {
         if choices.isEmpty {
-            Text("Нет доступных режимов").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("No modes available").font(.system(size: 11)).foregroundStyle(.secondary)
         } else {
-            Picker("Новый режим экрана", selection: $selectedMode) {
-                if selectedMode == nil { Text("Выберите режим").tag(nil as DisplayMode?) }
+            Picker("New display mode", selection: $selectedMode) {
+                if selectedMode == nil { Text("Choose a mode").tag(nil as DisplayMode?) }
                 ForEach(choices, id: \.self) { mode in
-                    Text(DisplayModeChoices.label(mode)).tag(Optional(mode))
+                    Text(AppModel.modeLabel(mode)).tag(Optional(mode))
                 }
             }
             .labelsHidden().pickerStyle(.menu)
             .disabled(applying || model.pendingRevert != nil)
-            .help("Полный режим: логические размеры, буфер изображения, частота и HiDPI")
+            .help("Full mode: logical size, framebuffer, refresh rate and HiDPI")
         }
     }
 
     private var actionButtons: some View {
         HStack(spacing: 8) {
-            Button("Сбросить выбор") { selectedMode = display.mode }
+            Button("Reset Selection") { selectedMode = display.mode }
                 .disabled(applying || selectedMode == display.mode)
-            Button("Применить") { applySelection() }.disabled(!canApply)
+            Button("Apply") { applySelection() }.disabled(!canApply)
             if applying { ProgressView().controlSize(.small) }
         }
     }
@@ -230,8 +231,8 @@ struct AppearanceCard: View {
     }
 
     var body: some View {
-        ODCard(title: "Изображение") {
-            ODRow("Цветовая температура") {
+        ODCard(title: String(localized: "Appearance")) {
+            ODRow(String(localized: "Colour temperature")) {
                 HStack(spacing: 8) {
                     Image(systemName: "thermometer.sun").font(.system(size: 11)).foregroundStyle(.orange)
                     Slider(value: Binding(get: { Double(temperature) },
@@ -240,16 +241,16 @@ struct AppearanceCard: View {
                         .frame(width: 140)
                     Image(systemName: "thermometer.snowflake").font(.system(size: 11)).foregroundStyle(.cyan)
                     Text(model.colorTemperature[display.recordID] == nil
-                         ? "Системный" : "\(Int(temperature)) K")
+                         ? "Native" : "\(Int(temperature)) K")
                         .font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
                         .frame(width: 48, alignment: .trailing)
                 }
             }
             ODDivider()
-            ODRow("Поворот") {
+            ODRow(String(localized: "Rotation")) {
                 if model.rotationWritable {
                     HStack(spacing: 6) {
-                        ODBadge("Экспериментально", tone: .orange)
+                        ODBadge(String(localized: "Experimental"), tone: .orange)
                         Menu("\(model.currentRotation(for: display))°") {
                             ForEach([0, 90, 180, 270], id: \.self) { deg in
                                 Button("\(deg)°") { Task { await model.setRotation(deg, for: display) } }
@@ -263,7 +264,7 @@ struct AppearanceCard: View {
             }
             if display.displayClass != .builtIn {
                 ODDivider()
-                ODRow("Цветовой режим") {
+                ODRow(String(localized: "Colour mode")) {
                     // Offer only the preset codes the panel advertises (VCP 0x14 is a non-continuous
                     // enum); a contiguous 1...max guess offers codes the monitor silently ignores.
                     // NOTE: capabilities are only populated by an explicit read (the 0xF3 read can
@@ -273,10 +274,10 @@ struct AppearanceCard: View {
                     HStack(spacing: 8) {
                         #if !PUBLIC_API_ONLY
                         if model.ddcCapabilities[display.recordID] == nil {
-                            Button(detectingModes ? "Определение…" : "Определить…") { detectModes() }
+                            Button(detectingModes ? "Detecting…" : "Detect…") { detectModes() }
                                 .buttonStyle(.link).controlSize(.small)
                                 .disabled(detectingModes)
-                                .help("Запросить поддерживаемые цветовые режимы")
+                                .help("Ask the monitor which colour modes it supports")
                         }
                         #endif
                         if codes.isEmpty {
@@ -293,21 +294,21 @@ struct AppearanceCard: View {
                     }
                 }
                 if model.ddcWriteWasIgnored(0x14, for: display), let current = model.colorPreset[display.recordID] {
-                    secondaryNote("Монитор сохранил режим «\(model.presetName(current))».")
+                    secondaryNote(String(localized: "The monitor stayed on \(model.presetName(current))."))
                 }
                 #if !PUBLIC_API_ONLY
                 if detectFoundNothing {
-                    secondaryNote("Монитор не сообщил о возможностях")
+                    secondaryNote(String(localized: "No capabilities reported"))
                 } else if model.ddcCapabilities[display.recordID] == nil {
-                    secondaryNote("Запрашивает поддерживаемые режимы. Некоторые мониторы после запроса перестают отвечать по DDC до выключения и включения питания.")
+                    secondaryNote(String(localized: "Detecting asks the monitor which modes it supports. A few monitors stop answering DDC afterwards until power-cycled."))
                 }
                 #endif
             }
             ODDivider()
-            ODRow("Цветовой профиль") {
+            ODRow(String(localized: "Colour profile")) {
                 if model.colorProfileControllable[display.recordID] == true {
                     Menu(model.colorProfileName[display.recordID] ?? "—") {
-                        Button("Заводской профиль") { Task { await model.resetColorProfile(for: display) } }
+                        Button("Factory Default") { Task { await model.resetColorProfile(for: display) } }
                         Divider()
                         ForEach(model.availableColorProfilesCache) { profile in
                             Button(profile.name) { Task { await model.setColorProfile(profile, for: display) } }
@@ -315,13 +316,13 @@ struct AppearanceCard: View {
                     }
                     .menuStyle(.borderlessButton).fixedSize()
                 } else {
-                    Text("Недоступно").font(.system(size: 11)).foregroundStyle(.tertiary)
+                    Text("Unavailable").font(.system(size: 11)).foregroundStyle(.tertiary)
                 }
             }
         }
         if let reason = model.rotationUnavailableReason {
-            Text(reason == "Rotation changes are not safely supported on this macOS version."
-                 ? "Безопасный поворот экрана недоступен в этой версии macOS." : reason)
+            // The backend reports an English sentence; look it up rather than compare against it.
+            Text(reason.appLocalized)
                 .font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 10)
         }
     }
@@ -360,33 +361,33 @@ struct ControlsCard: View {
     @State private var resetting = false
 
     /// Shown under a slider whose last write the panel answered with a different value.
-    private static let ignoredNote = "Монитор не применил изменение. Текущий режим изображения может блокировать эту настройку."
+    private static let ignoredNote = String(localized: "The monitor ignored this change. Its picture mode may lock this setting.")
 
     var body: some View {
-        ODCard(title: "Управление",
-               footnote: "Аппаратные команды передаются по DDC/CI. Поддержка зависит от монитора.") {
+        ODCard(title: String(localized: "Controls"),
+               footnote: String(localized: "Hardware controls sent over DDC/CI. Availability depends on the monitor.")) {
             // Brightness first, and always: it has a software fallback, so it's usable even on a
             // panel that reports none of the DDC extras below. Same model funnel as the popover.
-            ODRow("Яркость", secondary: model.brightnessCaption(for: display)) {
+            ODRow(String(localized: "Brightness"), secondary: model.brightnessCaption(for: display)) {
                 sliderWithReadout(level: model.brightness[display.recordID] ?? 1) { value in
                     model.setBrightness(value, for: display)
                 }
             }
-            Toggle("Использовать программную яркость для этого монитора", isOn: Binding(
+            Toggle("Use software brightness for this monitor", isOn: Binding(
                 get: { model.settings.softwareBrightnessDisplayIDs.contains(display.recordID.rawValue) },
                 set: { enabled in Task { await model.setSoftwareBrightness(enabled, for: display) } }))
                 .font(.caption)
-            Text("Включите, если значения DDC меняются, а изображение — нет. Программная яркость использует выбранный ниже способ затемнения.")
+            Text("Turn this on if DDC values change but the picture doesn’t. Software brightness uses the dimming method selected below.")
                 .font(.caption).foregroundStyle(.secondary)
             if model.ddcWriteWasIgnored(0x10, for: display) { ignoredCaption(Self.ignoredNote) }
             ODDivider()
             let controls = HardwareControl.allCases.filter { model.ddcControl($0, for: display) != nil }
             if controls.isEmpty {
-                ODRow("Другие аппаратные настройки не обнаружены") {}
+                ODRow(String(localized: "No other adjustable hardware controls reported")) {}
                 // A panel that answers nothing usually isn't DDC-less — its scaler's DDC channel is
                 // often just stuck (a state that survives display sleep; only its own power button
                 // clears it). Say so, or "unsupported" reads as a dead feature the user can't act on.
-                Text("Если аппаратное управление работало раньше, канал DDC мог зависнуть. Выключите и включите монитор его кнопкой питания, затем откройте эту панель снова.")
+                Text("If this monitor supported hardware control before, its DDC channel may be stuck — try turning the monitor off and on with its own power button, then reopen this pane.")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .padding(.horizontal, 10).padding(.bottom, 6)
                     .fixedSize(horizontal: false, vertical: true)
@@ -416,7 +417,7 @@ struct ControlsCard: View {
             }
             #endif
             ODDivider()
-            ODRow("Источник сигнала") {
+            ODRow(String(localized: "Input source")) {
                 Menu(model.inputSource[display.recordID].map { model.inputName($0) } ?? "—") {
                     ForEach(AppModel.standardInputs, id: \.code) { input in
                         Button(input.name) { model.setInputSource(input.code, for: display) }
@@ -425,35 +426,37 @@ struct ControlsCard: View {
                 .menuStyle(.borderlessButton).fixedSize()
             }
             ODDivider()
-            ODRow("Питание", secondary: "Некоторые мониторы нельзя разбудить по DDC после выключения") {
-                Menu("Применить…") {
+            ODRow(String(localized: "Power"), secondary: String(localized: "Some displays can’t wake over DDC once off")) {
+                Menu("Set…") {
                     ForEach(DDCPowerMode.allCases, id: \.self) { mode in
-                        Button(mode.label) { model.setPowerMode(mode, for: display) }
+                        // The label comes from AutomationSchema (shared with the CLI), so it is
+                        // looked up in the catalog here rather than extracted.
+                        Button(mode.label.appLocalized) { model.setPowerMode(mode, for: display) }
                     }
                 }
                 .menuStyle(.borderlessButton).fixedSize()
             }
             #if !PUBLIC_API_ONLY
             ODDivider()
-            ODRow("Сброс к заводским настройкам", secondary: "Восстанавливает заводские настройки монитора") {
-                Button(resetting ? "Сброс…" : "Сбросить настройки…") { confirmingReset = true }
+            ODRow(String(localized: "Reset to defaults"), secondary: String(localized: "Restores the monitor’s factory settings")) {
+                Button(resetting ? "Resetting…" : "Reset to defaults…") { confirmingReset = true }
                     .controlSize(.small)
                     .disabled(resetting)
             }
             #endif
         }
-        .confirmationDialog("Сбросить настройки монитора «\(model.displayName(for: display))»?",
+        .confirmationDialog("Reset “\(model.displayName(for: display))” to defaults?",
                             isPresented: $confirmingReset, titleVisibility: .visible) {
-            Button("Сбросить настройки", role: .destructive) {
+            Button("Reset to Defaults", role: .destructive) {
                 resetting = true
                 Task {
                     await model.resetToDefaults(for: display)
                     resetting = false
                 }
             }
-            Button("Отмена", role: .cancel) {}
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Восстанавливает заводские настройки монитора: яркость, контрастность, цветовой режим и остальные параметры, которые сбрасывает сам монитор. OpenDisplay также снимает программное затемнение и цветовую температуру.")
+            Text("The monitor restores its factory settings — brightness, contrast, colour mode, and anything else it resets. OpenDisplay also clears its software dimming and colour temperature for this display.")
         }
     }
 
@@ -490,17 +493,17 @@ struct DimmingCard: View {
     private var footnote: String {
         switch model.settings.dimmingMethod {
         case .gamma:
-            return "Программное затемнение гаммой поверх аппаратной яркости. Работает ниже аппаратного минимума."
+            return String(localized: "Software gamma dimming, applied on top of hardware brightness. Works below the hardware minimum.")
         case .overlay:
-            return "Чёрный слой с регулируемой прозрачностью поверх изображения. Строка меню остаётся доступной для восстановления."
+            return String(localized: "A black overlay at adjustable opacity, applied on top of the picture. The menu bar stays available so you can always find your way back.")
         case .combined:
-            return "Сочетает затемнение гаммой и чёрный слой. Темнее каждого способа по отдельности, но не делает экран полностью чёрным."
+            return String(localized: "Gamma dimming plus a black overlay on top — darker than either method alone, and still never fully black.")
         }
     }
 
     var body: some View {
-        ODCard(title: "Затемнение", footnote: footnote) {
-            ODRow("Программное затемнение") {
+        ODCard(title: String(localized: "Dimming"), footnote: footnote) {
+            ODRow(String(localized: "Software dimming")) {
                 HStack(spacing: 8) {
                     Slider(value: Binding(get: { Double(model.softwareDim[display.recordID] ?? 1) },
                                           set: { model.setSoftwareDim(Float($0), for: display) }), in: range)
@@ -510,13 +513,13 @@ struct DimmingCard: View {
                         .frame(width: 34, alignment: .trailing)
                 }
             }
-            ODRow("Способ") {
+            ODRow(String(localized: "Method")) {
                 Picker("", selection: Binding(
                     get: { model.settings.dimmingMethod },
                     set: { model.setDimmingMethod($0) })) {
-                    Text("Гамма").tag(DimmingMethod.gamma)
-                    Text("Чёрный слой").tag(DimmingMethod.overlay)
-                    Text("Комбинированный").tag(DimmingMethod.combined)
+                    Text("Gamma").tag(DimmingMethod.gamma)
+                    Text("Overlay").tag(DimmingMethod.overlay)
+                    Text("Combined").tag(DimmingMethod.combined)
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
@@ -531,8 +534,8 @@ struct UseAsCard: View {
     let display: DisplayObservation
 
     var body: some View {
-        ODCard(title: "Роль монитора") {
-            ODRow("Сделать основным монитором", secondary: "Здесь будут строка меню и Dock") {
+        ODCard(title: String(localized: "Use as")) {
+            ODRow(String(localized: "Use as main display"), secondary: String(localized: "Menu bar and Dock appear here")) {
                 Toggle("", isOn: Binding(get: { display.isMain },
                                          set: { on in if on { Task { await model.setMain(for: display) } } }))
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
@@ -540,15 +543,15 @@ struct UseAsCard: View {
             }
             if !display.isMain {
                 ODDivider()
-                ODRow("Дублировать основной монитор") {
+                ODRow(String(localized: "Mirror to main display")) {
                     Toggle("", isOn: Binding(get: { display.isMirrored },
                                              set: { on in Task { await model.setMirrored(on, for: display) } }))
                         .labelsHidden().toggleStyle(.switch).controlSize(.small).disabled(model.busy)
                 }
             }
             ODDivider()
-            ODRow("Отключить монитор", secondary: "Логическое отключение с возможностью подключения") {
-                Button("Отключить", role: .destructive) {
+            ODRow(String(localized: "Turn display off"), secondary: String(localized: "Logical disconnect — reconnectable")) {
+                Button("Turn Off", role: .destructive) {
                     Task { await model.setDisplayActive(false, for: display) }
                 }
                 .controlSize(.small)
@@ -566,8 +569,8 @@ private struct IdentityCard: View {
     @State private var alias = ""
 
     var body: some View {
-        ODCard(title: "Название") {
-            ODRow("Название монитора") {
+        ODCard(title: String(localized: "Name")) {
+            ODRow(String(localized: "Display name")) {
                 TextField(model.displayName(for: display), text: $alias)
                     .textFieldStyle(.roundedBorder).frame(width: 200)
                     .onSubmit { Task { await model.setAlias(alias, for: display) } }
@@ -586,7 +589,7 @@ struct InformationCard: View {
     let display: DisplayObservation
 
     var body: some View {
-        ODCard(title: "Информация") {
+        ODCard(title: String(localized: "Information")) {
             let info = model.displayInfo(for: display)
             ForEach(Array(info.enumerated()), id: \.element.label) { index, item in
                 if index > 0 { ODDivider() }

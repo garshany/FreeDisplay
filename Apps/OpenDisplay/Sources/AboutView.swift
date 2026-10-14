@@ -20,15 +20,15 @@ struct AboutView: View {
         let title: String
         let systemImage: String
         let url: URL
-        var id: String { title }
+        var id: String { url.absoluteString }
     }
 
     /// The project links AboutView offers, reused verbatim by the Settings → About card.
     static let projectLinks: [AboutLink] = [
-        AboutLink(title: "Исходный проект", systemImage: "globe", url: URL(string: repo)!),
-        AboutLink(title: "История исходного проекта", systemImage: "doc.text", url: URL(string: "\(repo)/releases")!),
-        AboutLink(title: "Обсуждения исходного проекта", systemImage: "ladybug", url: URL(string: "\(repo)/issues/new")!),
-        AboutLink(title: "Лицензия GPL-3.0", systemImage: "checkmark.seal",
+        AboutLink(title: String(localized: "Upstream project"), systemImage: "globe", url: URL(string: repo)!),
+        AboutLink(title: String(localized: "Upstream release history"), systemImage: "doc.text", url: URL(string: "\(repo)/releases")!),
+        AboutLink(title: String(localized: "Upstream issues"), systemImage: "ladybug", url: URL(string: "\(repo)/issues/new")!),
+        AboutLink(title: String(localized: "License (GPL-3.0)"), systemImage: "checkmark.seal",
                   url: URL(string: "\(repo)/blob/main/LICENSE")!),
     ]
 
@@ -48,15 +48,15 @@ struct AboutView: View {
                 .accessibilityHidden(true)
             Text("OpenDisplay")
                 .font(.title2.weight(.semibold))
-            Text("Открытое управление дисплеями macOS. Локальная сборка с доработками.")
+            Text("Open-source display control for macOS. Local build with custom changes.")
                 .font(.callout).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("Версия \(Self.version) (сборка \(Self.build))")
+            Text("Version \(Self.version) (build \(Self.build))")
                 .font(.callout.monospacedDigit())
                 .textSelection(.enabled)
-                .accessibilityLabel("Версия \(Self.version), сборка \(Self.build)")
+                .accessibilityLabel("Version \(Self.version), build \(Self.build)")
                 .padding(.top, 2)
             UpdateCheckStatusView()
 
@@ -88,7 +88,7 @@ struct AboutView: View {
             }
         }
         .foregroundStyle(ODColor.accent)
-        .accessibilityHint("Открыть в браузере")
+        .accessibilityHint("Opens in your browser")
     }
 }
 
@@ -101,24 +101,33 @@ struct UpdateCheckStatusView: View {
 
     var body: some View {
         let presentation = SoftwareUpdatePolicy.presentation(for: model.updatePhase)
+        let title = Self.localizedTitle(presentation)
         if Bundle.main.object(forInfoDictionaryKey: "OpenDisplayLocalBuild") as? Bool == true {
-            Label("Локальная сборка · обновление из исходников", systemImage: "hammer")
+            Label("Local build · updates from source", systemImage: "hammer")
                 .font(.caption).foregroundStyle(.secondary)
         } else if presentation.showsProgress {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text(presentation.combinedTitle).font(.callout).foregroundStyle(.secondary)
+                Text(title).font(.callout).foregroundStyle(.secondary)
             }
             .accessibilityElement(children: .combine)
         } else {
             Button {
                 model.checkForUpdates()
             } label: {
-                Label(presentation.combinedTitle, systemImage: presentation.systemImage)
+                Label(title, systemImage: presentation.systemImage)
             }
             .controlSize(.small)
-            .accessibilityHint("Сведения об обновлении локальной сборки")
+            .accessibilityHint("Checks for a new version, then downloads and installs it")
         }
+    }
+
+    /// `SoftwareUpdatePolicy` returns English source text, so the title is looked up in the string
+    /// catalog here; the version badge is appended as-is, the way `combinedTitle` folds it in.
+    private static func localizedTitle(_ presentation: SoftwareUpdatePresentation) -> String {
+        let title = presentation.title.appLocalized
+        guard let badge = presentation.badge else { return title }
+        return "\(title): \(badge)"
     }
 }
 #endif

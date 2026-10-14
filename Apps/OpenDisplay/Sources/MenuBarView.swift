@@ -10,7 +10,7 @@ import TopologyCore
 ///
 /// - notices on top (keep/revert countdown, degraded providers, update);
 /// - one section per display: a header (glyph · name · mode · on/off switch) that collapses the
-///   section, the frequent sliders (brightness, resolution, volume), and an «Ещё» chevron that reveals
+///   section, the frequent sliders (brightness, resolution, volume), and a «More» chevron that reveals
 ///   the per-display features — each expands in place and hides its siblings while open;
 /// - managed-offline displays with a switch to bring them back;
 /// - the Tools section (behind «…») and the button row (status · tools · settings · quit).
@@ -47,11 +47,11 @@ struct MenuBarView: View {
         if model.phase == .scanning && model.displays.isEmpty {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Поиск экранов…").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text("Scanning displays…").font(.system(size: 12)).foregroundStyle(.secondary)
             }
             .padding(10)
         } else if model.displays.isEmpty && model.managedOffline.isEmpty {
-            Label("Экраны не найдены", systemImage: "display.trianglebadge.exclamationmark")
+            Label("No displays detected", systemImage: "display.trianglebadge.exclamationmark")
                 .font(.system(size: 12)).foregroundStyle(.secondary).padding(10)
         } else {
             ForEach(model.displays, id: \.recordID) { display in
@@ -74,13 +74,13 @@ private struct TrayNotices: View {
     var body: some View {
         if model.isDegraded {
             TrayRow(icon: "exclamationmark.triangle", iconTint: ODColor.caution,
-                    title: "Часть функций недоступна", detail: "Диагностика") {
+                    title: String(localized: "Some features are unavailable"), detail: SettingsSection.health.title) {
                 ui.openSettings(.health)
             }
         }
         let update = SoftwareUpdatePolicy.presentation(for: model.updatePhase)
         if let badge = update.badge {
-            TrayRow(icon: update.systemImage, iconTint: ODColor.accent, title: trayUpdateTitle(update.title), detail: badge) {
+            TrayRow(icon: update.systemImage, iconTint: ODColor.accent, title: update.title.appLocalized, detail: badge) {
                 model.checkForUpdates()
             }
         }
@@ -99,14 +99,14 @@ struct TrayConfirmBar: View {
                 Image(systemName: "clock.arrow.circlepath").font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(ODColor.caution)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Оставить новый режим?").font(.system(size: 12, weight: .semibold))
-                    Text("\(pending.message) · возврат через \(pending.secondsRemaining) с")
+                    Text("Keep the new mode?").font(.system(size: 12, weight: .semibold))
+                    Text("\(pending.message) · reverting in \(pending.secondsRemaining)s")
                         .font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(2)
                         .monospacedDigit()
                 }
                 Spacer(minLength: 4)
-                TrayPillButton("Вернуть") { Task { await model.revertArrangementChange() } }
-                TrayPillButton("Оставить", prominent: true) { model.confirmArrangementChange() }
+                TrayPillButton(String(localized: "Revert")) { Task { await model.revertArrangementChange() } }
+                TrayPillButton(String(localized: "Keep"), prominent: true) { model.confirmArrangementChange() }
             }
             .padding(.horizontal, 10).padding(.vertical, 8)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 11))
@@ -177,7 +177,7 @@ private struct TrayDeviceSection: View {
             ui.toggle(\.moreOpen, key)
         } label: {
             HStack(spacing: 4) {
-                Text(open ? "Скрыть" : "Ещё").font(.system(size: 11, weight: .medium))
+                Text(open ? "Hide" : "More").font(.system(size: 11, weight: .medium))
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
                     .rotationEffect(.degrees(open ? 180 : 0))
             }
@@ -186,8 +186,8 @@ private struct TrayDeviceSection: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(open ? "Скрыть настройки экрана" : "Режим, частота, цвет, поворот, управление монитором…")
-        .accessibilityLabel(open ? "Скрыть настройки экрана" : "Ещё настройки экрана")
+        .help(open ? "Hide display settings" : "Mode, refresh rate, color, rotation, monitor controls…")
+        .accessibilityLabel(open ? "Hide display settings" : "More display settings")
         .accessibilityIdentifier("tray.more")
     }
 }
@@ -220,16 +220,16 @@ private struct TrayDeviceHeader: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Свернуть или развернуть. ⌥-клик — показать, какой это экран")
+            .help("Collapse or expand. ⌥-click to identify the display")
             .accessibilityLabel(model.displayName(for: display))
-            .accessibilityValue(expanded ? "развёрнуто" : "свёрнуто")
+            .accessibilityValue(expanded ? "expanded" : "collapsed")
             .accessibilityIdentifier("tray.header")
             TraySwitch(isOn: display.isActive, enabled: canDisconnect) { on in
                 if !on { Task { await model.setDisplayActive(false, for: display) } }
             }
-            .help(canDisconnect ? "Отключить экран (вернуть — этим же переключателем)"
-                                : "Последний активный экран отключить нельзя")
-            .accessibilityLabel("Экран включён")
+            .help(canDisconnect ? "Turn off the display (turn it back on with the same switch)"
+                                : "The last active display can't be turned off")
+            .accessibilityLabel("Display on")
             .accessibilityIdentifier("tray.header.switch")
         }
         .padding(.horizontal, 8).padding(.vertical, 7)
@@ -240,15 +240,15 @@ private struct TrayDeviceHeader: View {
     private var canDisconnect: Bool { !model.busy && model.activeDisplayCount > 1 && display.isActive }
 
     private var subtitle: String {
-        guard display.isActive else { return "Неактивен" }
+        guard display.isActive else { return String(localized: "Inactive") }
         var parts: [String] = []
         if let mode = display.mode {
             parts.append(TrayModeCatalog.sizeText(mode))
             parts.append(TrayModeCatalog.refreshText(mode.refreshHz))
             if mode.isHiDPI { parts.append("HiDPI") }
         }
-        if model.isBlackedOut(display) { parts.append("затемнён") }
-        if display.isMirrored { parts.append("зеркало") }
+        if model.isBlackedOut(display) { parts.append(String(localized: "blacked out")) }
+        if display.isMirrored { parts.append(String(localized: "mirrored")) }
         return parts.joined(separator: " · ")
     }
 
@@ -268,12 +268,12 @@ private struct TrayOfflineSection: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(offline.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary).lineLimit(1)
                 if offline.reconnectFailedAt == nil {
-                    Text("Отключён OpenDisplay").font(.system(size: 11)).foregroundStyle(.tertiary)
+                    Text("Turned off by OpenDisplay").font(.system(size: 11)).foregroundStyle(.tertiary)
                 } else {
                     // macOS accepted the reconnect but no display appeared — keep the way out visible.
                     HStack(spacing: 4) {
-                        Text("Экран не включился").font(.system(size: 11)).foregroundStyle(ODColor.caution)
-                        Button("Как восстановить…") { NSWorkspace.shared.open(ReconnectVerification.recoveryGuideURL) }
+                        Text("Didn’t come back on").font(.system(size: 11)).foregroundStyle(ODColor.caution)
+                        Button("Recovery steps…") { NSWorkspace.shared.open(ReconnectVerification.recoveryGuideURL) }
                             .buttonStyle(.link).font(.system(size: 11))
                     }
                 }
@@ -282,7 +282,7 @@ private struct TrayOfflineSection: View {
             TraySwitch(isOn: false, enabled: !model.busy) { on in
                 if on { Task { await model.reconnectOffline(offline) } }
             }
-            .help("Подключить экран")
+            .help("Reconnect the display")
         }
         .padding(.horizontal, 8).padding(.vertical, 7)
         .background(ODColor.fillQuaternary, in: RoundedRectangle(cornerRadius: 11))
@@ -302,12 +302,12 @@ private struct TrayBrightnessControl: View {
             HStack(spacing: 6) {
                 TraySlider(value: level, icon: "sun.max.fill",
                            valueText: "\(Int((level * 100).rounded()))%",
-                           accessibilityLabel: "Яркость") { model.setBrightness(Float($0), for: display) }
+                           accessibilityLabel: String(localized: "Brightness")) { model.setBrightness(Float($0), for: display) }
                 if model.xdrCapable(display) { xdrButton }
             }
             let captions = [model.brightnessCaption(for: display), model.groupSyncCaption(for: display)].compactMap { $0 }
             if !captions.isEmpty || model.ddcWriteWasIgnored(0x10, for: display) {
-                Text((captions + (model.ddcWriteWasIgnored(0x10, for: display) ? ["монитор не применил значение"] : []))
+                Text((captions + (model.ddcWriteWasIgnored(0x10, for: display) ? [String(localized: "the monitor ignored the value")] : []))
                         .joined(separator: " · "))
                     .font(.system(size: 10)).foregroundStyle(.tertiary).padding(.leading, 4)
             }
@@ -324,7 +324,7 @@ private struct TrayBrightnessControl: View {
                 .font(.system(size: 17)).foregroundStyle(on ? ODColor.accent : Color.secondary)
         }
         .buttonStyle(.plain)
-        .help("Усиление XDR: яркость SDR выше обычного максимума")
+        .help("XDR boost: SDR brightness above the normal maximum")
     }
 }
 
@@ -335,11 +335,11 @@ private struct TrayVolumeControl: View {
     var body: some View {
         let level = Double(model.ddcControl(.volume, for: display) ?? 0)
         TraySlider(value: level, icon: level <= 0 ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                   valueText: "\(Int((level * 100).rounded()))%", accessibilityLabel: "Громкость",
+                   valueText: "\(Int((level * 100).rounded()))%", accessibilityLabel: String(localized: "Volume"),
                    leadingAction: { model.toggleMute(for: display) }) {
             model.setHardwareControl(.volume, Float($0), for: display, showsOSD: false)
         }
-        .help("Громкость монитора по DDC. Значок — выключить/включить звук")
+        .help("Monitor volume over DDC. Click the icon to mute or unmute")
     }
 }
 
@@ -378,7 +378,7 @@ private struct TrayResolutionSlider: View {
                 HStack(spacing: 6) {
                     if applyingIndex != nil {
                         ProgressView().controlSize(.mini)
-                        Text("Применяю режим…").font(.system(size: 10)).foregroundStyle(.secondary)
+                        Text("Applying mode…").font(.system(size: 10)).foregroundStyle(.secondary)
                     } else {
                         Text(caption(option, dragging: dragIndex != nil && dragIndex != current))
                             .font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
@@ -393,18 +393,23 @@ private struct TrayResolutionSlider: View {
     private func caption(_ option: TrayModeOption, dragging: Bool) -> String {
         if model.pendingRevert != nil {
             return ui.isModeLocked(model, for: display)
-                ? "Сначала подтвердите изменение другого экрана внизу панели"
-                : (dragging ? "отпустите — предыдущий шаг сохранится" : "Можно двигать дальше · подтверждение внизу")
+                ? String(localized: "Confirm the other display's change at the bottom of the panel first")
+                : (dragging ? String(localized: "release — the previous step will be kept")
+                            : String(localized: "You can keep adjusting · confirm at the bottom"))
         }
         if let error = model.modeChangeError, !dragging { return error }
-        var parts = ["Разрешение"]
-        if option.isNative { parts.append("родное, без масштабирования") } else if option.isDefault { parts.append("рекомендуемое macOS") }
+        var parts = [String(localized: "Resolution")]
+        if option.isNative {
+            parts.append(String(localized: "native, no scaling"))
+        } else if option.isDefault {
+            parts.append(String(localized: "recommended by macOS"))
+        }
         if option.mode.isHiDPI { parts.append("HiDPI") }
-        if dragging { parts.append("отпустите, чтобы применить") }
+        if dragging { parts.append(String(localized: "release to apply")) }
         return parts.joined(separator: " · ")
     }
 }
-// MARK: - «Ещё»: per-display features
+// MARK: - «More»: per-display features
 
 private struct TrayFeatureList: View {
     @EnvironmentObject private var model: AppModel
@@ -418,52 +423,52 @@ private struct TrayFeatureList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             TrayDivider()
-            feature("mode", "rectangle.on.rectangle", "Режим экрана", modeSummary) {
+            feature("mode", "rectangle.on.rectangle", String(localized: "Display mode"), modeSummary) {
                 TrayModeList(display: display, modes: modes)
             }
             if TrayModeCatalog.refreshRates(modes, current: display.mode).count > 1 {
-                feature("refresh", "arrow.triangle.2.circlepath", "Частота обновления",
+                feature("refresh", "arrow.triangle.2.circlepath", String(localized: "Refresh rate"),
                         display.mode.map { TrayModeCatalog.refreshText($0.refreshHz) }) {
                     TrayRefreshList(display: display, modes: modes)
                 }
             }
-            feature("toggles", "switch.2", "Переключатели", nil) {
+            feature("toggles", "switch.2", String(localized: "Toggles"), nil) {
                 TrayToggles(display: display, modes: modes)
             }
-            feature("image", "camera.filters", "Изображение", imageSummary) {
+            feature("image", "camera.filters", String(localized: "Picture"), imageSummary) {
                 TrayImageAdjustments(display: display)
             }
             #if !PUBLIC_API_ONLY
             if isExternal {
-                feature("device", "slider.horizontal.3", "Управление монитором", "DDC") {
+                feature("device", "slider.horizontal.3", String(localized: "Monitor controls"), "DDC") {
                     TrayDeviceControl(display: display)
                 }
-                feature("input", "cable.connector.horizontal", "Источник сигнала",
+                feature("input", "cable.connector.horizontal", String(localized: "Input source"),
                         model.inputSource[display.recordID].map { model.inputName($0) }) {
                     TrayInputList(display: display)
                 }
-                feature("colorMode", "paintpalette", "Цветовой режим монитора",
+                feature("colorMode", "paintpalette", String(localized: "Monitor color mode"),
                         model.colorPreset[display.recordID].map { model.presetName($0) }) {
                     TrayColorPresetList(display: display)
                 }
             }
             #endif
-            feature("profile", "swatchpalette", "Цветовой профиль", model.colorProfileName[display.recordID]) {
+            feature("profile", "swatchpalette", String(localized: "Color profile"), model.colorProfileName[display.recordID]) {
                 TrayColorProfileList(display: display)
             }
-            feature("rotation", "rotate.right", "Поворот экрана", "\(model.currentRotation(for: display))°") {
+            feature("rotation", "rotate.right", String(localized: "Display rotation"), "\(model.currentRotation(for: display))°") {
                 TrayRotation(display: display)
             }
             if model.displays.count > 1 {
-                feature("mirror", "rectangle.on.rectangle.angled", "Зеркалирование",
-                        display.isMirrored ? "вкл." : nil) {
+                feature("mirror", "rectangle.on.rectangle.angled", String(localized: "Mirroring"),
+                        display.isMirrored ? String(localized: "On") : nil) {
                     TrayMirroring(display: display)
                 }
             }
-            feature("pip", "pip", "Картинка в картинке и трансляция", nil) {
+            feature("pip", "pip", String(localized: "Picture in Picture and streaming"), nil) {
                 TrayPictureInPicture()
             }
-            feature("manage", "info.circle", "Управление экраном", nil) {
+            feature("manage", "info.circle", String(localized: "Manage display"), nil) {
                 TrayManageDisplay(display: display)
             }
         }
@@ -523,22 +528,22 @@ private struct TrayModeList: View {
 
         VStack(alignment: .leading, spacing: 1) {
             if !recommended.isEmpty {
-                TraySubheader("Родные и рекомендуемые")
+                TraySubheader(String(localized: "Native and recommended"))
                 ForEach(recommended) { row($0, current: current) }
             }
             if !favorites.isEmpty {
-                TraySubheader("Избранные")
+                TraySubheader(String(localized: "Favorites"))
                 ForEach(favorites) { row($0, current: current) }
             }
-            TraySubheader(showAll ? "Все режимы" : "Другие размеры")
+            TraySubheader(showAll ? String(localized: "All modes") : String(localized: "Other sizes"))
             ForEach(rest) { row($0, current: current) }
             // Below the rows on purpose: a message appearing here never pushes the row that was clicked.
             if let error = model.modeChangeError { TrayNote(error, tint: ODColor.caution) }
-            TrayCheckRow(title: "Показывать все варианты (без HiDPI, все частоты)", isOn: showAll) {
+            TrayCheckRow(title: String(localized: "Show all variants (non-HiDPI, all refresh rates)"), isOn: showAll) {
                 if showAll { ui.showAllModes.remove(key) } else { ui.showAllModes.insert(key) }
             }
             .padding(.top, 4)
-            TrayNote("Чётче всего — «родное»: картинка рисуется 1:1, без масштабирования. Новый режим нужно подтвердить, иначе он вернётся сам.")
+            TrayNote(String(localized: "“Native” is the sharpest: the picture is drawn 1:1, without scaling. A new mode has to be confirmed, or it reverts on its own."))
         }
     }
 
@@ -554,15 +559,15 @@ private struct TrayModeList: View {
                 if option.mode.isHiDPI { TrayTag("HiDPI", tint: ODColor.accent) }
                 Text(TrayModeCatalog.refreshText(option.mode.refreshHz))
                     .font(.system(size: 10.5)).foregroundStyle(.secondary)
-                if option.isNative { TrayTag("родное", tint: ODColor.connected) }
-                if option.isDefault { TrayTag("по умолч.", tint: .secondary) }
+                if option.isNative { TrayTag(String(localized: "native"), tint: ODColor.connected) }
+                if option.isDefault { TrayTag(String(localized: "default"), tint: .secondary) }
                 Spacer(minLength: 2)
                 Button { model.toggleFavoriteResolution(option.mode, for: display) } label: {
                     Image(systemName: favorite ? "star.fill" : "star").font(.system(size: 10))
                         .foregroundStyle(favorite ? Color.yellow : Color.secondary.opacity(0.6))
                 }
                 .buttonStyle(.plain)
-                .help(favorite ? "Убрать из избранного" : "В избранное")
+                .help(favorite ? "Remove from favorites" : "Add to favorites")
             }
         }
     }
@@ -604,7 +609,7 @@ private struct TrayToggles: View {
                     ui.applyMode(counterpart.mode, for: display, model: model)
                 }
             }
-            TraySwitchRow(title: "Основной экран", detail: "строка меню и Dock",
+            TraySwitchRow(title: String(localized: "Main display"), detail: String(localized: "menu bar and Dock"),
                           isOn: display.isMain, enabled: !display.isMain && !model.busy) { on in
                 if on { Task { await model.setMain(for: display) } }
             }
@@ -613,22 +618,22 @@ private struct TrayToggles: View {
             let otherLit = model.displays.contains {
                 $0.recordID != display.recordID && $0.isActive && !model.isBlackedOut($0)
             }
-            TraySwitchRow(title: "Затемнить полностью", detail: "Black Out",
+            TraySwitchRow(title: String(localized: "Black Out"), detail: String(localized: "fully black screen"),
                           isOn: model.isBlackedOut(display),
                           enabled: model.isBlackedOut(display) || otherLit) { _ in
                 model.toggleBlackOut(for: display)
             }
-            TraySwitchRow(title: "Свет для камеры", detail: "белая подсветка экрана",
+            TraySwitchRow(title: String(localized: "FaceLight"), detail: String(localized: "white screen light"),
                           isOn: model.isFaceLightActive(display)) { _ in
                 model.toggleFaceLight(for: display)
             }
             if model.xdrCapable(display) {
-                TraySwitchRow(title: "Усиление XDR", isOn: (model.xdrBoostFraction[display.recordID] ?? 0) > 0) { on in
+                TraySwitchRow(title: String(localized: "XDR boost"), isOn: (model.xdrBoostFraction[display.recordID] ?? 0) > 0) { on in
                     model.setXDRBoost(on ? XDRBrightnessPolicy.defaultBoostFraction : 0, for: display)
                 }
             }
             if display.displayClass != .builtIn {
-                TraySwitchRow(title: "Программная яркость", detail: "если монитор игнорирует DDC",
+                TraySwitchRow(title: String(localized: "Software brightness"), detail: String(localized: "if the monitor ignores DDC"),
                               isOn: model.settings.softwareBrightnessDisplayIDs.contains(display.recordID.rawValue)) { on in
                     Task { await model.setSoftwareBrightness(on, for: display) }
                 }
@@ -648,25 +653,27 @@ private struct TrayImageAdjustments: View {
         let dimFloor = model.settings.dimmingMethod == .gamma ? 0.15 : 0
         let dim = Double(model.softwareDim[id] ?? 1)
         VStack(alignment: .leading, spacing: 8) {
-            TrayLabeled("Цветовая температура",
-                        value: model.colorTemperature[id] == nil ? "нейтрально" : "\(Int(kelvin)) K") {
+            TrayLabeled(String(localized: "Color temperature"),
+                        value: model.colorTemperature[id] == nil ? String(localized: "neutral") : "\(Int(kelvin)) K") {
                 TraySlider(value: (kelvin - minK) / (maxK - minK), icon: "thermometer.medium",
-                           valueText: "", accessibilityLabel: "Цветовая температура", showsValue: false) {
+                           valueText: "", accessibilityLabel: String(localized: "Color temperature"), showsValue: false) {
                     model.setColorTemperature(Float(minK + $0 * (maxK - minK)), for: display)
                 }
             }
             if model.colorTemperature[id] != nil {
-                TrayPillButton("Сбросить температуру") {
+                TrayPillButton(String(localized: "Reset temperature")) {
                     model.setColorTemperature(ColorTemperatureCurve.neutralKelvin, for: display)
                 }
             }
-            TrayLabeled("Программное затемнение", value: "\(Int((dim * 100).rounded()))%") {
-                TraySlider(value: dim, icon: "moon.fill", valueText: "", accessibilityLabel: "Программное затемнение",
+            TrayLabeled(String(localized: "Software dimming"), value: "\(Int((dim * 100).rounded()))%") {
+                TraySlider(value: dim, icon: "moon.fill", valueText: "", accessibilityLabel: String(localized: "Software dimming"),
                            showsValue: false) { model.setSoftwareDim(Float(max(dimFloor, $0)), for: display) }
             }
-            TraySegmented(options: [("Гамма", DimmingMethod.gamma), ("Слой", DimmingMethod.overlay), ("Оба", DimmingMethod.combined)],
+            TraySegmented(options: [(String(localized: "Gamma"), DimmingMethod.gamma),
+                                    (String(localized: "Overlay"), DimmingMethod.overlay),
+                                    (String(localized: "Both"), DimmingMethod.combined)],
                           selection: model.settings.dimmingMethod) { model.setDimmingMethod($0) }
-            TrayNote("Способ затемнения общий для всех экранов. Температура и затемнение действуют до выхода из OpenDisplay.")
+            TrayNote(String(localized: "The dimming method is shared by all displays. Temperature and dimming stay until you quit OpenDisplay."))
         }
     }
 }
@@ -682,8 +689,8 @@ private struct TrayDeviceControl: View {
         let controls = HardwareControl.allCases.filter { model.ddcControl($0, for: display) != nil }
         VStack(alignment: .leading, spacing: 8) {
             if controls.isEmpty {
-                TrayNote("Монитор не ответил по DDC. Если управление раньше работало, выключите и включите монитор его кнопкой питания и повторите опрос.")
-                TrayPillButton("Повторить опрос DDC") {
+                TrayNote(String(localized: "The monitor didn't respond over DDC. If control worked before, turn the monitor off and on with its power button and retry."))
+                TrayPillButton(String(localized: "Retry DDC probe")) {
                     model.retryDDCDiscoveryIfDead(for: display)
                     Task { await model.refreshHardwareControls(for: display) }
                 }
@@ -698,19 +705,19 @@ private struct TrayDeviceControl: View {
                     }
                 }
                 if model.ddcWriteWasIgnored(control.vcp, for: display) {
-                    TrayNote("Монитор не применил изменение — текущий режим изображения может блокировать его.")
+                    TrayNote(String(localized: "The monitor didn't apply the change — its current picture mode may be blocking it."))
                 }
             }
-            TraySubheader("Питание")
+            TraySubheader(String(localized: "Power"))
             HStack(spacing: 6) {
-                TrayPillButton("Режим ожидания") { model.setPowerMode(.standby, for: display) }
-                TrayPillButton("Выключить") { model.setPowerMode(.off, for: display) }
+                TrayPillButton(String(localized: "Standby")) { model.setPowerMode(.standby, for: display) }
+                TrayPillButton(String(localized: "Turn off")) { model.setPowerMode(.off, for: display) }
             }
-            TrayNote("Некоторые мониторы нельзя разбудить по DDC — тогда включите кнопкой.")
-            TraySubheader("Сброс")
+            TrayNote(String(localized: "Some monitors can't be woken over DDC — turn them on with the power button."))
+            TraySubheader(String(localized: "Reset"))
             if ui.resetConfirm == display.recordID.rawValue {
                 HStack(spacing: 6) {
-                    TrayPillButton(resetting ? "Сброс…" : "Сбросить монитор", destructive: true) {
+                    TrayPillButton(resetting ? String(localized: "Resetting…") : String(localized: "Reset monitor"), destructive: true) {
                         resetting = true
                         Task {
                             await model.resetToDefaults(for: display)
@@ -718,11 +725,11 @@ private struct TrayDeviceControl: View {
                             ui.resetConfirm = nil
                         }
                     }
-                    TrayPillButton("Отмена") { ui.resetConfirm = nil }
+                    TrayPillButton(String(localized: "Cancel")) { ui.resetConfirm = nil }
                 }
-                TrayNote("Монитор вернёт заводские яркость, контраст, цветовой режим и остальное.")
+                TrayNote(String(localized: "The monitor will restore its factory brightness, contrast, color mode, and everything else."))
             } else {
-                TrayPillButton("Заводские настройки…") { ui.resetConfirm = display.recordID.rawValue }
+                TrayPillButton(String(localized: "Factory reset…")) { ui.resetConfirm = display.recordID.rawValue }
             }
         }
         .task(id: display.recordID) { await model.refreshHardwareControls(for: display) }
@@ -741,7 +748,7 @@ private struct TrayInputList: View {
                     Text(input.name).font(.system(size: 12))
                 }
             }
-            TrayNote("После переключения монитор покажет другой вход — вернуть можно кнопками на мониторе.")
+            TrayNote(String(localized: "After switching, the monitor shows the other input — switch back with the monitor's buttons."))
         }
         .task(id: display.recordID) { await model.refreshInputSource(for: display) }
     }
@@ -762,10 +769,10 @@ private struct TrayColorPresetList: View {
                 }
             }
             if model.ddcWriteWasIgnored(0x14, for: display), let current = model.colorPreset[display.recordID] {
-                TrayNote("Монитор оставил режим «\(model.presetName(current))».", tint: ODColor.caution)
+                TrayNote(String(localized: "The monitor kept the “\(model.presetName(current))” mode."), tint: ODColor.caution)
             }
             if model.ddcCapabilities[display.recordID] == nil {
-                TrayPillButton(detecting ? "Определение…" : "Определить поддерживаемые режимы") {
+                TrayPillButton(detecting ? String(localized: "Detecting…") : String(localized: "Detect supported modes")) {
                     detecting = true
                     Task {
                         await model.refreshCapabilities(for: display)
@@ -774,7 +781,7 @@ private struct TrayColorPresetList: View {
                     }
                 }
                 .padding(.top, 4)
-                TrayNote("Запрос возможностей у некоторых мониторов подвешивает DDC до выключения питания.")
+                TrayNote(String(localized: "On some monitors, a capabilities request hangs DDC until the power is cycled."))
             }
         }
         .task(id: display.recordID) { await model.refreshColorPreset(for: display) }
@@ -790,9 +797,11 @@ private struct TrayColorProfileList: View {
         VStack(alignment: .leading, spacing: 1) {
             if model.colorProfileControllable[display.recordID] == true {
                 let current = model.colorProfileName[display.recordID] ?? ""
-                TrayChoiceRow(selected: current == "Заводской профиль" || current.hasSuffix("(заводской)"),
+                // Must match the factory names `ColorProfileService.currentProfileName` reports (same
+                // localized keys), so the check holds in every UI language.
+                TrayChoiceRow(selected: current == String(localized: "Factory default") || current.hasSuffix(String(localized: "(factory)")),
                               action: { Task { await model.resetColorProfile(for: display) } }) {
-                    Text("Заводской профиль").font(.system(size: 12))
+                    Text("Factory default").font(.system(size: 12))
                 }
                 ForEach(model.availableColorProfilesCache) { profile in
                     TrayChoiceRow(selected: profile.name == model.colorProfileName[display.recordID],
@@ -801,7 +810,7 @@ private struct TrayColorProfileList: View {
                     }
                 }
             } else {
-                TrayNote("macOS не даёт менять профиль этого экрана.")
+                TrayNote(String(localized: "macOS doesn't allow changing this display's profile."))
             }
         }
         .task(id: display.recordID) { await model.refreshColorProfile(for: display) }
@@ -820,14 +829,17 @@ private struct TrayRotation: View {
                               selection: model.currentRotation(for: display), enabled: !model.busy) { degrees in
                     Task { await model.setRotation(degrees, for: display) }
                 }
-                TrayNote("Экспериментальная функция. При сбое экраны переподключатся автоматически.")
+                TrayNote(String(localized: "Experimental feature. If it fails, the displays reconnect automatically."))
             } else {
-                TrayNote(model.rotationUnavailableReason == "Rotation changes are not safely supported on this macOS version."
-                         ? "Безопасный поворот недоступен в этой версии macOS."
-                         : (model.rotationUnavailableReason ?? "Поворот выключен. Включается в «Диагностика → Labs»."))
+                // The read-only backend's reason is an English sentence meant for logs and the CLI;
+                // the tray words it itself.
+                TrayNote(model.rotationUnavailableReason == ReadOnlyRotationBackend.unavailableReason
+                         ? String(localized: "Safe rotation isn't available on this version of macOS.")
+                         : (model.rotationUnavailableReason
+                            ?? String(localized: "Rotation is off. Turn it on in “\(SettingsSection.health.title) → Labs”.")))
                 HStack(spacing: 6) {
-                    TrayPillButton("Labs в настройках") { ui.openSettings(.health) }
-                    TrayPillButton("Системные «Дисплеи»") { ui.close(); model.openDisplaySettings() }
+                    TrayPillButton(String(localized: "Labs in Settings")) { ui.openSettings(.health) }
+                    TrayPillButton(String(localized: "System Displays settings")) { ui.close(); model.openDisplaySettings() }
                 }
             }
         }
@@ -841,18 +853,18 @@ private struct TrayMirroring: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             if display.isMain {
-                TraySubheader("Показывать этот экран на:")
+                TraySubheader(String(localized: "Show this display on:"))
                 ForEach(model.displays.filter { !$0.isMain && $0.isActive }, id: \.recordID) { other in
                     TraySwitchRow(title: model.displayName(for: other), isOn: other.isMirrored, enabled: !model.busy) { on in
                         Task { await model.setMirrored(on, for: other) }
                     }
                 }
             } else {
-                TraySwitchRow(title: "Дублировать основной экран", isOn: display.isMirrored, enabled: !model.busy) { on in
+                TraySwitchRow(title: String(localized: "Mirror the main display"), isOn: display.isMirrored, enabled: !model.busy) { on in
                     Task { await model.setMirrored(on, for: display) }
                 }
             }
-            TrayNote("Зеркалирование возможно только с основным экраном.")
+            TrayNote(String(localized: "Mirroring works only with the main display."))
         }
     }
 }
@@ -862,8 +874,8 @@ private struct TrayPictureInPicture: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TrayNote("Окно «картинка в картинке» с любого экрана или окна, поворот, отражение и LUT настраиваются в окне захвата.")
-            TrayPillButton("Открыть захват экрана…") { ui.openSettings(.capture) }
+            TrayNote(String(localized: "A picture-in-picture window of any display or window, rotation, flipping, and LUTs are set up in the capture window."))
+            TrayPillButton(String(localized: "Open Screen Capture…")) { ui.openSettings(.capture) }
         }
     }
 }
@@ -886,12 +898,12 @@ private struct TrayManageDisplay: View {
                 }
             }
             HStack(spacing: 6) {
-                TrayPillButton("Показать на экране") {
+                TrayPillButton(String(localized: "Identify")) {
                     guard let cgID = display.cgDisplayID else { return }
                     ui.identify(cgID, model.displayName(for: display),
                                 display.mode.map { TrayModeCatalog.sizeText($0) } ?? "")
                 }
-                TrayPillButton("Все настройки…") {
+                TrayPillButton(String(localized: "All settings…")) {
                     model.selectedDisplayID = display.recordID
                     ui.openSettings(.displays)
                 }
@@ -908,36 +920,36 @@ private struct TrayToolsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            TraySubheader("Инструменты").padding(.leading, 6)
-            tool("displays", "display.2", "Экраны и виртуальные экраны") {
-                TrayRow(icon: "arrow.triangle.2.circlepath", title: model.busy ? "Подключение…" : "Подключить все экраны",
+            TraySubheader(String(localized: "Tools")).padding(.leading, 6)
+            tool("displays", "display.2", String(localized: "Displays and virtual displays")) {
+                TrayRow(icon: "arrow.triangle.2.circlepath", title: model.busy ? String(localized: "Reconnecting…") : String(localized: "Reconnect all"),
                         enabled: !model.busy) { Task { await model.reconnectAll() } }
-                TrayRow(icon: "arrow.clockwise", title: "Переопределить экраны") { Task { await model.refresh() } }
-                TrayRow(icon: "plus.rectangle.on.rectangle", title: "Виртуальные экраны…") { ui.openSettings(.virtual) }
-                TraySwitchRow(title: "Не гасить экраны при подключённом мониторе",
+                TrayRow(icon: "arrow.clockwise", title: String(localized: "Detect displays")) { Task { await model.refresh() } }
+                TrayRow(icon: "plus.rectangle.on.rectangle", title: String(localized: "Virtual displays…")) { ui.openSettings(.virtual) }
+                TraySwitchRow(title: String(localized: "Keep displays awake while external connected"),
                               isOn: model.settings.preventDisplaySleepWithExternal) {
                     model.setPreventDisplaySleepWithExternal($0)
                 }
-                TraySwitchRow(title: "Отключать встроенный экран при подключении монитора",
+                TraySwitchRow(title: String(localized: "Turn built-in off when an external connects"),
                               isOn: model.settings.autoDisconnectBuiltInOnExternal) {
                     model.setAutoDisconnectBuiltInOnExternal($0)
                 }
             }
-            tool("scenes", "square.stack.3d.up", "Сцены") {
+            tool("scenes", "square.stack.3d.up", String(localized: "Scenes")) {
                 if model.scenes.isEmpty {
-                    TrayNote("Сохранённых сцен нет. Сцена запоминает расположение и режимы всех экранов.")
+                    TrayNote(String(localized: "No saved scenes. A scene remembers the arrangement and modes of all displays."))
                 }
                 ForEach(model.scenes) { scene in
                     TrayRow(icon: "play.circle", title: scene.name) { Task { await model.applyScene(scene) } }
                 }
-                TrayRow(icon: "square.and.arrow.down", title: "Сохранить или изменить сцены…") { ui.openSettings(.scenes) }
+                TrayRow(icon: "square.and.arrow.down", title: String(localized: "Save or edit scenes…")) { ui.openSettings(.scenes) }
             }
-            TrayRow(icon: "rectangle.3.group", title: "Расположение экранов…") { ui.openSettings(.arrange) }
-            TrayRow(icon: "pip", title: "Захват и картинка в картинке…") { ui.openSettings(.capture) }
-            TrayRow(icon: "cpu", title: "EDID и HiDPI…") { ui.openSettings(.advanced) }
-            TrayRow(icon: "terminal", title: "Автоматизация и HTTP…") { ui.openSettings(.automation) }
-            TrayRow(icon: "keyboard", title: "Горячие клавиши и диагностика…") { ui.openSettings(.health) }
-            TrayRow(icon: "doc.zipper", title: "Экспорт диагностики") {
+            TrayRow(icon: "rectangle.3.group", title: String(localized: "Display arrangement…")) { ui.openSettings(.arrange) }
+            TrayRow(icon: "pip", title: String(localized: "Capture and Picture in Picture…")) { ui.openSettings(.capture) }
+            TrayRow(icon: "cpu", title: String(localized: "EDID and HiDPI…")) { ui.openSettings(.advanced) }
+            TrayRow(icon: "terminal", title: String(localized: "Automation and HTTP…")) { ui.openSettings(.automation) }
+            TrayRow(icon: "keyboard", title: String(localized: "Hotkeys and diagnostics…")) { ui.openSettings(.health) }
+            TrayRow(icon: "doc.zipper", title: String(localized: "Export diagnostics")) {
                 Task {
                     if let url = await model.exportDiagnostics() {
                         NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -945,7 +957,7 @@ private struct TrayToolsSection: View {
                 }
             }
             let update = SoftwareUpdatePolicy.presentation(for: model.updatePhase)
-            TrayRow(icon: update.systemImage, title: trayUpdateTitle(update.title), detail: update.badge,
+            TrayRow(icon: update.systemImage, title: update.title.appLocalized, detail: update.badge,
                     enabled: !update.showsProgress) { model.checkForUpdates() }
         }
         .padding(.vertical, 4)
@@ -980,14 +992,15 @@ private struct TrayButtonRow: View {
                 .padding(.leading, 6)
             Spacer()
             TrayIconButton(symbol: ui.pinned ? "pin.fill" : "pin", active: ui.pinned,
-                           help: ui.pinned ? "Открепить: закрываться при клике мимо" : "Закрепить: не закрываться при клике мимо") {
+                           help: ui.pinned ? String(localized: "Unpin: close on a click outside")
+                                           : String(localized: "Pin: stay open on a click outside")) {
                 ui.pinned.toggle()
             }
-            TrayIconButton(symbol: "ellipsis.circle", active: ui.toolsOpen, help: "Инструменты") {
+            TrayIconButton(symbol: "ellipsis.circle", active: ui.toolsOpen, help: String(localized: "Tools")) {
                 withAnimation(TrayMotion.expand) { ui.toolsOpen.toggle() }
             }
-            TrayIconButton(symbol: "gearshape", help: "Настройки (⌥-клик по значку)") { ui.openSettings() }
-            TrayIconButton(symbol: "power", help: "Выйти из OpenDisplay — отключённые экраны подключатся") {
+            TrayIconButton(symbol: "gearshape", help: String(localized: "Settings (⌥-click the icon)")) { ui.openSettings() }
+            TrayIconButton(symbol: "power", help: String(localized: "Quit OpenDisplay — reconnects any displays it turned off")) {
                 NSApp.terminate(nil)
             }
         }
@@ -1015,18 +1028,6 @@ extension AnyTransition {
 }
 
 // MARK: - Controls
-
-/// Russian wording for `SoftwareUpdatePolicy` titles (the policy itself stays English for the CLI).
-private func trayUpdateTitle(_ title: String) -> String {
-    switch title {
-    case "Check for Updates…": return "Проверить обновления…"
-    case "Checking for updates…": return "Проверка обновлений…"
-    case "Up to date": return "Установлена последняя версия"
-    case "Update available": return "Доступно обновление"
-    case "Installing update…": return "Установка обновления…"
-    default: return title
-    }
-}
 
 private func trayGlyph(_ displayClass: DisplayClass) -> String {
     switch displayClass {
@@ -1059,7 +1060,7 @@ private struct TrayGlyph: View {
                         .offset(x: 3, y: 3)
                 }
             }
-            .help(highlighted ? "Основной экран (строка меню и Dock)" : "")
+            .help(highlighted ? String(localized: "Main display (menu bar and Dock)") : "")
     }
 }
 
@@ -1259,7 +1260,7 @@ private struct TraySwitch: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .accessibilityAddTraits(.isToggle)
-        .accessibilityValue(isOn ? "включено" : "выключено")
+        .accessibilityValue(isOn ? "on" : "off")
     }
 }
 
@@ -1485,7 +1486,7 @@ private struct TrayStepSlider: View {
         }
         .opacity(enabled ? 1 : 0.6)
         .accessibilityElement()
-        .accessibilityLabel("Разрешение")
+        .accessibilityLabel("Resolution")
         .accessibilityValue(valueText)
     }
 }

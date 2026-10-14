@@ -16,13 +16,13 @@ final class CapturePresentation: NSObject, ObservableObject, SCStreamOutput, SCS
     }
     @Published var sources: [Source] = []
     @Published var selected = ""
-    @Published var status = "Захват остановлен. Загрузите источники для запроса доступа к записи экрана."
+    @Published var status = String(localized: "Capture stopped. Load sources to request Screen Recording access.")
     @Published var running = false
     @Published var busy = false
     @Published var flip = false
     @Published var angle = 0
     @Published var crop = 0.0
-    @Published var lutName = "Нет"
+    @Published var lutName = String(localized: "None")
     private var lut: CubeLUT?
     private var stream: SCStream?
     private var panel: NSPanel?
@@ -43,13 +43,13 @@ final class CapturePresentation: NSObject, ObservableObject, SCStreamOutput, SCS
         defer { busy = false }
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-            sources = content.displays.map { Source(id: "d\($0.displayID)", title: "Дисплей \($0.displayID) (\($0.width) × \($0.height))", display: $0, window: nil) }
+            sources = content.displays.map { Source(id: "d\($0.displayID)", title: String(localized: "Display \($0.displayID) (\($0.width) × \($0.height))"), display: $0, window: nil) }
             sources += content.windows.filter { $0.owningApplication?.processID != ProcessInfo.processInfo.processIdentifier && $0.frame.width > 1 && $0.frame.height > 1 }.map {
-                Source(id: "w\($0.windowID)", title: "\($0.owningApplication?.applicationName ?? "Приложение"): \($0.title ?? "Окно")", display: nil, window: $0)
+                Source(id: "w\($0.windowID)", title: "\($0.owningApplication?.applicationName ?? String(localized: "Application")): \($0.title ?? String(localized: "Window"))", display: nil, window: $0)
             }
             if !sources.contains(where: { $0.id == selected }) { selected = sources.first?.id ?? "" }
-            status = "Выберите источник и запустите захват. Будет захвачен только выбранный источник."
-        } catch { status = "Не удалось загрузить источники: \(error.localizedDescription). Проверьте доступ к записи экрана в Системных настройках; может потребоваться перезапуск." }
+            status = String(localized: "Choose a source and start capture. Only the selected source is captured.")
+        } catch { status = String(localized: "Couldn’t load sources: \(error.localizedDescription). Check Screen Recording access in System Settings; a relaunch may be required.") }
     }
 
     func start() async {
@@ -70,7 +70,7 @@ final class CapturePresentation: NSObject, ObservableObject, SCStreamOutput, SCS
             } else if let id = source.window?.windowID, let window = content.windows.first(where: { $0.windowID == id }), window.owningApplication?.processID != ProcessInfo.processInfo.processIdentifier {
                 filter = SCContentFilter(desktopIndependentWindow: window)
                 size = window.frame.size
-            } else { status = "Источник исчез. Загрузите источники снова."; return }
+            } else { status = String(localized: "The source disappeared. Load sources again."); return }
             let config = SCStreamConfiguration()
             let scale = min(1, 1920 / max(size.width, size.height))
             config.width = max(2, Int(size.width * scale))
@@ -87,7 +87,7 @@ final class CapturePresentation: NSObject, ObservableObject, SCStreamOutput, SCS
             guard generation == token else { try? await capture.stopCapture(); return }
             showPanel()
             running = true
-            status = "Предпросмотр SDR запущен. Звук и запись в файл отключены."
+            status = String(localized: "SDR preview running. Audio and recording to file are off.")
             watchdog = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(2))
@@ -96,15 +96,15 @@ final class CapturePresentation: NSObject, ObservableObject, SCStreamOutput, SCS
                         let current = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
                         guard self.generation == token, !Task.isCancelled else { return }
                         let exists = source.display.map { d in current.displays.contains { $0.displayID == d.displayID } } ?? source.window.map { w in current.windows.contains { $0.windowID == w.windowID } } ?? false
-                        if !exists { await self.stop(); self.status = "Источник исчез; захват остановлен."; return }
-                    } catch { guard self.generation == token, !Task.isCancelled else { return }; await self.stop(); self.status = "Ошибка проверки источника; захват остановлен: \(error.localizedDescription)"; return }
+                        if !exists { await self.stop(); self.status = String(localized: "The source disappeared; capture stopped."); return }
+                    } catch { guard self.generation == token, !Task.isCancelled else { return }; await self.stop(); self.status = String(localized: "Source check failed; capture stopped: \(error.localizedDescription)"); return }
                 }
             }
         } catch {
             guard generation == token else { return }
             let failed = stream; stream = nil
             if let failed { try? await failed.stopCapture() }
-            status = "Ошибка захвата: \(error.localizedDescription)"
+            status = String(localized: "Capture failed: \(error.localizedDescription)")
         }
     }
 
@@ -116,14 +116,14 @@ final class CapturePresentation: NSObject, ObservableObject, SCStreamOutput, SCS
         running = false
         panel?.orderOut(nil); panel = nil; imageView = nil
         if let old {
-            do { try await old.stopCapture(); if generation == stopToken { status = "Захват остановлен." } }
-            catch { if generation == stopToken { status = "Предпросмотр закрыт; системная остановка сообщила: \(error.localizedDescription)" } }
+            do { try await old.stopCapture(); if generation == stopToken { status = String(localized: "Capture stopped.") } }
+            catch { if generation == stopToken { status = String(localized: "Preview closed; stopping the system capture reported: \(error.localizedDescription)") } }
         }
     }
 
     private func showPanel() {
         let window = NSPanel(contentRect: NSRect(x: 180, y: 180, width: 640, height: 360), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-        window.title = "OpenDisplay — предпросмотр захвата"
+        window.title = String(localized: "OpenDisplay — Capture Preview")
         window.level = .floating
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -145,7 +145,7 @@ final class CapturePresentation: NSObject, ObservableObject, SCStreamOutput, SCS
         Task { @MainActor [weak self] in
             guard let self, self.stream === stream else { return }
             await self.stop()
-            self.status = "Захват завершён: \(error.localizedDescription)"
+            self.status = String(localized: "Capture ended: \(error.localizedDescription)")
         }
     }
     nonisolated func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -172,31 +172,34 @@ final class CapturePresentation: NSObject, ObservableObject, SCStreamOutput, SCS
         guard picker.runModal() == .OK, let url = picker.url else { return }
         do {
             let resource = try url.resourceValues(forKeys: [.fileSizeKey])
-            guard (resource.fileSize ?? Int.max) <= 16_000_000 else { throw CubeLUT.ParseError.invalid("LUT превышает 16 МБ") }
+            guard (resource.fileSize ?? Int.max) <= 16_000_000 else { throw CubeLUT.ParseError.invalid(String(localized: "LUT exceeds 16 MB")) }
             lut = try CubeLUT(text: String(contentsOf: url, encoding: .utf8)); lutName = url.lastPathComponent
-        } catch { status = "LUT отклонён: \(error.localizedDescription)" }
+        } catch {
+            // CubeLUT reports its parse errors in English; look them up in the catalog.
+            status = String(localized: "LUT rejected: \(error.localizedDescription.appLocalized)")
+        }
     }
-    func clearLUT() { lut = nil; lutName = "Нет" }
+    func clearLUT() { lut = nil; lutName = String(localized: "None") }
 }
 
 struct CapturePanel: View {
     @StateObject private var capture = CapturePresentation()
     var body: some View {
         Form {
-            Section("Экспериментальный захват и «картинка в картинке»") {
-                Text("Загрузите источники для начала. macOS может запросить доступ к записи экрана. Предпросмотр хранится в памяти; защищённое содержимое может быть пустым.").font(.caption)
-                Button("Загрузить источники…") { Task { await capture.loadSources() } }.disabled(capture.busy || capture.running)
-                Picker("Источник", selection: $capture.selected) {
-                    Text("Выберите источник").tag("")
+            Section("Experimental capture and picture in picture") {
+                Text("Load sources to begin. macOS may ask for Screen Recording access. The preview stays in memory; protected content may appear blank.").font(.caption)
+                Button("Load Sources…") { Task { await capture.loadSources() } }.disabled(capture.busy || capture.running)
+                Picker("Source", selection: $capture.selected) {
+                    Text("Choose a source").tag("")
                     ForEach(capture.sources) { Text($0.title).tag($0.id) }
                 }.disabled(capture.running || capture.busy)
                 HStack {
-                    Button("Запустить PIP") { Task { await capture.start() } }.disabled(capture.selected.isEmpty || capture.running || capture.busy)
-                    Button("Остановить") { Task { await capture.stop() } }.disabled(!capture.running && !capture.busy)
+                    Button("Start PIP") { Task { await capture.start() } }.disabled(capture.selected.isEmpty || capture.running || capture.busy)
+                    Button("Stop") { Task { await capture.stop() } }.disabled(!capture.running && !capture.busy)
                 }
-                Toggle("Отразить по горизонтали", isOn: $capture.flip)
-                Picker("Поворот", selection: $capture.angle) { ForEach([0, 90, 180, 270], id: \.self) { Text("\($0)°").tag($0) } }
-                LabeledContent("Обрезка / масштаб") {
+                Toggle("Flip horizontally", isOn: $capture.flip)
+                Picker("Rotation", selection: $capture.angle) { ForEach([0, 90, 180, 270], id: \.self) { Text("\($0)°").tag($0) } }
+                LabeledContent("Crop / zoom") {
                     HStack {
                         Slider(value: $capture.crop, in: 0...0.4).labelsHidden()
                         Text("\(Int(capture.crop * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
@@ -205,12 +208,12 @@ struct CapturePanel: View {
                 LabeledContent("LUT") {
                     HStack {
                         Text(capture.lutName).foregroundStyle(.secondary)
-                        Button("Загрузить LUT .cube…") { capture.chooseLUT() }
-                        Button("Сбросить LUT") { capture.clearLUT() }
+                        Button("Load .cube LUT…") { capture.chooseLUT() }
+                        Button("Reset LUT") { capture.clearLUT() }
                     }
                 }
                 Text(capture.status).font(.caption).textSelection(.enabled)
-                Text("Только предпросмотр SDR. Точность HDR, калибровка цвета, защищённый контент и аппаратные маршруты не проверены.").font(.caption).foregroundStyle(.secondary)
+                Text("SDR preview only. HDR accuracy, colour calibration, protected content and hardware routes are not verified.").font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

@@ -1,0 +1,46 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Reconnect all displays with ${applicationName}" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключить все дисплеи через ${applicationName}"
+          }
+        }
+      }
+    },
+    "${applicationName} reconnect all displays" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${applicationName} подключи все дисплеи"
+          }
+        }
+      }
+    },
+    "Set ${applicationName} brightness" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установить яркость через ${applicationName}"
+          }
+        }
+      }
+    },
+    "${applicationName} set brightness" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${applicationName} установи яркость"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

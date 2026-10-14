@@ -14,7 +14,7 @@ final class TrayUIState: ObservableObject {
     @Published var collapsedDevices: Set<String> {
         didSet { UserDefaults.standard.set(Array(collapsedDevices), forKey: Self.collapsedKey) }
     }
-    /// Devices (record ids) whose "Ещё" list is open.
+    /// Devices (record ids) whose "More" list is open.
     @Published var moreOpen: Set<String> = []
     /// Open features, as "<device>|<feature>". Several may be open at once — opening one never
     /// closes another, so nothing above the clicked row moves.
@@ -383,26 +383,27 @@ enum TrayQuickMenu {
     static func make(model: AppModel, showSettings: @escaping () -> Void) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        menu.addItem(ActionMenuItem("Настройки…", key: ",") { showSettings() })
+        menu.addItem(ActionMenuItem(String(localized: "Settings…"), key: ",") { showSettings() })
         menu.addItem(.separator())
-        menu.addItem(ActionMenuItem(model.busy ? "Подключение…" : "Подключить все экраны", enabled: !model.busy) {
+        let reconnectTitle = model.busy ? String(localized: "Reconnecting…") : String(localized: "Reconnect all")
+        menu.addItem(ActionMenuItem(reconnectTitle, enabled: !model.busy) {
             Task { await model.reconnectAll() }
         })
-        menu.addItem(ActionMenuItem("Переопределить экраны") { Task { await model.refresh() } })
+        menu.addItem(ActionMenuItem(String(localized: "Detect displays")) { Task { await model.refresh() } })
         menu.addItem(.separator())
-        menu.addItem(ActionMenuItem("Не гасить экраны при подключённом мониторе",
+        menu.addItem(ActionMenuItem(String(localized: "Keep displays awake while external connected"),
                                     checked: model.settings.preventDisplaySleepWithExternal) {
             model.setPreventDisplaySleepWithExternal(!model.settings.preventDisplaySleepWithExternal)
         })
-        menu.addItem(ActionMenuItem("Отключать встроенный экран при подключении монитора",
+        menu.addItem(ActionMenuItem(String(localized: "Turn built-in off when an external connects"),
                                     checked: model.settings.autoDisconnectBuiltInOnExternal) {
             model.setAutoDisconnectBuiltInOnExternal(!model.settings.autoDisconnectBuiltInOnExternal)
         })
         menu.addItem(.separator())
-        menu.addItem(ActionMenuItem("Об OpenDisplay") {
+        menu.addItem(ActionMenuItem(String(localized: "About OpenDisplay")) {
             NotificationCenter.default.post(name: .openDisplayShowAbout, object: nil)
         })
-        menu.addItem(ActionMenuItem("Выйти из OpenDisplay", key: "q") { NSApp.terminate(nil) })
+        menu.addItem(ActionMenuItem(String(localized: "Quit OpenDisplay"), key: "q") { NSApp.terminate(nil) })
         return menu
     }
 }

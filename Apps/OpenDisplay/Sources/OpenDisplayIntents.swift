@@ -79,9 +79,9 @@ enum OpenDisplayAutomation {
 /// Reconnects every managed-offline display — the always-available recovery action, now usable from
 /// Shortcuts, Siri, and the Shortcuts menu-bar surface.
 struct ReconnectAllIntent: AppIntent {
-    static let title: LocalizedStringResource = "Подключить все дисплеи"
+    static let title: LocalizedStringResource = "Reconnect All Displays"
     static let description = IntentDescription(
-        "Подключает все дисплеи, отключённые через OpenDisplay. Команда восстановления доступна всегда."
+        "Reconnects every display OpenDisplay turned off — the always-available recovery action."
     )
     // The intent does its own work; no need to bring the app forward.
     static let openAppWhenRun = false
@@ -91,25 +91,25 @@ struct ReconnectAllIntent: AppIntent {
         let restored = envelope.targets.filter { target in
             target.operations.contains { $0.verification == .verified }
         }.count
-        let message: String
+        let message: LocalizedStringResource
         switch envelope.status {
-        case .noOp: message = "Нет дисплеев, требующих подключения."
-        case .committed: message = "Подключено дисплеев: \(restored)."
-        case .partial: message = "Подключено дисплеев: \(restored). Некоторые дисплеи восстановить не удалось."
-        default: message = "Не удалось подтвердить восстановление дисплеев."
+        case .noOp: message = "No displays needed reconnecting."
+        case .committed: message = "Displays reconnected: \(restored)."
+        case .partial: message = "Displays reconnected: \(restored). Some displays couldn’t be restored."
+        default: message = "Couldn’t confirm that the displays were restored."
         }
-        return .result(dialog: IntentDialog(stringLiteral: message))
+        return .result(dialog: IntentDialog(message))
     }
 }
 
 /// Sets the built-in display's brightness from Shortcuts / Siri (via the same private DisplayServices
 /// path the menu uses). Excluded from the public-API-only build.
 struct SetBrightnessIntent: AppIntent {
-    static let title: LocalizedStringResource = "Установить яркость дисплея"
-    static let description = IntentDescription("Устанавливает яркость встроенного дисплея (0–100%).")
+    static let title: LocalizedStringResource = "Set Display Brightness"
+    static let description = IntentDescription("Sets the built-in display’s brightness (0–100%).")
     static let openAppWhenRun = false
 
-    @Parameter(title: "Яркость", inclusiveRange: (0, 100))
+    @Parameter(title: "Brightness", inclusiveRange: (0, 100))
     var percent: Int
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
@@ -119,13 +119,15 @@ struct SetBrightnessIntent: AppIntent {
         let snapshot = await observer.currentSnapshot()
         guard let builtIn = snapshot.observations.first(where: { $0.displayClass == .builtIn }),
               let cgID = builtIn.cgDisplayID else {
-            return .result(dialog: "Встроенный дисплей не найден.")
+            return .result(dialog: "No built-in display found.")
         }
         let ok = DisplayServicesBrightnessProvider().setBrightness(Float(clamped) / 100, for: cgID)
-        let message = ok ? "Запрошена яркость встроенного дисплея: \(clamped)%. Аппаратный результат не подтверждён." : "Не удалось изменить яркость."
-        return .result(dialog: IntentDialog(stringLiteral: message))
+        let message: LocalizedStringResource = ok
+            ? "Requested built-in display brightness: \(clamped)%. The hardware result isn’t verified."
+            : "Couldn’t set the brightness."
+        return .result(dialog: IntentDialog(message))
         #else
-        return .result(dialog: "Управление яркостью недоступно в этой сборке.")
+        return .result(dialog: "Brightness control isn’t available in this build.")
         #endif
     }
 }
@@ -135,19 +137,19 @@ struct OpenDisplayShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: ReconnectAllIntent(),
             phrases: [
-                "Подключить все дисплеи через \(.applicationName)",
-                "\(.applicationName) подключи все дисплеи"
+                "Reconnect all displays with \(.applicationName)",
+                "\(.applicationName) reconnect all displays"
             ],
-            shortTitle: "Подключить все",
+            shortTitle: "Reconnect All",
             systemImageName: "arrow.triangle.2.circlepath"
         )
         AppShortcut(
             intent: SetBrightnessIntent(),
             phrases: [
-                "Установить яркость через \(.applicationName)",
-                "\(.applicationName) установи яркость"
+                "Set \(.applicationName) brightness",
+                "\(.applicationName) set brightness"
             ],
-            shortTitle: "Установить яркость",
+            shortTitle: "Set Brightness",
             systemImageName: "sun.max"
         )
     }

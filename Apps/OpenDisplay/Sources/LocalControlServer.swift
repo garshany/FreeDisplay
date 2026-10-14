@@ -23,7 +23,7 @@ final class LocalControlServer {
         guard listener == nil else { return }
         var random = [UInt8](repeating: 0, count: 32)
         guard SecRandomCopyBytes(kSecRandomDefault, random.count, &random) == errSecSuccess else {
-            throw NSError(domain: "LocalControlServer", code: 1, userInfo: [NSLocalizedDescriptionKey: "Не удалось создать безопасный токен сеанса"])
+            throw NSError(domain: "LocalControlServer", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "Couldn’t create a secure session token")])
         }
         let secret = random.map { String(format: "%02x", $0) }.joined()
         let parameters = NWParameters.tcp
@@ -37,7 +37,7 @@ final class LocalControlServer {
                 guard let self, let newListener, self.listener === newListener else { return }
                 switch state {
                 case .ready: self.port = newListener.port?.rawValue
-                case .failed(let error): self.stop(); self.failure = "Ошибка локального сервера: \(error.localizedDescription)"
+                case .failed(let error): self.stop(); self.failure = String(localized: "Local server error: \(error.localizedDescription)")
                 default: break
                 }
             }

@@ -58,7 +58,7 @@ public struct VirtualDisplayProvider: DisplayProvider {
         serial &+= 1
         guard let handle = definition.name.withCString({ runtimeCreate($0, definition.pixelWidth,
             definition.pixelHeight, definition.refreshRate, serial, definition.hiDPI) }) else {
-            throw ProviderFailure.providerError(message: "macOS отклонила параметры виртуального экрана.")
+            throw ProviderFailure.providerError(message: "macOS rejected the virtual display parameters.")
         }
         let displayID = runtimeID(handle)
         handles[definition.id] = RuntimeHandle(handle)
@@ -92,7 +92,7 @@ public struct VirtualDisplayProvider: DisplayProvider {
             if CGDisplayIsOnline(displayID) == 0 { return }
             try await Task.sleep(for: .milliseconds(100))
         }
-        throw ProviderFailure.partial(message: "Экран освобождён, но macOS всё ещё считает его подключённым. При необходимости используйте восстановление.")
+        throw ProviderFailure.partial(message: "The display was released, but macOS still reports it as connected. Use recovery if needed.")
     }
 
     private func activeSurfaces() throws -> [VirtualDisplaySurface] {

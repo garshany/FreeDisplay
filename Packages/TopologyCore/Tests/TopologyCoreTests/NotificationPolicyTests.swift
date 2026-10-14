@@ -64,6 +64,22 @@ final class NotificationPolicyTests: XCTestCase {
         XCTAssertEqual(n, [.init(title: "Display connected", body: "A display")])
     }
 
+    /// The events a host words in its own language are the notifications before wording: an
+    /// unresolved name stays nil instead of becoming the English fallback.
+    func testEventsAreTheNotificationsBeforeTheyAreWorded() {
+        let prior = [obs("A", builtIn: true), obs("B")]
+        let current = [obs("C")]
+        let named = names(["B": "Mon B"])
+        let events = NotificationPolicy.events(prior: prior, current: current, names: named,
+                                               builtInAutoDisconnected: true, enabled: true)
+        XCTAssertEqual(events, [.connected(name: nil), .disconnected(name: "Mon B"), .builtInAutoDisconnected])
+        XCTAssertEqual(events.map(\.notification),
+                       NotificationPolicy.notifications(prior: prior, current: current, names: named,
+                                                        builtInAutoDisconnected: true, enabled: true))
+        XCTAssertTrue(NotificationPolicy.events(prior: prior, current: current, names: named,
+                                                enabled: false).isEmpty)
+    }
+
     func testMultipleTransitionsOrderedDeterministically() {
         let n = NotificationPolicy.notifications(
             prior: [obs("B")],

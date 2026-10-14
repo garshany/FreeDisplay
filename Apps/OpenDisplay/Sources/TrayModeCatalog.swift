@@ -139,9 +139,11 @@ enum TrayModeCatalog {
     static func refreshText(_ hz: Double) -> String {
         guard hz > 0 else { return "—" }
         let rounded = (hz * 100).rounded() / 100
-        return rounded == rounded.rounded()
-            ? "\(Int(rounded)) Гц"
-            : String(format: "%.2f Гц", locale: Locale(identifier: "ru_RU"), rounded)
+        // Decimal separator of the UI language (59,94 in Russian, 59.94 in English).
+        let number = rounded == rounded.rounded()
+            ? "\(Int(rounded))"
+            : String(format: "%.2f", locale: Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en"), rounded)
+        return String(localized: "\(number) Hz")
     }
 }
 #endif

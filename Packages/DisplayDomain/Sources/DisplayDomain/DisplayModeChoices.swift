@@ -43,12 +43,12 @@ public enum DisplayModeChoices {
 
     public static func label(_ mode: DisplayMode) -> String {
         let refresh = mode.refreshHz > 0
-            ? String(format: "%.2f", locale: Locale(identifier: "ru_RU"), mode.refreshHz)
-                .replacingOccurrences(of: ",00", with: "") + " Гц"
-            : "частота неизвестна"
-        let density = mode.isHiDPI ? "HiDPI" : "без HiDPI"
-        let depth = mode.bitDepth.map { " · \($0) бит" } ?? ""
-        return "\(mode.pointWidth) × \(mode.pointHeight) лог. · буфер \(mode.pixelWidth) × \(mode.pixelHeight) пикс. · \(refresh) · \(density)\(depth)"
+            ? String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), mode.refreshHz)
+                .replacingOccurrences(of: ".00", with: "") + " Hz"
+            : "refresh unknown"
+        let density = mode.isHiDPI ? "HiDPI" : "no HiDPI"
+        let depth = mode.bitDepth.map { " · \($0)-bit" } ?? ""
+        return "\(mode.pointWidth) × \(mode.pointHeight) pt · framebuffer \(mode.pixelWidth) × \(mode.pixelHeight) px · \(refresh) · \(density)\(depth)"
     }
 
     /// Require the exact requested framebuffer and logical geometry. No pixel-only fallback,

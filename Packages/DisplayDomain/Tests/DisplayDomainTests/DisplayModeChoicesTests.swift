@@ -22,8 +22,8 @@ final class DisplayModeChoicesTests: XCTestCase {
     func testPreservesFractionalRefreshAndBitDepthVariants() {
         let variants = [mode(hz: 59.94), mode(hz: 60), mode(hz: 60, depth: 30)]
         XCTAssertEqual(DisplayModeChoices.ordered(from: variants, current: nil).count, 3)
-        XCTAssertTrue(DisplayModeChoices.label(variants[0]).contains("59,94 Гц"))
-        XCTAssertTrue(DisplayModeChoices.label(variants[2]).contains("30 бит"))
+        XCTAssertTrue(DisplayModeChoices.label(variants[0]).contains("59.94 Hz"))
+        XCTAssertTrue(DisplayModeChoices.label(variants[2]).contains("30-bit"))
     }
     func testIncludesObservedCurrentModeWhenEnumerationOmitsItWithoutChoosingReplacement() {
         let current = mode()
@@ -35,11 +35,11 @@ final class DisplayModeChoicesTests: XCTestCase {
     }
     func testLabelsDiscloseLogicalAndFramebufferDimensionsWithoutNativeClaim() {
         let label = DisplayModeChoices.label(mode(buffer: 5120, hz: 60, hidpi: true))
-        XCTAssertTrue(label.contains("2560 × 1440 лог."))
-        XCTAssertTrue(label.contains("буфер 5120 × 2880 пикс."))
-        XCTAssertTrue(label.contains("60 Гц · HiDPI"))
-        XCTAssertFalse(label.lowercased().contains("натив"))
-        XCTAssertTrue(DisplayModeChoices.label(mode()).contains("без HiDPI"))
+        XCTAssertTrue(label.contains("2560 × 1440 pt"))
+        XCTAssertTrue(label.contains("framebuffer 5120 × 2880 px"))
+        XCTAssertTrue(label.contains("60 Hz · HiDPI"))
+        XCTAssertFalse(label.lowercased().contains("native"))
+        XCTAssertTrue(DisplayModeChoices.label(mode()).contains("no HiDPI"))
     }
     func testInvalidModesCannotBeOfferedOrApplied() {
         let invalid = [mode(buffer: 0), mode(logical: -1), mode(hz: .nan), mode(hz: .infinity), mode(hz: -60)]
@@ -51,7 +51,7 @@ final class DisplayModeChoicesTests: XCTestCase {
     func testUnreportedRefreshIsHonestAndAvailableListIsStable() {
         let unknown = mode(hz: 0)
         let known = mode()
-        XCTAssertTrue(DisplayModeChoices.label(unknown).contains("частота неизвестна"))
+        XCTAssertTrue(DisplayModeChoices.label(unknown).contains("refresh unknown"))
         XCTAssertEqual(DisplayModeChoices.ordered(from: [known, unknown], current: nil),
                        DisplayModeChoices.ordered(from: [unknown, known], current: nil))
     }

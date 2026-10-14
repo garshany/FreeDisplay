@@ -567,6 +567,23 @@ final class LayoutProtectionPolicyTests: XCTestCase {
         XCTAssertEqual(summary, "Desk: position, resolution · main display")
     }
 
+    /// The structured form a host words in its own language says exactly what the summary says.
+    func testDriftedFieldsAreTheSummaryBeforeItIsWorded() {
+        let analysis = DisplayConfigDrifter.DriftAnalysis(changes: [
+            .originMoved(.init(rawValue: "B")),
+            .activeChanged(.init(rawValue: "A")),
+            .modeChanged(.init(rawValue: "B")),
+            .mainChanged(from: .init(rawValue: "A"), to: .init(rawValue: "B"))
+        ])
+        let names: [DisplayRecordID: String] = [.init(rawValue: "A"): "Built-in", .init(rawValue: "B"): "Desk"]
+        let drift = LayoutProtectionPolicy.driftedFields(of: analysis, names: names)
+        XCTAssertEqual(drift.displays.map { $0.name }, ["Built-in", "Desk"])
+        XCTAssertEqual(drift.displays.map { $0.fields }, [[.onOff], [.position, .resolution]])
+        XCTAssertTrue(drift.mainMoved)
+        XCTAssertEqual(LayoutProtectionPolicy.summary(of: analysis, names: names),
+                       "Built-in: on/off · Desk: position, resolution · main display")
+    }
+
     func testSummaryFallsBackToTheRecordIDForAnUnnamedDisplay() {
         let analysis = DisplayConfigDrifter.DriftAnalysis(changes: [.rotationChanged(.init(rawValue: "B"))])
         XCTAssertEqual(LayoutProtectionPolicy.summary(of: analysis, names: [:]), "B: rotation")
