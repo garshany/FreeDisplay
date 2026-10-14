@@ -127,8 +127,12 @@ final class AppModel: ObservableObject {
     /// Per-display software (gamma) dim level, 1 = no dim. Applies on top of hardware brightness and
     /// works on any display, including DDC-less externals and below the hardware minimum.
     @Published private(set) var softwareDim: [DisplayRecordID: Float] = [:]
-    /// Current DDC input-source code (VCP 0x60) per external display.
+    /// DDC input-source code (VCP 0x60) per external display as the MONITOR last reported it — a
+    /// read-back, never a request (AM-05). Nil = unknown, e.g. right after a switch was sent.
     @Published private(set) var inputSource: [DisplayRecordID: Int] = [:]
+    /// The last input switch OpenDisplay requested per display and what the transport said about it,
+    /// shown next to — never instead of — the reported `inputSource`. Cleared by a fresh read.
+    @Published private(set) var inputSwitch: [DisplayRecordID: DDCInputSwitch] = [:]
     /// Current DDC colour-preset code (VCP 0x14) per external display, and the max code it reports.
     @Published private(set) var colorPreset: [DisplayRecordID: Int] = [:]
     @Published private(set) var colorPresetMax: [DisplayRecordID: Int] = [:]
@@ -1149,6 +1153,7 @@ final class AppModel: ObservableObject {
         if !ddcControlLevel.keys.allSatisfy(ids.contains) { ddcControlLevel = ddcControlLevel.filter { ids.contains($0.key) } }
         if !colorPreset.keys.allSatisfy(ids.contains) { colorPreset = colorPreset.filter { ids.contains($0.key) } }
         if !inputSource.keys.allSatisfy(ids.contains) { inputSource = inputSource.filter { ids.contains($0.key) } }
+        if !inputSwitch.keys.allSatisfy(ids.contains) { inputSwitch = inputSwitch.filter { ids.contains($0.key) } }
         if !colorProfileName.keys.allSatisfy(ids.contains) { colorProfileName = colorProfileName.filter { ids.contains($0.key) } }
         if !softwareDim.keys.allSatisfy(ids.contains) { softwareDim = softwareDim.filter { ids.contains($0.key) } }
         if !ddcWriteIgnored.keys.allSatisfy(ids.contains) { ddcWriteIgnored = ddcWriteIgnored.filter { ids.contains($0.key) } }
@@ -1915,17 +1920,24 @@ final class AppModel: ObservableObject {
         }
         ddcProbe[id, default: DDCProbeTracker()].recordSuccess(vcp)
         inputSource[id] = reading.current
+        // A fresh report supersedes the note about the last finished request; one still being
+        // written keeps its "switching…" note.
+        if let request = inputSwitch[id], request.status != .sending { inputSwitch[id] = nil }
         #endif
     }
 
     /// Switches the external display's DDC input source to `code` (e.g. HDMI/DisplayPort). User-driven.
     /// Coalesced through a single per-display writer (like brightness/contrast) so rapid selections
     /// settle the panel on the last choice and can't reorder on the shared I2C bus.
+    ///
+    /// The request is tracked in `inputSwitch`; `inputSource` (the reported input, i.e. the menu's
+    /// checkmark) is NOT set to the request (AM-05): a rejected write would otherwise look like a
+    /// confirmed switch. See `DDCInputSwitch.reportedInput` for what a finished write does to it.
     func setInputSource(_ code: Int, for observation: DisplayObservation) {
         #if !PUBLIC_API_ONLY
         guard observation.displayClass != .builtIn else { return }
         let id = observation.recordID
-        inputSource[id] = code
+        inputSwitch[id] = DDCInputSwitch(requested: code, status: .sending)
         inputSourceTarget[id] = code
         if inputSourceWriter[id] == nil {
             inputSourceWriter[id] = Task { [weak self] in await self?.drainInputSourceWrites(id, observation) }
@@ -1935,20 +1947,37 @@ final class AppModel: ObservableObject {
 
     #if !PUBLIC_API_ONLY
     private func drainInputSourceWrites(_ id: DisplayRecordID, _ observation: DisplayObservation) async {
-        guard let controller = await ddcController(for: observation) else { inputSourceWriter[id] = nil; return }
+        guard let controller = await ddcController(for: observation) else {
+            if let target = inputSourceTarget[id] { noteInputSwitch(.notSent, requested: target, id: id) }
+            inputSourceTarget[id] = nil
+            inputSourceWriter[id] = nil
+            return
+        }
         while let target = inputSourceTarget[id] {
             inputSourceTarget[id] = nil
-            await controller.write(.inputSource, target)
+            let outcome = DDCCommandOutcome(transportAccepted: await controller.write(.inputSource, target))
+            if Task.isCancelled { return }  // pruned: the display is gone, don't touch its state
+            noteInputSwitch(outcome, requested: target, id: id)
         }
         inputSourceWriter[id] = nil
+    }
+
+    /// Records a finished input write: the reported input per `DDCInputSwitch.reportedInput`, and the
+    /// request note — unless a newer request is already queued, whose "switching…" note stays.
+    private func noteInputSwitch(_ outcome: DDCCommandOutcome, requested: Int, id: DisplayRecordID) {
+        let reported = DDCInputSwitch.reportedInput(after: outcome, requested: requested,
+                                                    previouslyReported: inputSource[id])
+        if inputSource[id] != reported { inputSource[id] = reported }
+        if inputSourceTarget[id] == nil { inputSwitch[id] = DDCInputSwitch(requested: requested, outcome: outcome) }
     }
     #endif
 
     /// Fires an input-switch hotkey (todo 4: Lunar's "Input Hotkeys"). Resolves the bound display by
     /// its persistent identity, then writes the input code through the same DDC feature/controller
     /// `setInputSource` uses — hotkeys get no separate switching implementation. No-ops with a failure
-    /// notification when the display is offline or the panel rejects the write; confirms success with
-    /// the OSD, exactly like every other in-app input switch.
+    /// notification when the display is offline or the panel rejects the write; acknowledges a sent
+    /// switch with the OSD. A sent switch is recorded as a request (`inputSwitch`), not as the
+    /// monitor's reported input — nothing reads the new input back.
     func switchInputByHotkey(_ entry: InputSwitchBinding) async {
         #if !PUBLIC_API_ONLY
         guard let observation = displays.first(where: { $0.recordID == entry.displayID }) else {
@@ -1956,14 +1985,17 @@ final class AppModel: ObservableObject {
             return
         }
         guard let controller = await ddcController(for: observation) else {
+            noteInputSwitch(.notSent, requested: entry.inputCode, id: entry.displayID)
             await notifyInputSwitchFailed(entry.displayID, reason: .noDDC)
             return
         }
         guard await controller.write(.inputSource, entry.inputCode) else {
+            noteInputSwitch(.failed, requested: entry.inputCode, id: entry.displayID)
             await notifyInputSwitchFailed(entry.displayID, reason: .rejected)
             return
         }
-        inputSource[entry.displayID] = entry.inputCode
+        // Sent, not confirmed (AM-05): the switch is recorded as a request, never as the reported input.
+        noteInputSwitch(.sent, requested: entry.inputCode, id: entry.displayID)
         presentInputSwitchOSD(inputName: inputName(entry.inputCode), for: observation)
         #endif
     }
@@ -1989,19 +2021,37 @@ final class AppModel: ObservableObject {
     }
     #endif
 
-    /// Sends a DDC power-mode command (VCP 0xD6) to an external display (Issue 1). Best-effort and
-    /// fire-and-forget: the panel may NAK or ignore the write, and many displays cannot be woken back
-    /// On over DDC once powered Off — none of that is treated as an error. No-op on the built-in and in
-    /// the public-API-only build (DDC uses private SPI). The audit/safety path is untouched because a
-    /// power command doesn't alter the logical arrangement.
-    func setPowerMode(_ mode: DDCPowerMode, for observation: DisplayObservation) {
+    /// Sends a DDC power-mode command (VCP 0xD6) to an external display (Issue 1) and reports what the
+    /// transport said (AM-04/SD-03). `.sent` is NOT proof the monitor acted: many panels ignore 0xD6
+    /// or can't be woken back On over DDC, and none of that can be read back once the picture is gone.
+    /// Callers confirm Standby/Off first (`DDCPowerMode.needsConfirmation`, `ddcPowerRisk`). Returns
+    /// `.notSent` on the built-in, without a usable binding, and in the public-API-only build (DDC uses
+    /// private SPI) — whose UI doesn't offer the action. The arrangement safety path is untouched
+    /// because a power command doesn't alter the logical arrangement; the attempt is audited.
+    func setPowerMode(_ mode: DDCPowerMode, for observation: DisplayObservation) async -> DDCCommandOutcome {
         #if !PUBLIC_API_ONLY
-        guard observation.displayClass != .builtIn else { return }
-        Task { [weak self] in
-            guard let controller = await self?.ddcController(for: observation) else { return }
-            await controller.write(.power, mode.vcpValue)
-        }
+        guard observation.displayClass != .builtIn,
+              let controller = await ddcController(for: observation) else { return .notSent }
+        let outcome = DDCCommandOutcome(transportAccepted: await controller.write(.power, mode.vcpValue))
+        await appendAudit(AuditEntry(
+            timestamp: Date(), actor: .ui, command: "ddcPower:\(mode.rawValue)",
+            transactionId: "txn_ddcPower", status: outcome.auditStatus,
+            targets: [observation.recordID.rawValue]))
+        return outcome
+        #else
+        return .notSent
         #endif
+    }
+
+    /// How risky a DDC Standby/Off is for this display: whether it is the main display and whether
+    /// any other screen would still show a picture (blacked-out screens and macOS's placeholder don't
+    /// count). A DDC power command leaves the arrangement as it is, so the menu bar, Dock and the
+    /// OpenDisplay menu stay on a screen that may be dark.
+    func ddcPowerRisk(for observation: DisplayObservation) -> DDCPowerRisk {
+        let others = WakeConvergencePolicy.visibleSurfaces(in: displays).filter {
+            $0.recordID != observation.recordID && !blackedOut.contains($0.recordID)
+        }
+        return DDCPowerRisk.assess(isMain: observation.isMain, otherVisibleScreens: others.count)
     }
 
     /// Refreshes a display's cached ICC state — controllability, current profile name, and (once) the
@@ -2185,41 +2235,36 @@ final class AppModel: ObservableObject {
         #endif
     }
 
-    /// Restores the monitor's factory settings (MCCS VCP 0x04) and clears OpenDisplay's own software
-    /// layers for the display, so "Reset to defaults" means the picture really is back at baseline —
-    /// a factory-fresh panel under a leftover gamma dim or warmth would still look "wrong".
+    /// Asks the monitor to restore its factory settings (MCCS VCP 0x04) and reports what the
+    /// transport said. Hardware only (AM-06): OpenDisplay's own software dim and colour temperature
+    /// are a separate choice (`resetSoftwareAdjustments`) the UI offers after a reset that went
+    /// through — a failed reset must not silently wipe them, and a successful one doesn't decide
+    /// for the user whether the app's layers should go too.
     ///
     /// Order matters: queued coalesced writes are dropped FIRST so a drag still draining can't land
     /// on top of the reset; the re-read waits ~2 s because panels take a moment to reload defaults
     /// (and some NAK reads meanwhile); the probe cache is forgotten before re-reading so a feature
     /// that had been negatively cached (e.g. one the old picture mode locked) gets probed again.
     /// External displays only — the built-in has no DDC.
-    func resetToDefaults(for observation: DisplayObservation) async {
+    func resetToDefaults(for observation: DisplayObservation) async -> DDCCommandOutcome {
         #if !PUBLIC_API_ONLY
-        guard observation.displayClass != .builtIn, let cgID = observation.cgDisplayID,
-              let controller = await ddcController(for: observation) else { return }
+        guard observation.displayClass != .builtIn,
+              let controller = await ddcController(for: observation) else { return .notSent }
         let id = observation.recordID
         ddcTarget[id] = nil
         colorPresetTarget[id] = nil
         inputSourceTarget[id] = nil
+        if inputSwitch[id]?.status == .sending { inputSwitch[id] = nil }  // its queued write was just dropped
         ddcControlTarget = ddcControlTarget.filter { $0.key.id != id }
-        let sent = await controller.write(.restoreFactoryDefaults, 1)
-
-        // OpenDisplay's software layers: dim (gamma + overlay) and colour temperature. Cleared in the
-        // cache first so `writeGamma` re-expresses a neutral slot. Under Black Out the panel is held
-        // at gamma 0 on purpose — the cache still resets, and lifting the blackout restores neutral.
-        softwareDim[id] = nil
-        colorTemperature[id] = nil
-        if !blackedOut.contains(id) {
-            writeGamma(level: 1.0, id: id, cgID: cgID)
-            dimOverlay.remove(for: cgID)
-        }
-        ddcWriteIgnored[id] = nil
+        let outcome = DDCCommandOutcome(transportAccepted: await controller.write(.restoreFactoryDefaults, 1))
 
         await appendAudit(AuditEntry(
             timestamp: Date(), actor: .ui, command: "factoryReset",
-            transactionId: "txn_factoryReset", status: sent ? "sent" : "failed",
+            transactionId: "txn_factoryReset", status: outcome.auditStatus,
             targets: [id.rawValue]))
+        // Not sent → nothing on the panel changed, so neither do the caches describing it.
+        guard outcome == .sent else { return outcome }
+        ddcWriteIgnored[id] = nil
 
         try? await Task.sleep(nanoseconds: 2_000_000_000)
         resetDDCProbeCache(for: id)
@@ -2227,7 +2272,36 @@ final class AppModel: ObservableObject {
         await refreshHardwareControls(for: observation)
         await refreshColorPreset(for: observation)
         await refreshInputSource(for: observation)
+        return outcome
+        #else
+        return .notSent
         #endif
+    }
+
+    /// Whether OpenDisplay itself is dimming or tinting this display (software dim or temperature) —
+    /// what `resetSoftwareAdjustments` would undo.
+    func hasSoftwareAdjustments(_ observation: DisplayObservation) -> Bool {
+        let id = observation.recordID
+        return (softwareDim[id].map { $0 < 1 } ?? false) || colorTemperature[id] != nil
+    }
+
+    /// Returns OpenDisplay's own software layers for a display — dim (gamma + overlay) and colour
+    /// temperature — to neutral. Independent of the monitor's factory reset (AM-06): the user picks it
+    /// separately, so a monitor reset that failed (or a user who wants to keep the app's evening
+    /// warmth) leaves them alone. Cleared in the cache first so `writeGamma` re-expresses a neutral
+    /// slot. Under Black Out the panel is held at gamma 0 on purpose — the cache still resets, and
+    /// lifting the blackout restores neutral.
+    func resetSoftwareAdjustments(for observation: DisplayObservation) async {
+        guard let cgID = observation.cgDisplayID else { return }
+        let id = observation.recordID
+        softwareDim[id] = nil
+        colorTemperature[id] = nil
+        if !blackedOut.contains(id) {
+            writeGamma(level: 1.0, id: id, cgID: cgID)
+            dimOverlay.remove(for: cgID)
+        }
+        // A software-brightness display's slider IS the dim level — re-derive it.
+        await refreshBrightness(for: observation)
     }
 
     #if !PUBLIC_API_ONLY

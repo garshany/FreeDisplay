@@ -360,6 +360,23 @@ struct ControlsCard: View {
     let display: DisplayObservation
     @State private var confirmingReset = false
     @State private var resetting = false
+    @State private var resetResult: DDCCommandOutcome?
+    @State private var pendingPower: DDCPowerMode?
+    @State private var sendingPower = false
+    @State private var powerResult: (mode: DDCPowerMode, outcome: DDCCommandOutcome)?
+
+    /// Sends a power command (already confirmed when it needs to be) and keeps what the transport
+    /// reported for the caption under the row.
+    private func sendPower(_ mode: DDCPowerMode) {
+        pendingPower = nil
+        powerResult = nil
+        sendingPower = true
+        Task {
+            let outcome = await model.setPowerMode(mode, for: display)
+            powerResult = (mode, outcome)
+            sendingPower = false
+        }
+    }
 
     /// Shown under a slider whose last write the panel answered with a different value.
     private static let ignoredNote = String(localized: "The monitor ignored this change. Its picture mode may lock this setting.")
@@ -445,8 +462,12 @@ struct ControlsCard: View {
                     .padding(.horizontal, 10).padding(.vertical, 4)
             }
             #endif
+            // Input, power and reset are DDC writes whose bodies don't exist in the public-API-only
+            // build (SD-03): that build explains their absence instead of offering no-op menus.
+            #if !PUBLIC_API_ONLY
             ODDivider()
             ODRow(String(localized: "Input source")) {
+                // Title = the input the monitor reported (AM-05); a request shows only in the caption.
                 Menu(model.inputSource[display.recordID].map { model.inputName($0) } ?? "—") {
                     ForEach(AppModel.standardInputs, id: \.code) { input in
                         Button(input.name) { model.setInputSource(input.code, for: display) }
@@ -454,38 +475,74 @@ struct ControlsCard: View {
                 }
                 .menuStyle(.borderlessButton).fixedSize()
             }
+            if let request = model.inputSwitch[display.recordID] {
+                ignoredCaption(DDCStatusText.inputSwitch(request, inputName: model.inputName(request.requested)))
+            }
             ODDivider()
             ODRow(String(localized: "Power"), secondary: String(localized: "Some displays can’t wake over DDC once off")) {
-                Menu("Set…") {
+                Menu(sendingPower ? String(localized: "Sending…") : String(localized: "Set…")) {
                     ForEach(DDCPowerMode.allCases, id: \.self) { mode in
                         // The label comes from AutomationSchema (shared with the CLI), so it is
                         // looked up in the catalog here rather than extracted.
-                        Button(mode.label.appLocalized) { model.setPowerMode(mode, for: display) }
+                        Button(mode.needsConfirmation ? mode.label.appLocalized + "…" : mode.label.appLocalized) {
+                            if mode.needsConfirmation { pendingPower = mode } else { sendPower(mode) }
+                        }
                     }
                 }
                 .menuStyle(.borderlessButton).fixedSize()
+                .disabled(sendingPower)
+                // AM-04: Standby/Off are confirmed with what they do and how to recover; the warning
+                // is stronger when this display hosts the menu bar or is the last screen with a picture.
+                .confirmationDialog(
+                    pendingPower.map { DDCStatusText.powerConfirmTitle($0, displayName: model.displayName(for: display)) } ?? "",
+                    isPresented: Binding(get: { pendingPower != nil }, set: { if !$0 { pendingPower = nil } }),
+                    titleVisibility: .visible, presenting: pendingPower
+                ) { mode in
+                    Button(DDCStatusText.powerConfirmButton(mode), role: .destructive) { sendPower(mode) }
+                    Button("Cancel", role: .cancel) {}
+                } message: { mode in
+                    Text(DDCStatusText.powerWarning(mode, risk: model.ddcPowerRisk(for: display)))
+                }
             }
-            #if !PUBLIC_API_ONLY
+            if let powerResult {
+                ignoredCaption(DDCStatusText.powerOutcome(powerResult.outcome, mode: powerResult.mode))
+            }
             ODDivider()
             ODRow(String(localized: "Reset to defaults"), secondary: String(localized: "Restores the monitor’s factory settings")) {
                 Button(resetting ? "Resetting…" : "Reset to defaults…") { confirmingReset = true }
                     .controlSize(.small)
                     .disabled(resetting)
             }
+            if let resetResult {
+                ignoredCaption(DDCStatusText.resetOutcome(resetResult))
+                // AM-06: the app's own layers are a separate choice, offered only after a reset that
+                // went through and only while there is something of OpenDisplay's to undo.
+                if resetResult == .sent, model.hasSoftwareAdjustments(display) {
+                    Button("Also Reset OpenDisplay’s Dimming and Colour Temperature") {
+                        Task { await model.resetSoftwareAdjustments(for: display) }
+                    }
+                    .controlSize(.small)
+                    .padding(.horizontal, 10).padding(.bottom, 6)
+                }
+            }
+            #else
+            ODDivider()
+            ignoredCaption(String(localized: "Input switching, monitor power and factory reset aren’t available in this build: they work over DDC, which needs private macOS interfaces."))
             #endif
         }
         .confirmationDialog("Reset “\(model.displayName(for: display))” to defaults?",
                             isPresented: $confirmingReset, titleVisibility: .visible) {
             Button("Reset to Defaults", role: .destructive) {
                 resetting = true
+                resetResult = nil
                 Task {
-                    await model.resetToDefaults(for: display)
+                    resetResult = await model.resetToDefaults(for: display)
                     resetting = false
                 }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The monitor restores its factory settings — brightness, contrast, colour mode, and anything else it resets. OpenDisplay also clears its software dimming and colour temperature for this display.")
+            Text("The monitor is asked to restore its factory settings — brightness, contrast, colour preset and anything else it resets. OpenDisplay’s own software dimming and colour temperature stay as they are; you can reset them separately afterwards.")
         }
     }
 
