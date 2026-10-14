@@ -76,11 +76,18 @@ enum OpenDisplayAutomation {
         return command
     }
 
+    @MainActor private static var isPresentingRefusal = false
+
     /// Tells the user a link's request was refused and what to do instead. Nothing from the URL is
     /// echoed — its text is whatever the linking page chose, and an alert from this app must not be
     /// a place to show it.
     @MainActor private static func presentRefusal(of command: URLCommand) {
         guard case .disconnect = command else { return }  // recovery is never refused
+        // One explanation at a time: a page firing the URL repeatedly must not stack alerts. Each
+        // refusal is still logged by the caller.
+        guard !isPresentingRefusal else { return }
+        isPresentingRefusal = true
+        defer { isPresentingRefusal = false }
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .informational
