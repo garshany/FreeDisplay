@@ -177,6 +177,8 @@ final class AppModel: ObservableObject {
     /// Installed ICC profiles the user can assign, enumerated off-main once and cached (the scan reads
     /// and parses every installed profile from disk, so it must never run during a SwiftUI body).
     @Published private(set) var availableColorProfilesCache: [ICCProfile] = []
+    /// Sequence number of the newest installed-profile scan (`reloadInstalledColorProfiles`).
+    private var installedProfilesRead = 0
     /// What ColorSync reports each display is assigned — the profile FILE, so the menus mark the
     /// actual current profile even when two installed files share a name. Absent = not read yet.
     @Published private(set) var colorProfileAssignment: [DisplayRecordID: ICCAssignment] = [:]
@@ -374,11 +376,18 @@ final class AppModel: ObservableObject {
     @Published private(set) var modeChangeError: String?
     private var modeChangeInProgress = false
     @Published private(set) var pendingRevert: PendingRevert?
-    /// UI state for the timed auto-revert banner.
-    struct PendingRevert: Equatable { var message: String; var secondsRemaining: Int }
+    /// UI state for the timed auto-revert banner. `kind` says what the window protects, so the prompt
+    /// names it and a further canvas move knows whether it may keep the previous step.
+    struct PendingRevert: Equatable {
+        enum Kind: Equatable { case mode, arrangement }
+        var message: String
+        var secondsRemaining: Int
+        var kind: Kind = .mode
+    }
     /// Decision core for the open revert window; `before` is the arrangement to restore on timeout.
     private var revertGate: TimedRevertGate<[DisplayObservation]>?
     private var revertMessage = ""
+    private var revertKind: PendingRevert.Kind = .mode
     private var revertTask: Task<Void, Never>?
 
     /// Edge detector for "auto-disconnect the built-in when an external connects" (Issue 5). Seeded to
@@ -751,31 +760,106 @@ final class AppModel: ObservableObject {
         scenes = await sceneLibrary.all()
     }
 
-    /// Moves a single display to a new origin (used by the drag-to-arrange canvas), then re-reads
-    /// the resulting topology (Core Graphics may adjust neighbours to keep the layout adjacent).
+    /// Applies an arrangement planned on the drag-to-arrange canvas (a drop, or a new main display)
+    /// in one Core Graphics transaction, then opens the usual keep/revert window for it.
     ///
-    /// The drop is checked against the topology as it is now, not as the tile was drawn: a display
-    /// that has since become a mirror target (an origin write can change its mirror set) or left is
-    /// not moved. A rejected write is reported in `arrangementError` instead of being dropped.
-    func setPosition(_ origin: DisplayOrigin, for observation: DisplayObservation) async {
+    /// The plan is checked against the topology as it is now, not as the canvas drew it: if a
+    /// display came, went, changed mode or joined a mirror set meanwhile, nothing is moved. Only
+    /// mirror-set sources are positioned — a target is not a desktop of its own, and an origin write
+    /// aimed at it can change its mirror set. The readback must keep every mirror set and the planned
+    /// main display; otherwise the previous arrangement is restored and Keep is never offered.
+    func applyArrangement(_ planned: ArrangementLayout, drawnFrom drawn: ArrangementLayout) async {
+        guard !arrangementApplying else { return }
+        guard !modeChangeInProgress else {
+            arrangementError = String(localized: "A mode change is still being applied. Try again when it’s done.")
+            return
+        }
         arrangementError = nil
+        arrangementNote = nil
+        arrangementApplying = true
+        defer { arrangementApplying = false }
+
         let snapshot = await observer.currentSnapshot()
-        guard ArrangementTiles.canMove(observation.recordID, in: snapshot),
-              let cgID = snapshot.observation(for: observation.recordID)?.cgDisplayID else {
-            arrangementError = String(localized: "The arrangement changed before the drop, so nothing was moved.")
+        let live = Self.arrangementLayout(snapshot.observations)
+        guard live == drawn else {
+            arrangementError = String(localized: "The displays changed in the meantime, so nothing was moved.")
             await refresh()
             return
         }
-        let warnings = observer.applyArrangement([.init(displayID: cgID, origin: origin, mode: nil)])
-        if !warnings.isEmpty {
-            arrangementError = String(localized: "macOS didn’t accept the new position. The canvas shows the arrangement in effect.")
+        let changes = live.originChanges(to: planned)
+        guard !changes.isEmpty else { return }
+        var targets: [CoreGraphicsProvider.ArrangementTarget] = []
+        for (id, origin) in changes {
+            guard ArrangementTiles.canMove(id, in: snapshot), let cgID = snapshot.observation(for: id)?.cgDisplayID else {
+                arrangementError = String(localized: "The displays changed in the meantime, so nothing was moved.")
+                await refresh()
+                return
+            }
+            targets.append(.init(displayID: cgID, origin: origin, mode: nil))
         }
+        // Judged only now, after the last suspension point: a countdown can expire (and start
+        // restoring) while the snapshot is read. Another canvas move while the previous one still
+        // waits means the user is looking at a usable desktop, so that step is kept and this one
+        // gets its own window (as the tray does for repeated mode changes). A pending mode change,
+        // or a window that is already restoring, has to finish first.
+        if let pending = pendingRevert {
+            guard pending.kind == .arrangement, revertGate?.isPending == true else {
+                arrangementError = pending.kind == .arrangement
+                    ? String(localized: "The previous arrangement is being put back. Try again in a moment.")
+                    : String(localized: "Confirm or revert the previous change first.")
+                return
+            }
+            confirmArrangementChange()
+        }
+
+        let before = snapshot.observations
+        // Persist the original arrangement BEFORE the write so a crash during verification can recover.
+        Self.writeRevertMarker(before)
+        let observer = self.observer
+        let warnings = await Task.detached(priority: .userInitiated) {
+            observer.applyArrangement(targets)
+        }.value
         await refresh()
-        await noteLayoutSelfChange()
+        let after = Self.arrangementLayout(await observer.currentSnapshot().observations)
+        let outcome = ArrangementLayout.outcome(planned: planned, before: live, after: after)
+        switch (warnings.isEmpty, outcome) {
+        case (true, .applied), (true, .adjusted):
+            if outcome == .adjusted {
+                arrangementNote = String(localized: "macOS placed the displays a little differently to keep them together. The canvas shows the arrangement in effect.")
+            }
+            await noteLayoutSelfChange()
+            beginRevertWindow(before: before, message: String(localized: "Display arrangement changed"),
+                              kind: .arrangement)
+        default:
+            // Rejected, or the readback broke a mirror set or moved the menu bar elsewhere: put back
+            // whatever landed. Never offer Keep for an arrangement macOS didn't make as planned.
+            if outcome != .nothingMoved { await restoreArrangement(before) }
+            let restored = Self.arrangementLayout(await observer.currentSnapshot().observations) == live
+            if restored { Self.clearRevertMarker() }
+            arrangementError = restored
+                ? String(localized: "macOS didn’t accept the new arrangement, so the previous one is in effect.")
+                : String(localized: "macOS didn’t accept the new arrangement, and the previous one couldn’t be confirmed. The canvas shows the arrangement in effect; a record of the previous one was saved for recovery.")
+        }
     }
 
-    /// Why the last drag on the arrangement canvas didn't move anything; nil after a clean drop.
+    /// The canvas arrangement of `observations`, sized by `CGDisplayBounds` — the rectangles Core
+    /// Graphics actually lays out, rotation included — so the canvas and the drop check measure
+    /// displays the same way, and neither relies on how a mode reports a rotated size.
+    static func arrangementLayout(_ observations: [DisplayObservation]) -> ArrangementLayout {
+        ArrangementLayout(observations: observations) { observation in
+            guard let cgID = observation.cgDisplayID else { return nil }
+            let bounds = CGDisplayBounds(cgID)
+            guard bounds.width >= 1, bounds.height >= 1 else { return nil }
+            return (Int(bounds.width.rounded()), Int(bounds.height.rounded()))
+        }
+    }
+
+    /// Why the last change on the arrangement canvas didn't land; nil after a clean one.
     @Published private(set) var arrangementError: String?
+    /// What macOS did differently from the canvas plan, when it still moved things; nil otherwise.
+    @Published private(set) var arrangementNote: String?
+    /// A canvas change is being applied; the canvas takes no new drops meanwhile.
+    @Published private(set) var arrangementApplying = false
 
     /// Mirrors a display onto the main display (both show the same content) or stops mirroring.
     /// Reversible (public Core Graphics mirroring).
@@ -2514,6 +2598,20 @@ final class AppModel: ObservableObject {
         if let profiles = result.profiles { availableColorProfilesCache = profiles }
     }
 
+    /// Re-enumerates the installed profiles and re-reads every display's assignment — after an
+    /// import, a removal or its undo, or when the user asks — so the choosers list files that
+    /// appeared and drop ones that went, and the custom-profile safeguard judges the current files.
+    func reloadInstalledColorProfiles() async {
+        // Reloads can overlap (Refresh during an import); only the newest scan may land.
+        installedProfilesRead &+= 1
+        let read = installedProfilesRead
+        let profiles = await Task.detached(priority: .userInitiated) { ColorProfileService.availableProfiles() }.value
+        guard read == installedProfilesRead else { return }
+        availableColorProfilesCache = profiles
+        for display in displays { await refreshColorProfile(for: display) }
+        await refreshCustomProfileGuard()
+    }
+
     /// Assigns an ICC profile to a display (validated by ColorSyncProfileVerify inside the service),
     /// then re-reads the assignment off-main ("verify, don't assume"). The change counts only when
     /// ColorSync accepted it AND the re-read shows that very file — a refusal used to be dropped,
@@ -3636,8 +3734,12 @@ final class AppModel: ObservableObject {
     /// topology. A bad/blank resolution can leave a display unreadable, so the change is checkpointed
     /// and reverts itself unless confirmed within the window.
     func setMode(_ mode: DisplayMode, for observation: DisplayObservation) async {
-        guard !modeChangeInProgress, pendingRevert == nil else {
-            modeChangeError = String(localized: "Confirm or revert the previous mode change first.")
+        // An arrangement apply in flight is a Core Graphics transaction too; a second one would
+        // capture a half-applied "before" and race its readback.
+        guard !modeChangeInProgress, !arrangementApplying, pendingRevert == nil else {
+            modeChangeError = arrangementApplying || pendingRevert?.kind == .arrangement
+                ? String(localized: "Confirm or revert the arrangement change first.")
+                : String(localized: "Confirm or revert the previous mode change first.")
             return
         }
         modeChangeError = nil
@@ -3766,14 +3868,16 @@ final class AppModel: ObservableObject {
     /// Countdown length for the resolution revert window (clamped to a sane minimum).
     private var arrangementRevertSeconds: Int { max(3, settings.arrangementAutoRevertSeconds) }
 
-    private func beginRevertWindow(before: [DisplayObservation], message: String) {
+    private func beginRevertWindow(before: [DisplayObservation], message: String,
+                                   kind: PendingRevert.Kind = .mode) {
         let seconds = arrangementRevertSeconds
         revertGate = TimedRevertGate(before: before, deadline: Date().addingTimeInterval(Double(seconds)))
         revertMessage = message
+        revertKind = kind
         // Crash recovery: a marker (same Application Support dir the checkpoints/rotation marker use)
         // lets the next launch restore the prior arrangement if the app dies mid-window.
         Self.writeRevertMarker(before)
-        pendingRevert = PendingRevert(message: message, secondsRemaining: seconds)
+        pendingRevert = PendingRevert(message: message, secondsRemaining: seconds, kind: kind)
         // The confirmation renders in-context (menu-bar pop-out and the Settings window), both of which
         // observe `pendingRevert`. The AppKit status item ensures the pop-out is on the right screen.
         revertTask?.cancel()
@@ -3793,7 +3897,8 @@ final class AppModel: ObservableObject {
                 return
             }
             revertGate = gate
-            pendingRevert = PendingRevert(message: revertMessage, secondsRemaining: gate.secondsRemaining(now: now))
+            pendingRevert = PendingRevert(message: revertMessage, secondsRemaining: gate.secondsRemaining(now: now),
+                                          kind: revertKind)
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
     }
@@ -3814,6 +3919,8 @@ final class AppModel: ObservableObject {
     }
 
     private func clearRevertWindow() {
+        // "macOS placed the displays differently" describes an arrangement that's gone once reverted.
+        if revertKind == .arrangement, revertGate?.resolution == .reverted { arrangementNote = nil }
         revertTask?.cancel()
         revertTask = nil
         revertGate = nil
@@ -3823,10 +3930,13 @@ final class AppModel: ObservableObject {
 
     /// Restores each display's exact prior mode + origin (origins also restore which display is main,
     /// since Core Graphics treats the display at (0,0) as main), then its prior mirror state.
+    /// A display that was a mirror target gets no origin of its own: it sits where its source is, and
+    /// an origin write aimed at a target can change its mirror set (AM-09); the mirror step below
+    /// puts it back with its source.
     private func restoreArrangement(_ observations: [DisplayObservation]) async {
         let targets = observations.compactMap { obs -> CoreGraphicsProvider.ArrangementTarget? in
             guard let cgID = obs.cgDisplayID else { return nil }
-            return .init(displayID: cgID, origin: obs.origin, mode: obs.mode)
+            return .init(displayID: cgID, origin: obs.mirrorSourceID == nil ? obs.origin : nil, mode: obs.mode)
         }
         if !targets.isEmpty {
             let observer = self.observer

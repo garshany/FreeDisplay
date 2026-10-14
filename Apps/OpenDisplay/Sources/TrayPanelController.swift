@@ -63,9 +63,11 @@ final class TrayUIState: ObservableObject {
 
     /// Mode controls of `display` are locked only while a change is being applied, or while another
     /// screen's change waits for keep/revert. The screen that was just changed stays adjustable.
+    /// A pending arrangement change locks every screen: changing a mode must not silently keep it.
     func isModeLocked(_ model: AppModel, for display: DisplayObservation) -> Bool {
-        if modeApplying { return true }
-        guard model.pendingRevert != nil else { return false }
+        if modeApplying || model.arrangementApplying { return true }
+        guard let pending = model.pendingRevert else { return false }
+        if pending.kind == .arrangement { return true }
         return lastModeDevice != display.recordID.rawValue
     }
 

@@ -32,6 +32,7 @@ struct DisplayDetailView: View {
                 }
                 ResolutionCard(display: display)
                 AppearanceCard(display: display)
+                ColorProfileCard(display: display)
                 if display.displayClass != .builtIn { ControlsCard(display: display) }
                 DimmingCard(display: display)
                 UseAsCard(display: display)
@@ -82,7 +83,7 @@ struct ResolutionCard: View {
     }
 
     private var canApply: Bool {
-        !applying && model.pendingRevert == nil && display.isActive
+        !applying && model.pendingRevert == nil && !model.arrangementApplying && display.isActive
             && DisplayModeChoices.canApply(selectedMode, current: display.mode, choices: choices)
     }
 
