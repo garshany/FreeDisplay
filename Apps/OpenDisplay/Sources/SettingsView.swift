@@ -40,13 +40,8 @@ struct SettingsView: View {
             case .scenes: ScenesSection()
             case .capture: CapturePanel().navigationTitle("Screen Capture")
             case .advanced:
-                if let display = model.displays.first(where: { $0.recordID == model.selectedDisplayID }) ?? model.displays.first,
-                   let id = display.cgDisplayID {
-                    AdvancedDisplayToolsView(displayID: id, displayName: model.displayName(for: display))
-                } else {
-                    ContentUnavailableView("Select a connected display first.", systemImage: "display")
-                        .navigationTitle("EDID & HiDPI")
-                }
+                // The pane has its own display picker (it starts on the Displays selection).
+                AdvancedDisplayToolsView()
             case .automation: LocalControlPanel()
             case .virtual:
 #if !PUBLIC_API_ONLY

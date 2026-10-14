@@ -3,28 +3,99 @@
 #if os(macOS)
 import AppKit
 import CoreGraphics
+import CoreGraphicsProvider
+import DisplayDomain
 import SwiftUI
 import TopologyCore
 
+/// Settings → EDID & HiDPI. Reads the chosen display's EDID read-only (SD-15 / FB-20), decodes it,
+/// shows its bytes and exports them; imports EDID files for inspection. Nothing here writes EDID,
+/// installs an override or changes a mode.
 @MainActor
 struct AdvancedDisplayToolsView: View {
-    let displayID: CGDirectDisplayID
-    let displayName: String
-    @State private var edid: EDIDDocument?
-    @State private var status = String(localized: "Import a monitor’s binary EDID to validate it and export a configuration.")
+    @EnvironmentObject private var model: AppModel
+    /// The display this pane inspects. Its own choice: setting `model.selectedDisplayID` would
+    /// also switch Settings to the Displays section.
+    @State private var pickedID: DisplayRecordID?
+    @State private var live: LiveEDID = .notRead
+    @State private var imported: ImportedEDID?
+    @State private var inspecting: Source = .display
+    @State private var byteFormat: EDIDByteFormat = .hexDump
+    @State private var status: String?
     @State private var width = 1920
     @State private var height = 1080
 
-    private var screen: NSScreen? {
-        NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == displayID }
+    private enum Source: Hashable { case display, file }
+
+    /// The registry lookup for one display. The display it was read for travels with the result,
+    /// so after switching the picker the previous display's bytes are never shown under the new
+    /// one — not even for the moment before the new read starts.
+    private enum LiveEDID: Equatable {
+        case notRead
+        case reading(CGDirectDisplayID)
+        case read(EDIDBinding.Outcome, CGDirectDisplayID)
+    }
+
+    /// `live`, if it belongs to the display now selected.
+    private var liveForDisplay: LiveEDID {
+        switch live {
+        case .reading(let id) where id == display?.cgDisplayID: return live
+        case .read(_, let id) where id == display?.cgDisplayID: return live
+        default: return .notRead
+        }
+    }
+
+    private var isReading: Bool {
+        if case .reading = liveForDisplay { return true }
+        return false
+    }
+
+    private struct ImportedEDID {
+        let name: String
+        let bytes: [UInt8]
+    }
+
+    /// Online displays macOS gave an ID; the pane follows the Displays selection until a display
+    /// is picked here.
+    private var candidates: [DisplayObservation] { model.displays.filter { $0.cgDisplayID != nil } }
+
+    private var display: DisplayObservation? {
+        candidates.first { $0.recordID == pickedID }
+            ?? candidates.first { $0.recordID == model.selectedDisplayID }
+            ?? candidates.first { $0.isMain }
+            ?? candidates.first
+    }
+
+    private var screen: NSScreen? { display?.cgDisplayID.flatMap(DisplayScreenLookup.screen(for:)) }
+
+    /// The bytes being inspected, with the words that say where they came from.
+    private var inspected: (bytes: [UInt8], source: String)? {
+        switch inspecting {
+        case .file:
+            guard let imported else { return nil }
+            return (imported.bytes, String(localized: "File “\(imported.name)”. It isn’t matched to any display."))
+        case .display:
+            guard case .read(.matched(let bytes), _) = liveForDisplay else { return nil }
+            return (bytes, String(localized: "Read from macOS (IORegistry) and matched to this display by vendor, product code and serial number."))
+        }
     }
 
     var body: some View {
         Form {
+            Section {
+                if candidates.isEmpty {
+                    Text("No connected display.").foregroundStyle(.secondary)
+                } else {
+                    Picker("Display", selection: Binding(get: { display?.recordID }, set: { pickedID = $0 })) {
+                        ForEach(candidates, id: \.recordID) { candidate in
+                            Text(model.displayName(for: candidate)).tag(Optional(candidate.recordID))
+                        }
+                    }
+                }
+                Text("Everything here only reads. Nothing writes to the display, installs a configuration or changes a mode.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("HDR capabilities") {
-                // The pane follows the display selected under Displays; name it so the
-                // EDR values below are not ambiguous on multi-monitor setups.
-                LabeledContent("Display", value: displayName)
                 if let screen {
                     LabeledContent("Available EDR headroom", value: String(format: "%.2f×", screen.maximumExtendedDynamicRangeColorComponentValue))
                     LabeledContent("Potential EDR headroom", value: String(format: "%.2f×", screen.maximumPotentialExtendedDynamicRangeColorComponentValue))
@@ -34,18 +105,34 @@ struct AdvancedDisplayToolsView: View {
                     Text("No NSScreen data for this display.")
                 }
             }
-            Section("EDID tools — export only") {
-                Button("Import EDID…", action: importEDID)
-                if let edid {
-                    LabeledContent("Manufacturer", value: edid.manufacturer)
-                    LabeledContent("Product code", value: String(format: "0x%04X", edid.productID))
-                    LabeledContent("Name", value: edid.displayName ?? String(localized: "Not specified"))
-                    LabeledContent("Validated blocks", value: String(edid.extensionCount + 1))
-                    Button("Export Validated Configuration…", action: exportEDID)
+            Section("EDID of this display") {
+                liveStatus
+                HStack {
+                    Button("Read Again") { Task { await readLive() } }
+                        .disabled(display == nil || isReading)
+                    if imported != nil {
+                        Spacer()
+                        Picker("Inspect", selection: $inspecting) {
+                            Text("This display").tag(Source.display)
+                            Text("Imported file").tag(Source.file)
+                        }
+                        .pickerStyle(.segmented).fixedSize()
+                    }
                 }
-                Text(status).font(.caption).textSelection(.enabled)
+            }
+            if let inspected {
+                inspector(bytes: inspected.bytes, source: inspected.source)
+            }
+            Section("EDID file") {
+                Button("Import EDID…", action: importEDID)
+                if let imported {
+                    LabeledContent("File", value: imported.name)
+                }
                 Text("The imported file isn’t matched to a display automatically. Check the manufacturer and product code before installing it by other means. OpenDisplay doesn’t install system configurations.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            if let status {
+                Section { Text(status).font(.caption).textSelection(.enabled) }
             }
             Section("HiDPI mode planning") {
                 TextField("Logical width", value: $width, format: .number)
@@ -59,7 +146,109 @@ struct AdvancedDisplayToolsView: View {
         // the value column, the form is centred vertically and long captions widen the window.
         .formStyle(.grouped)
         .navigationTitle("EDID & HiDPI")
+        .task(id: display?.recordID) {
+            inspecting = .display
+            await readLive()
+        }
     }
+
+    // MARK: Live EDID
+
+    @ViewBuilder private var liveStatus: some View {
+        switch liveForDisplay {
+        case .notRead:
+            Text("Not read yet.").foregroundStyle(.secondary)
+        case .reading:
+            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Reading…") }
+        case .read(.matched(let bytes), _):
+            LabeledContent("Found", value: String(localized: "Size: \(bytes.count) B"))
+        case .read(.ambiguous(let candidates), _):
+            Text("Ambiguous: \(candidates) different EDIDs carry this display’s vendor, product code and serial number — typically identical monitors without serial numbers. None is shown, because it could be another monitor’s.")
+                .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+        case .read(.notFound, _):
+            Text("Not found: no EDID that macOS exposes carries this display’s vendor, product code and serial number. Built-in panels and some adapters don’t expose one.")
+                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        case .read(.unidentifiedTarget, _):
+            Text("Unavailable: macOS reports no vendor or product code for this display, so no EDID can be tied to it.")
+                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func readLive() async {
+        guard let cgID = display?.cgDisplayID else { live = .notRead; return }
+        live = .reading(cgID)
+        let outcome = await Task.detached(priority: .userInitiated) { EDIDReader.lookup(for: cgID) }.value
+        // The selection may have moved on while the registry was walked.
+        guard display?.cgDisplayID == cgID else { return }
+        live = .read(outcome, cgID)
+    }
+
+    // MARK: Inspector
+
+    @ViewBuilder
+    private func inspector(bytes: [UInt8], source: String) -> some View {
+        let decoded = EDIDDecoder.decode(bytes)
+        let strict = Result { try EDIDDocument(data: Data(bytes)) }
+        Section("Decoded EDID") {
+            LabeledContent("Source") {
+                Text(source).multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
+            }
+            LabeledContent("Validity") {
+                Text(decoded.isStructurallyValid
+                     ? String(localized: "Header, checksums and block count are consistent")
+                     : String(localized: "Problems found — see Structure"))
+                    .foregroundStyle(decoded.isStructurallyValid ? Color.secondary : Color.orange)
+            }
+            HStack {
+                Button("Export Original Bytes (.bin)…") { exportBinary(bytes, decoded: decoded) }
+                Button("Export Override Plist…") { exportPlist(strict) }
+                    .disabled((try? strict.get()) == nil)
+            }
+            if case .failure(let error) = strict {
+                Text("No override plist: \(Self.describe(error))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text("Decoded values are what the bytes state. They don’t prove the display or macOS supports them.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        ForEach(EDIDReportFormatter.sections(decoded, .app)) { section in
+            Section(section.title) {
+                ForEach(Array(section.rows.enumerated()), id: \.offset) { _, row in
+                    LabeledContent(row.label) {
+                        Text(row.value).multilineTextAlignment(.trailing).textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                ForEach(section.notes, id: \.self) { note in
+                    Text(note).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        Section("Bytes") {
+            Picker("Format", selection: $byteFormat) {
+                Text("Hex dump").tag(EDIDByteFormat.hexDump)
+                Text("Hex").tag(EDIDByteFormat.hex)
+                Text("Base64").tag(EDIDByteFormat.base64)
+                Text("C array").tag(EDIDByteFormat.cArray)
+            }
+            .pickerStyle(.segmented)
+            let rendered = byteFormat.render(bytes)
+            ScrollView([.horizontal, .vertical]) {
+                Text(rendered).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                    .fixedSize(horizontal: byteFormat != .hex && byteFormat != .base64, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(6)
+            }
+            .frame(minHeight: 120, idealHeight: 220)
+            Button("Copy Bytes") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(rendered, forType: .string)
+                status = String(localized: "Bytes copied as text.")
+            }
+        }
+    }
+
+    // MARK: Files
 
     private func importEDID() {
         let panel = NSOpenPanel()
@@ -68,10 +257,11 @@ struct AdvancedDisplayToolsView: View {
         do {
             let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
             guard size <= 32768 else { throw EDIDError.invalidLength }
-            edid = try EDIDDocument(data: Data(contentsOf: url))
-            status = String(localized: "Checksums of all EDID blocks verified. Extension blocks are kept as-is, uninterpreted.")
+            imported = ImportedEDID(name: url.lastPathComponent, bytes: Array(try Data(contentsOf: url)))
+            inspecting = .file
+            status = nil
         } catch {
-            edid = nil; status = String(localized: "EDID rejected: \(Self.describe(error))")
+            status = String(localized: "EDID rejected: \(Self.describe(error))")
         }
     }
 
@@ -91,9 +281,17 @@ struct AdvancedDisplayToolsView: View {
         catch { status = String(localized: "Export failed: \(error.localizedDescription)") }
     }
 
-    private func exportEDID() {
-        guard let edid else { return }
-        do { save(try edid.overridePropertyList(), name: "DisplayProductID-\(String(edid.productID, radix: 16)).plist") }
+    /// The bytes exactly as read or imported — no re-encoding, nothing dropped.
+    private func exportBinary(_ bytes: [UInt8], decoded: EDIDDecoded) {
+        var stem = inspecting == .display ? (display.map(model.displayName(for:)) ?? "Display") : "EDID"
+        if let base = decoded.base { stem += "-\(base.manufacturerID)\(String(format: "%04X", base.productCode))" }
+        let safe = stem.map { "/:\\".contains($0) ? "-" : $0 }
+        save(Data(bytes), name: String(safe) + ".bin")
+    }
+
+    private func exportPlist(_ strict: Result<EDIDDocument, Error>) {
+        guard let document = try? strict.get() else { return }
+        do { save(try document.overridePropertyList(), name: "DisplayProductID-\(String(document.productID, radix: 16)).plist") }
         catch { status = String(localized: "Configuration export failed: \(error.localizedDescription.appLocalized)") }
     }
 
