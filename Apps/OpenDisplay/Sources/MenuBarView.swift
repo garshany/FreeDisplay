@@ -466,7 +466,7 @@ private struct TrayFeatureList: View {
                 }
             }
             feature("pip", "pip", String(localized: "Picture in Picture and streaming"), nil) {
-                TrayPictureInPicture()
+                TrayPictureInPicture(display: display)
             }
             feature("manage", "info.circle", String(localized: "Manage display"), nil) {
                 TrayManageDisplay(display: display)
@@ -870,12 +870,20 @@ private struct TrayMirroring: View {
 }
 
 private struct TrayPictureInPicture: View {
+    @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var ui: TrayUIState
+    /// The display whose menu this sits in — the capture source it opens for (AM-08).
+    let display: DisplayObservation
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             TrayNote(String(localized: "A picture-in-picture window of any display or window, rotation, flipping, and LUTs are set up in the capture window."))
-            TrayPillButton(String(localized: "Open Screen Capture…")) { ui.openSettings(.capture) }
+            TrayPillButton(String(localized: "Open Screen Capture…")) {
+                if let cgID = display.cgDisplayID {
+                    CapturePresentation.shared.request(displayID: cgID, name: model.displayName(for: display))
+                }
+                ui.openSettings(.capture)
+            }
         }
     }
 }
