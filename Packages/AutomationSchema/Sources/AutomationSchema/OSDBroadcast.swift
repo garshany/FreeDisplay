@@ -15,15 +15,38 @@ public struct OSDBroadcast: Hashable, Sendable, Codable {
         case mute
     }
 
+    /// Where a change came from — the vocabulary of `source`. Kept as a `String` on the wire so a
+    /// newer sender's source never makes an older receiver drop the event.
+    public enum Source: String, Hashable, Sendable, CaseIterable {
+        /// A slider in the menu-bar panel or Settings.
+        case menu
+        /// A brightness/volume/mute media key the app intercepted.
+        case mediaKey
+        /// One of the app's global keyboard shortcuts.
+        case hotkey
+        /// The local HTTP control server.
+        case http
+        /// The `opendisplay` command-line tool.
+        case cli
+        /// A Shortcuts / Siri App Intent.
+        case appIntent
+        /// OpenDisplay itself (FaceLight, presets, restoring a prior level).
+        case app
+    }
+
     public var version: Int
     public var kind: Kind
     /// Normalized level, clamped to 0...1.
     public var value: Double
+    /// The top of the scale `value` is on, so a receiver never has to assume one. Senders set it
+    /// to 1 (levels are normalized); nil when an older sender did not say.
+    public var maxValue: Double?
     /// The display's stable record id.
     public var displayID: String
     /// The display's user-facing name, when known.
     public var displayName: String?
-    /// Where the change came from ("mediaKey" | "menu" | "cli" | "appIntent").
+    /// Where the change came from — one of `Source`'s raw values ("menu", "mediaKey", "hotkey",
+    /// "http", "cli", "appIntent", "app"); receivers must tolerate others.
     public var source: String
     /// Seconds since 1970 (kept numeric so the dictionary form stays plist/string-clean).
     public var timestamp: Double
@@ -31,6 +54,7 @@ public struct OSDBroadcast: Hashable, Sendable, Codable {
     public init(
         kind: Kind,
         value: Double,
+        maxValue: Double? = nil,
         displayID: String,
         displayName: String? = nil,
         source: String,
@@ -39,6 +63,7 @@ public struct OSDBroadcast: Hashable, Sendable, Codable {
         self.version = Self.schemaVersion
         self.kind = kind
         self.value = Swift.max(0, Swift.min(1, value))
+        self.maxValue = maxValue
         self.displayID = displayID
         self.displayName = displayName
         self.source = source
@@ -56,6 +81,7 @@ public struct OSDBroadcast: Hashable, Sendable, Codable {
             "timestamp": String(timestamp),
         ]
         if let displayName { info["displayName"] = displayName }
+        if let maxValue { info["maxValue"] = String(maxValue) }
         return info
     }
 
@@ -68,7 +94,10 @@ public struct OSDBroadcast: Hashable, Sendable, Codable {
               let source = userInfo["source"]
         else { return nil }
         let timestamp = userInfo["timestamp"].flatMap(Double.init) ?? 0
-        self.init(kind: kind, value: value, displayID: displayID,
+        // A malformed, zero or negative maximum is dropped rather than failing the event: `value`
+        // is still a usable normalized level on its own.
+        let maxValue = userInfo["maxValue"].flatMap(Double.init).flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        self.init(kind: kind, value: value, maxValue: maxValue, displayID: displayID,
                   displayName: userInfo["displayName"], source: source, timestamp: timestamp)
         if let parsedVersion = userInfo["version"].flatMap(Int.init) { self.version = parsedVersion }
     }
