@@ -107,7 +107,9 @@ struct TrayConfirmBar: View {
                 Image(systemName: "clock.arrow.circlepath").font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(ODColor.caution)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Keep the new mode?").font(.system(size: 12, weight: .semibold))
+                    Text(pending.kind == .arrangement ? String(localized: "Keep the new arrangement?")
+                                                      : String(localized: "Keep the new mode?"))
+                        .font(.system(size: 12, weight: .semibold))
                     Text("\(pending.message) · reverting in \(pending.secondsRemaining)s")
                         .font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(2)
                         .monospacedDigit()
@@ -455,6 +457,9 @@ private struct TrayResolutionSlider: View {
     }
 
     private func caption(_ option: TrayModeOption, current: DisplayMode, dragging: Bool) -> String {
+        if model.pendingRevert?.kind == .arrangement || model.arrangementApplying {
+            return String(localized: "Confirm the arrangement change at the bottom of the panel first")
+        }
         if model.pendingRevert != nil {
             return ui.isModeLocked(model, for: display)
                 ? String(localized: "Confirm the other display's change at the bottom of the panel first")
@@ -1026,6 +1031,7 @@ private struct TrayColorPresetList: View {
 
 private struct TrayColorProfileList: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var ui: TrayUIState
     let display: DisplayObservation
 
     var body: some View {
@@ -1053,8 +1059,16 @@ private struct TrayColorProfileList: View {
                         }
                     }
                     .help(profile.url.path)
+                    .contextMenu {
+                        Button("Show in Finder") { ColorProfileFileActions.reveal(profile.url) }
+                        Button("Open in ColorSync Utility") { ColorProfileFileActions.openInColorSyncUtility(profile.url) }
+                    }
                 }
                 if let error = model.colorProfileError[display.recordID] { TrayNote(error, tint: ODColor.caution) }
+                TrayRow(icon: "info.circle", title: String(localized: "Profile details and your profiles…")) {
+                    model.selectedDisplayID = display.recordID
+                    ui.openSettings(.displays)
+                }
             } else {
                 TrayNote(String(localized: "macOS doesn't allow changing this display's profile."))
             }
@@ -1198,7 +1212,9 @@ private struct TrayToolsSection: View {
                 }
                 TrayRow(icon: "square.and.arrow.down", title: String(localized: "Save or edit scenes…")) { ui.openSettings(.scenes) }
             }
-            TrayRow(icon: "rectangle.3.group", title: String(localized: "Display arrangement…")) { ui.openSettings(.arrange) }
+            tool("arrange", "rectangle.3.group", String(localized: "Display arrangement")) {
+                TrayArrangement()
+            }
             TrayRow(icon: "pip", title: String(localized: "Capture and Picture in Picture…")) { ui.openSettings(.capture) }
             TrayRow(icon: "cpu", title: String(localized: "EDID and HiDPI…")) { ui.openSettings(.advanced) }
             TrayRow(icon: "terminal", title: String(localized: "Automation and HTTP…")) { ui.openSettings(.automation) }
@@ -1233,6 +1249,28 @@ private struct TrayToolsSection: View {
             }
         }
         .clipped()
+    }
+}
+
+/// Tools › Display arrangement: the same free-drag canvas as Settings › Arrange (`ArrangementCanvas`),
+/// compact, with its messages; the keep/revert prompt floats at the bottom of the panel as usual.
+private struct TrayArrangement: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var ui: TrayUIState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ArrangementCanvas(size: CGSize(width: TrayPanelController.width - 44, height: 150), compact: true) { display in
+                model.selectedDisplayID = display.recordID
+                ui.openSettings(.displays)
+            }
+            .padding(.vertical, 2)
+            ForEach(ArrangementCanvasMessages.current(model), id: \.self) { message in
+                TrayNote(message.text, tint: message.isWarning ? ODColor.caution : .secondary)
+            }
+            TrayNote(String(localized: "Drag a display to move it; Shift keeps the exact spot. Drag the menu bar, or Control-click, to change the main display."))
+            TrayRow(icon: "macwindow", title: String(localized: "Arrange in Settings…")) { ui.openSettings(.arrange) }
+        }
     }
 }
 
