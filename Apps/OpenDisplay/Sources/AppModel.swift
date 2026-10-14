@@ -4131,13 +4131,12 @@ final class AppModel: ObservableObject {
             for offline in managedOffline {
                 try? await lifecycle.reconnect(offline.reconnectID, deadline: Date().addingTimeInterval(10))
             }
+            // One look, straight after the requests: quit doesn't wait out a slow link. A display still
+            // training its link is therefore kept too — and dropped by the next launch, which forgets
+            // entries whose display is back — so nothing is audited as failed from here.
             let observed = await observer.currentSnapshot().observations
-            let kept = ReconnectVerification.ledgerAfterQuitReconnect(managedOffline, observations: observed,
-                                                                      at: Date())
-            for offline in kept {
-                await appendAudit(ReconnectVerification.failureAudit(of: offline, actor: .ui, at: Date()))
-            }
-            managedOffline = kept
+            managedOffline = ReconnectVerification.ledgerAfterQuitReconnect(managedOffline, observations: observed,
+                                                                            at: Date())
             persistManagedOffline()
         }
         CoreGraphicsProvider.restoreGamma()
