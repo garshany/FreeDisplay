@@ -7,8 +7,9 @@ import Foundation
 ///
 /// Security: a URL can be triggered by any app or web link, so only non-destructive recovery actions
 /// are safe to auto-run. Arrangement-altering commands are still *parsed*, but flagged
-/// `requiresConfirmation` so the host refuses to apply them silently and instead asks for in-app
-/// confirmation.
+/// `requiresConfirmation` so the host never applies them silently. The app has no in-app review
+/// flow for them and refuses them with a visible explanation; a host that adds one must confirm
+/// before acting.
 public enum URLCommand: Hashable, Sendable {
     /// Reconnect every managed-offline display — the always-available recovery action. Safe to auto-run.
     case reconnectAll
