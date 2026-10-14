@@ -223,7 +223,8 @@ private struct MenuContentsCard: View {
         case .capture: return String(localized: "Capture and Picture in Picture…")
         case .edid: return String(localized: "EDID and HiDPI…")
         case .automation: return String(localized: "Automation and HTTP…")
-        case .hotkeysAndDiagnostics: return String(localized: "Hotkeys and diagnostics…")
+        case .keyboard: return String(localized: "Keyboard shortcuts…")
+        case .diagnostics: return String(localized: "Diagnostics…")
         case .exportDiagnostics: return String(localized: "Export diagnostics")
         case .updates: return String(localized: "Check for updates")
         }

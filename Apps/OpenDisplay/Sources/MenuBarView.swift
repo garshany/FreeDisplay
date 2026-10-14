@@ -569,7 +569,7 @@ private enum TrayItems {
             #endif
         case .mirroring:
             return model.displays.count > 1
-        case .scenes, .arrangement, .capture, .edid, .automation, .hotkeysAndDiagnostics,
+        case .scenes, .arrangement, .capture, .edid, .automation, .keyboard, .diagnostics,
              .exportDiagnostics, .updates:
             return false  // Tools, not a display's item
         }
@@ -888,12 +888,16 @@ private struct TrayToggles: View {
                     model.setXDRBoost(on ? XDRBrightnessPolicy.defaultBoostFraction : 0, for: display)
                 }
             }
+            // Not in the public-API-only build: without DDC its brightness is always software, so
+            // the switch would change nothing.
+            #if !PUBLIC_API_ONLY
             if display.displayClass != .builtIn {
                 TraySwitchRow(title: String(localized: "Software brightness"), detail: String(localized: "if the monitor ignores DDC"),
                               isOn: model.settings.softwareBrightnessDisplayIDs.contains(display.recordID.rawValue)) { on in
                     Task { await model.setSoftwareBrightness(on, for: display) }
                 }
             }
+            #endif
         }
     }
 }
@@ -1369,8 +1373,11 @@ private struct TrayToolsSection: View {
             if shows(.automation) {
                 TrayRow(icon: "terminal", title: String(localized: "Automation and HTTP…")) { ui.openSettings(.automation) }
             }
-            if shows(.hotkeysAndDiagnostics) {
-                TrayRow(icon: "keyboard", title: String(localized: "Hotkeys and diagnostics…")) { ui.openSettings(.health) }
+            if shows(.keyboard) {
+                TrayRow(icon: "keyboard", title: String(localized: "Keyboard shortcuts…")) { ui.openSettings(.keyboard) }
+            }
+            if shows(.diagnostics) {
+                TrayRow(icon: "stethoscope", title: String(localized: "Diagnostics…")) { ui.openSettings(.health) }
             }
             if shows(.exportDiagnostics) {
                 TrayRow(icon: "doc.zipper", title: String(localized: "Export diagnostics")) {

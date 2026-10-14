@@ -203,6 +203,8 @@ struct ColorProfileCard: View {
     @ObservedObject private var library = ColorProfileLibrary.shared
     let display: DisplayObservation
     @State private var active: ICCProfileDetails?
+    /// The `profileKey` of the newest details read; an older read finishing later is dropped.
+    @State private var activeRequest: String?
     @State private var pendingRemoval: ICCProfileDetails?
     @State private var showsLibrary = false
     @State private var showsHelp = false
@@ -241,7 +243,7 @@ struct ColorProfileCard: View {
             .padding(12)
         }
         // Keyed by display too: the same card is reused when another display is selected.
-        .task(id: "\(display.recordID.rawValue)|\(activeURL?.path ?? "")") { await loadActive() }
+        .task(id: profileKey) { await loadActive(key: profileKey) }
         // Opening the list is when files added or removed outside OpenDisplay should show up — in
         // the list and in every profile chooser (which otherwise keep the launch-time scan).
         .task(id: showsLibrary) {
@@ -265,12 +267,22 @@ struct ColorProfileCard: View {
         pendingRemoval.map { String(localized: "Move “\($0.displayName)” to the Trash?") } ?? ""
     }
 
-    private func loadActive() async {
-        guard let url = activeURL else { active = nil; return }
+    /// Which display and file the details are being read for — the read task's id.
+    private var profileKey: String { "\(display.recordID.rawValue)|\(activeURL?.path ?? "")" }
+
+    /// Reads the details of the file in effect. The previous display's (or file's) details go at
+    /// once, and a result is published only while it is still the newest request: cancelling the
+    /// view's task doesn't stop the detached read, so an older read can finish last.
+    private func loadActive(key: String) async {
+        activeRequest = key
+        active = nil
+        guard let url = activeURL else { return }
         let factories = assignment?.factoryURLs ?? []
-        active = await Task.detached(priority: .userInitiated) {
+        let details = await Task.detached(priority: .userInitiated) {
             ColorProfileService.details(of: url, factoryURLs: factories)
         }.value
+        guard !Task.isCancelled, activeRequest == key else { return }
+        active = details
     }
 
     // MARK: - Active profile

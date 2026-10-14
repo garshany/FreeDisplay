@@ -37,7 +37,10 @@ public enum MenuItemFamily: String, Hashable, Sendable, CaseIterable, Identifiab
     case capture = "tool.capture"
     case edid = "tool.edid"
     case automation = "tool.automation"
-    case hotkeysAndDiagnostics = "tool.diagnostics"
+    /// Settings › Keyboard: shortcuts, input hotkeys and the brightness keys.
+    case keyboard = "tool.keyboard"
+    /// Settings › Diagnostics.
+    case diagnostics = "tool.health"
     case exportDiagnostics = "tool.exportDiagnostics"
     case updates = "tool.updates"
 
@@ -56,7 +59,7 @@ public enum MenuItemFamily: String, Hashable, Sendable, CaseIterable, Identifiab
     public var section: Section {
         switch self {
         case .brightness, .resolution, .volume: return .slider
-        case .scenes, .arrangement, .capture, .edid, .automation, .hotkeysAndDiagnostics,
+        case .scenes, .arrangement, .capture, .edid, .automation, .keyboard, .diagnostics,
              .exportDiagnostics, .updates:
             return .tool
         default: return .displayFeature
@@ -273,12 +276,23 @@ public struct MenuLayoutSettings: Hashable, Sendable, Codable {
         case oneFeatureAtATime, mainDisplayFirst, animateMenu, showSliderNames, showSliderValues
     }
 
+    /// The placement key of the former single "Hotkeys and diagnostics…" Tools row, now the
+    /// `.keyboard` and `.diagnostics` rows. Read from older files only; never written.
+    static let legacyHotkeysAndDiagnosticsKey = "tool.diagnostics"
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = MenuLayoutSettings.default
         // Raw strings first, so one placement a newer or older build doesn't know drops alone.
         let rawPlacements = (try? container.decodeIfPresent([String: String].self, forKey: .placements)) ?? nil
         placements = (rawPlacements ?? [:]).compactMapValues(MenuPlacement.init(rawValue:))
+        // The old combined row's choice goes to both rows that replace it, unless a row already has
+        // its own; the old key is then dropped, or it would override a later choice on every load.
+        if let legacy = placements.removeValue(forKey: Self.legacyHotkeysAndDiagnosticsKey) {
+            for family in [MenuItemFamily.keyboard, .diagnostics] where placements[family.rawValue] == nil {
+                placements[family.rawValue] = legacy
+            }
+        }
         displays = ((try? container.decodeIfPresent([String: DisplayMenuPreferences].self, forKey: .displays)) ?? nil)
             ?? defaults.displays
         displayOrder = ((try? container.decodeIfPresent([String].self, forKey: .displayOrder)) ?? nil)

@@ -34,7 +34,12 @@ struct DisplayDetailView: View {
                 ResolutionCard(display: display)
                 AppearanceCard(display: display)
                 ColorProfileCard(display: display)
-                if display.displayClass != .builtIn { ControlsCard(display: display) }
+                if display.displayClass != .builtIn {
+                    // Keyed by display: the pane keeps its identity when another display is
+                    // selected, and the card's command state (a reset or power result, its
+                    // follow-up offer, a pending confirmation) belongs to the display it was sent to.
+                    ControlsCard(display: display).id(display.recordID)
+                }
                 DimmingCard(display: display)
                 UseAsCard(display: display)
                 IdentityCard(display: display)
@@ -690,12 +695,16 @@ struct ControlsCard: View {
                 .help(model.brightnessIsGroupSynced(display)
                       ? String(localized: "Hold Shift while dragging to change only this display") : "")
             }
+            // The public-API-only build has no DDC route, so brightness there is always software and
+            // this choice would change nothing; the card says why below ("No hardware control").
+            #if !PUBLIC_API_ONLY
             Toggle("Use software brightness for this monitor", isOn: Binding(
                 get: { model.settings.softwareBrightnessDisplayIDs.contains(display.recordID.rawValue) },
                 set: { enabled in Task { await model.setSoftwareBrightness(enabled, for: display) } }))
                 .font(.caption)
             Text("Turn this on if DDC values change but the picture doesn’t. Software brightness uses the dimming method selected below.")
                 .font(.caption).foregroundStyle(.secondary)
+            #endif
             if model.ddcWriteWasIgnored(0x10, for: display) { ignoredCaption(Self.ignoredNote) }
             ODDivider()
             let controls = HardwareControl.allCases.filter { model.ddcControl($0, for: display) != nil }

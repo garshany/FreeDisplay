@@ -58,8 +58,13 @@ final class HotkeyRegistrationTests: XCTestCase {
     }
 
     func testDuplicateChordGoesToTheEarlierSlotAndTheLaterOneIsAConflict() {
+        // Every chord here is the user's own choice (a saved file can hold such duplicates; Settings
+        // itself refuses to save one), so the plan's order alone decides who keeps it. A default
+        // never competes with a saved chord: see `testASavedBindingKeepsItsChordOverANewerDefault`.
         var registry = KeyboardShortcutRegistry()
-        registry.setBinding(ctrlOptCmdR, for: .faceLight)  // same as Reconnect All's default
+        registry.setBinding(ctrlOptCmdR, for: .reconnectAll)
+        registry.setBinding(ctrlOptCmdR, for: .faceLight)
+        registry.setBinding(shiftF1, for: .brightnessDown)
         registry.addInputSwitchBinding(InputSwitchBinding(id: "in-1", displayID: desk, inputCode: 0x11, binding: shiftF1))
         let plan = HotkeyRegistrationPlan(registry: registry.effective(reconnectAllEnabled: true))
         XCTAssertEqual(plan.registrations.filter { $0.binding == ctrlOptCmdR }.map(\.slot), [.action(.reconnectAll)])
@@ -68,6 +73,48 @@ final class HotkeyRegistrationTests: XCTestCase {
         XCTAssertEqual(plan.status(forInputSwitch: "in-1", failed: [], paused: false),
                        .conflict(holder: .action(.brightnessDown)))
         XCTAssertEqual(plan.status(for: .reconnectAll, failed: [], paused: false), .registered)
+    }
+
+    func testASavedBindingKeepsItsChordOverANewerDefault() throws {
+        // R3 #1: a file from before ⇧F1 became Brightness Down's default, with ⇧F1 on FaceLight.
+        // FaceLight keeps working; Brightness Down says who holds its standard chord.
+        let old = #"{"bindings":{"faceLight":{"keyCode":122,"modifiers":512}},"inputSwitchBindings":[]}"#
+        let registry = try JSONDecoder().decode(KeyboardShortcutRegistry.self, from: Data(old.utf8))
+        let plan = HotkeyRegistrationPlan(registry: registry.effective(reconnectAllEnabled: true))
+        XCTAssertEqual(plan.registrations.filter { $0.binding == shiftF1 }.map(\.slot), [.action(.faceLight)])
+        XCTAssertEqual(plan.status(for: .faceLight, failed: [], paused: false), .registered)
+        XCTAssertEqual(plan.status(for: .brightnessDown, failed: [], paused: false),
+                       .conflict(holder: .action(.faceLight)))
+        XCTAssertEqual(plan.status(for: .brightnessUp, failed: [], paused: false), .registered)
+    }
+
+    func testAnInputHotkeyKeepsItsChordOverADefault() {
+        var registry = KeyboardShortcutRegistry()
+        registry.addInputSwitchBinding(InputSwitchBinding(id: "in-1", displayID: desk, inputCode: 0x11, binding: shiftF1))
+        let plan = HotkeyRegistrationPlan(registry: registry.effective(reconnectAllEnabled: true))
+        XCTAssertEqual(plan.status(forInputSwitch: "in-1", failed: [], paused: false), .registered)
+        XCTAssertEqual(plan.status(for: .brightnessDown, failed: [], paused: false),
+                       .conflict(holder: .inputSwitch(id: "in-1")))
+    }
+
+    func testAReconnectChordTheLegacySwitchTurnsOffDoesNotBlockADefault() {
+        var registry = KeyboardShortcutRegistry()
+        registry.setBinding(shiftF1, for: .reconnectAll)
+        let off = registry.effective(reconnectAllEnabled: false)
+        XCTAssertNil(off.binding(for: .reconnectAll))
+        XCTAssertEqual(off.binding(for: .brightnessDown), shiftF1)
+        let on = registry.effective(reconnectAllEnabled: true)
+        XCTAssertEqual(on.binding(for: .reconnectAll), shiftF1)
+        XCTAssertNil(on.binding(for: .brightnessDown))
+    }
+
+    func testAClearedActionWhoseDefaultIsTakenStillReadsAsCleared() {
+        var registry = KeyboardShortcutRegistry()
+        registry.setBinding(nil, for: .brightnessDown)
+        registry.setBinding(shiftF1, for: .faceLight)
+        let plan = HotkeyRegistrationPlan(registry: registry.effective(reconnectAllEnabled: true))
+        XCTAssertEqual(plan.status(for: .brightnessDown, failed: [], paused: false), .cleared)
+        XCTAssertEqual(plan.status(for: .faceLight, failed: [], paused: false), .registered)
     }
 
     func testStatusSeparatesClearedUnassignedFailedAndPaused() {

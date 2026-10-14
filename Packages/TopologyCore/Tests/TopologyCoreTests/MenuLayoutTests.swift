@@ -128,6 +128,32 @@ final class MenuLayoutTests: XCTestCase {
         XCTAssertTrue(tolerant.isHidden(desk))
     }
 
+    /// R3 #6: the single "Hotkeys and diagnostics…" Tools row became a Keyboard row and a
+    /// Diagnostics row. Hiding the old row hides both, and the old key is gone afterwards, so a
+    /// later choice for either row isn't overridden by it on the next load.
+    func testTheOldHotkeysAndDiagnosticsRowCarriesOverToBothOfItsRows() throws {
+        let old = #"{"placements": {"tool.diagnostics": "hidden", "tool.updates": "hidden"}}"#
+        var layout = try JSONDecoder().decode(MenuLayoutSettings.self, from: Data(old.utf8))
+        XCTAssertEqual(layout.placement(of: .keyboard), .hidden)
+        XCTAssertEqual(layout.placement(of: .diagnostics), .hidden)
+        XCTAssertEqual(layout.placement(of: .updates), .hidden)
+        XCTAssertNil(layout.placements["tool.diagnostics"])
+
+        layout.setPlacement(.visible, for: .keyboard)
+        let reloaded = try JSONDecoder().decode(MenuLayoutSettings.self, from: JSONEncoder().encode(layout))
+        XCTAssertEqual(reloaded.placement(of: .keyboard), .visible)
+        XCTAssertEqual(reloaded.placement(of: .diagnostics), .hidden)
+
+        // Untouched, both rows are shown; a choice already made for a new row wins over the old key.
+        let untouched = try JSONDecoder().decode(MenuLayoutSettings.self, from: Data("{}".utf8))
+        XCTAssertEqual(untouched.placement(of: .keyboard), .visible)
+        XCTAssertEqual(untouched.placement(of: .diagnostics), .visible)
+        let mixed = #"{"placements": {"tool.diagnostics": "hidden", "tool.keyboard": "visible"}}"#
+        let both = try JSONDecoder().decode(MenuLayoutSettings.self, from: Data(mixed.utf8))
+        XCTAssertEqual(both.placement(of: .keyboard), .visible)
+        XCTAssertEqual(both.placement(of: .diagnostics), .hidden)
+    }
+
     func testStoreRoundTripsAndDegradesToDefault() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
