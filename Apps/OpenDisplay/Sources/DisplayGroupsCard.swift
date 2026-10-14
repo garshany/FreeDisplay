@@ -13,7 +13,9 @@ struct DisplayGroupsCard: View {
 
     var body: some View {
         ODCard(title: String(localized: "Display groups"),
-               footnote: String(localized: "Moving any member’s brightness moves the rest, each at its own offset. Nudging a display right after it follows re-teaches that offset instead of moving the group. Grouped displays are left out of Adaptive Display.")) {
+               footnote: String(localized: "Moving any member’s brightness moves the rest, the way the group’s mode says. Hold Shift while dragging a brightness slider to change only that display. Levels are each display’s own percentage, not measured brightness. Grouped displays, including the default group’s, are left out of Adaptive Display.")) {
+            DefaultDisplayGroupSection()
+            ODDivider()
             if model.settings.displayGroups.isEmpty {
                 Text("Group displays to move their brightness together.")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -25,6 +27,93 @@ struct DisplayGroupsCard: View {
                 }
             }
             NewDisplayGroupRow()
+        }
+    }
+}
+
+/// The Default group (SO-05/AM-17/TB-14): basic brightness sync for every connected display no named
+/// group holds. Off until switched on; its members are shown live rather than ticked, because they
+/// are whatever is connected — and a display moved into a named group leaves it.
+private struct DefaultDisplayGroupSection: View {
+    @EnvironmentObject private var model: AppModel
+
+    private var group: DisplayGroup { model.settings.defaultDisplayGroup }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ODRow(String(localized: "Sync brightness of all other displays"), secondary: memberSummary) {
+                Toggle("", isOn: Binding(get: { group.syncBrightness },
+                                         set: { model.setDefaultGroupSyncBrightness($0) }))
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                    .accessibilityLabel("Default group brightness sync")
+            }
+            if group.syncBrightness {
+                ODDivider()
+                // Offsets need per-member rows to be seen and edited; the default group offers the
+                // two plain modes.
+                BrightnessSyncModeRows(group: group, modes: [.delta, .absolute])
+            }
+        }
+    }
+
+    /// Who the default group covers right now, by name — it changes with what is plugged in.
+    private var memberSummary: String {
+        let members = model.defaultGroupMembers
+        guard !members.isEmpty else { return String(localized: "Every connected display is in a named group") }
+        let names = members.map { model.rememberedDisplayName(for: $0) }.joined(separator: ", ")
+        // A group of one syncs nothing and leaves its display to Adaptive Display — say so.
+        guard members.count > 1 else {
+            return String(localized: "Default group: \(names) — nothing to sync with until another display is connected")
+        }
+        return String(localized: "Default group: \(names)")
+    }
+}
+
+/// The brightness-sync mode picker and the outside-changes switch, shared by the default and the
+/// named groups. Each mode explains itself under the picker, so the choice is never a bare word.
+private struct BrightnessSyncModeRows: View {
+    @EnvironmentObject private var model: AppModel
+    let group: DisplayGroup
+    let modes: [BrightnessSyncMode]
+
+    var body: some View {
+        ODRow(String(localized: "Brightness mode"), secondary: explanation(group.brightnessMode)) {
+            Picker("", selection: Binding(get: { group.brightnessMode },
+                                          set: { model.setDisplayGroupBrightnessMode($0, for: group) })) {
+                ForEach(modes, id: \.self) { mode in Text(title(mode)).tag(mode) }
+            }
+            .labelsHidden().fixedSize()
+        }
+        // Changes made outside the app can only be observed through native brightness reads, which
+        // the public-API-only build doesn't have — there is nothing for the switch to decide there.
+        #if !PUBLIC_API_ONLY
+        ODDivider()
+        ODRow(String(localized: "Follow changes made outside OpenDisplay"),
+              secondary: String(localized: "macOS brightness keys, System Settings, automatic brightness")) {
+            Toggle("", isOn: Binding(get: { group.followsOutsideChanges },
+                                     set: { model.setDisplayGroupFollowsOutsideChanges($0, for: group) }))
+                .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                .accessibilityLabel("Follow changes made outside OpenDisplay")
+        }
+        #endif
+    }
+
+    private func title(_ mode: BrightnessSyncMode) -> String {
+        switch mode {
+        case .offsets: return String(localized: "Learned offsets")
+        case .absolute: return String(localized: "Absolute")
+        case .delta: return String(localized: "Delta")
+        }
+    }
+
+    private func explanation(_ mode: BrightnessSyncMode) -> String {
+        switch mode {
+        case .offsets:
+            return String(localized: "Each display follows at its own offset; nudging one right after it follows re-teaches it.")
+        case .absolute:
+            return String(localized: "Every display takes the leading display’s brightness percentage.")
+        case .delta:
+            return String(localized: "Every display moves by the same amount, keeping existing differences until one reaches its limit.")
         }
     }
 }
@@ -58,6 +147,10 @@ private struct DisplayGroupSection: View {
                         get: { group.syncContrast },
                         set: { model.setDisplayGroupSyncContrast($0, for: group) }))
                 }
+            }
+            if group.syncBrightness {
+                ODDivider()
+                BrightnessSyncModeRows(group: group, modes: BrightnessSyncMode.allCases)
             }
             ForEach(candidateMembers, id: \.self) { member in
                 ODDivider()
@@ -99,7 +192,8 @@ private struct DisplayGroupMemberRow: View {
     var body: some View {
         ODRow(model.rememberedDisplayName(for: member), secondary: membershipNote) {
             HStack(spacing: ODSpacing.sm) {
-                if isMember, group.syncBrightness {
+                // Offsets only mean something in the offsets mode; the other modes keep them stored.
+                if isMember, group.syncBrightness, group.brightnessMode == .offsets {
                     Text(offsetLabel)
                         .font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
                         .frame(width: 44, alignment: .trailing)

@@ -326,6 +326,8 @@ final class AppModel: ObservableObject {
     /// Tags every write OpenDisplay issues itself (a group fan-out, a FaceLight restore) so it never
     /// re-enters `setBrightness` as a leader event — see `GroupSyncPolicy.SyncEcho`.
     private var groupSyncEcho = GroupSyncPolicy.SyncEcho()
+    /// Delta-group followers whose unknown level is being read (`refreshUnknownGroupLevels`).
+    private var groupLevelReads: Set<DisplayRecordID> = []
     #if !PUBLIC_API_ONLY
     private var groupBrightnessLoop: Task<Void, Never>?
     private var nativeMonitors: [DisplayRecordID: BrightnessMonitor] = [:]
@@ -838,8 +840,47 @@ final class AppModel: ObservableObject {
         writeGamma(level: dimGammaLevel(for: id), id: id, cgID: cgID)
     }
 
-    /// The one funnel for gamma writes: dim scale × the display's colour-temperature gains × the
-    /// XDR boost (Issue #35 — read live here so no caller can silently clear an active boost).
+    /// Per-display software contrast factor (`SoftwareContrast`); absent = neutral, the display's own
+    /// picture. Session-only like the dim and the temperature (SD-21: nothing of the colour table is
+    /// restored at launch) — `restoreGamma` on quit clears it with them.
+    @Published private(set) var softwareContrast: [DisplayRecordID: Float] = [:]
+
+    /// Sets the display's software contrast (TR-14) and re-expresses the gamma slot it shares with
+    /// the dim, warmth and boost — composed into one transfer, so none of them is lost.
+    func setSoftwareContrast(_ factor: Float, for observation: DisplayObservation) {
+        guard let cgID = observation.cgDisplayID else { return }
+        let id = observation.recordID
+        softwareContrast[id] = SoftwareContrast.normalized(factor)
+        guard !blackedOut.contains(id) else { return }  // applied when the blackout lifts
+        writeGamma(level: dimGammaLevel(for: id), id: id, cgID: cgID)
+    }
+
+    /// Displays whose software image adjustments are suspended (AM-18): colour temperature and
+    /// contrast are kept but not applied, while brightness — software dimming and XDR boost
+    /// included — keeps working. Lifting it puts back exactly what was set. Session-only, like the
+    /// adjustments it pauses.
+    @Published private(set) var softwareAdjustmentsSuspended: Set<DisplayRecordID> = []
+
+    func setSoftwareAdjustmentsSuspended(_ suspended: Bool, for observation: DisplayObservation) {
+        guard let cgID = observation.cgDisplayID else { return }
+        let id = observation.recordID
+        guard softwareAdjustmentsSuspended.contains(id) != suspended else { return }
+        if suspended { softwareAdjustmentsSuspended.insert(id) } else { softwareAdjustmentsSuspended.remove(id) }
+        guard !blackedOut.contains(id) else { return }
+        writeGamma(level: dimGammaLevel(for: id), id: id, cgID: cgID)
+    }
+
+    /// Whether `observation` shows HDR-capable output, where colour-table changes can look different
+    /// and highlights can clip — said next to the contrast control rather than discovered.
+    func isHDRCapable(_ observation: DisplayObservation) -> Bool {
+        guard let screen = observation.cgDisplayID.flatMap(Self.screen(for:)) else { return false }
+        return screen.maximumPotentialExtendedDynamicRangeColorComponentValue > 1.0
+    }
+
+    /// The one funnel for gamma writes: dim scale × the display's colour-temperature gains × its
+    /// software contrast × the XDR boost (Issue #35 — read live here so no caller can silently clear
+    /// an active boost), composed by `SoftwareImageTransfer`. A suspended display (AM-18) writes its
+    /// dim and boost with neutral temperature and contrast.
     /// Direct `setGammaDim` calls would silently clear an active warmth — only Black Out (which
     /// wants the neutral floor) bypasses this, through `writeBlackOutGamma`.
     ///
@@ -850,15 +891,16 @@ final class AppModel: ObservableObject {
     /// state is on screen.
     @discardableResult
     private func writeGamma(level: Float, id: DisplayRecordID, cgID: CGDirectDisplayID) -> Bool {
-        let gains = ColorTemperatureCurve.gains(
-            kelvin: colorTemperature[id] ?? ColorTemperatureCurve.neutralKelvin)
         // Headroom is only read while a boost is set — a plain dim/warmth write skips the
         // NSScreen lookup and takes the provider's untouched formula path (boost 1).
         let fraction = xdrBoostFraction[id] ?? 0
         let boost = fraction > 0
             ? XDRBrightnessPolicy.boost(forFraction: fraction, headroom: xdrHeadroom(cgID: cgID))
             : 1
-        let needsGamma = GammaSlotPolicy.needsGamma(dim: level, gains: gains, boost: boost)
+        let transfer = SoftwareImageTransfer.composed(
+            dim: level, kelvin: colorTemperature[id], contrast: softwareContrast[id], boost: boost,
+            suspended: softwareAdjustmentsSuspended.contains(id))
+        let needsGamma = transfer.needsGamma
         switch GammaSlotPolicy.action(needsGamma: needsGamma, owned: gammaOwned.contains(id),
                                       blocked: gammaBlockedByCustomProfile) {
         case .none:
@@ -870,8 +912,7 @@ final class AppModel: ObservableObject {
         case .blocked:
             return false
         case .write:
-            let result = observer.setGammaAdjustment(
-                dim: level, red: gains.red, green: gains.green, blue: gains.blue, boost: boost, for: cgID)
+            let result = observer.setGammaAdjustment(transfer, for: cgID)
             if result == .success { gammaOwned.insert(id) }
             noteGammaWrite(result, id: id)
             return result == .success
@@ -911,10 +952,10 @@ final class AppModel: ObservableObject {
         for other in gammaOwned { reexpressSoftwareImage(other) }
     }
 
-    /// Re-expresses a display's whole software image state — dim (gamma + overlay), warmth and
-    /// boost, or Black Out — under the current method and safeguard. The overlay window is touched
-    /// only when a dim is set: without one it may be FaceLight's warm wash, which a zero-alpha dim
-    /// write would remove.
+    /// Re-expresses a display's whole software image state — dim (gamma + overlay), warmth,
+    /// contrast and boost, or Black Out — under the current method and safeguard. The overlay window
+    /// is touched only when a dim is set: without one it may be FaceLight's warm wash, which a
+    /// zero-alpha dim write would remove.
     private func reexpressSoftwareImage(_ id: DisplayRecordID) {
         guard let cgID = displays.first(where: { $0.recordID == id })?.cgDisplayID else {
             gammaOwned.remove(id)
@@ -925,7 +966,7 @@ final class AppModel: ObservableObject {
         } else if let level = softwareDim[id], level < 1 {
             applyDim(level: level, id: id, cgID: cgID)
         } else {
-            writeGamma(level: 1, id: id, cgID: cgID)  // warmth and boost only
+            writeGamma(level: 1, id: id, cgID: cgID)  // warmth, contrast and boost only
         }
     }
 
@@ -998,8 +1039,9 @@ final class AppModel: ObservableObject {
         if wasBlocked != gammaBlockedByCustomProfile { gammaBlockChanged() }
     }
 
-    /// Why a display's software image (gamma dim, colour temperature, XDR boost) isn't on screen as
-    /// set, or nil when it is: a rejected gamma write, or the custom-profile safeguard pausing gamma.
+    /// Why a display's software image (gamma dim, colour temperature, contrast, XDR boost) isn't on
+    /// screen as set, or nil when it is: a rejected gamma write, or the custom-profile safeguard
+    /// pausing gamma.
     func gammaIssueText(for observation: DisplayObservation) -> String? {
         if let code = gammaWriteFailures[observation.recordID] {
             return String(localized: "macOS rejected the gamma change (error \(code)), so it isn’t on screen.")
@@ -1007,7 +1049,7 @@ final class AppModel: ObservableObject {
         guard gammaBlockedByCustomProfile else { return nil }
         let names = displays.filter { customProfileDisplays.contains($0.recordID) }
             .map { displayName(for: $0) }.sorted().joined(separator: ", ")
-        return String(localized: "Gamma is paused because \(names) uses a custom colour profile, which can turn a screen black or tinted. Dimming uses the overlay instead; colour temperature and XDR boost are off. Choose a factory profile, or allow gamma with custom profiles in Settings › Displays › Dimming.")
+        return String(localized: "Gamma is paused because \(names) uses a custom colour profile, which can turn a screen black or tinted. Dimming uses the overlay instead; colour temperature, contrast and XDR boost are off. Choose a factory profile, or allow gamma with custom profiles in Settings › Displays › Dimming.")
     }
 
     // MARK: - XDR Brightness (Labs, Issue #35)
@@ -1483,6 +1525,12 @@ final class AppModel: ObservableObject {
         if !colorTemperature.keys.allSatisfy(ids.contains) {
             colorTemperature = colorTemperature.filter { ids.contains($0.key) }
         }
+        if !softwareContrast.keys.allSatisfy(ids.contains) {
+            softwareContrast = softwareContrast.filter { ids.contains($0.key) }
+        }
+        if !softwareAdjustmentsSuspended.allSatisfy(ids.contains) {
+            softwareAdjustmentsSuspended = softwareAdjustmentsSuspended.filter(ids.contains)
+        }
         if !xdrBoostFraction.keys.allSatisfy(ids.contains) {
             xdrBoostFraction = xdrBoostFraction.filter { ids.contains($0.key) }
         }
@@ -1735,12 +1783,18 @@ final class AppModel: ObservableObject {
     ///
     /// `eventSource` names the origin in the published OSD event when the gesture alone can't (HTTP
     /// and hotkeys look like a slider and a key press to group sync); nil derives it.
+    ///
+    /// `syncBypass` is the one-operation bypass (AM-17/TB-14): Shift held on a slider changes this
+    /// display alone — the group neither follows nor learns anything from it.
     func setBrightness(_ value: Float, for observation: DisplayObservation,
                        syncToken: GroupSyncPolicy.SyncEcho.Token? = nil,
                        origin: GroupSyncPolicy.ManualWrite.Origin = .slider,
-                       eventSource: OSDBroadcast.Source? = nil) {
+                       eventSource: OSDBroadcast.Source? = nil,
+                       syncBypass: Bool = false) {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
+        // What a delta-mode group measures this change from: the level before this write.
+        let previous = brightness[id]
         #if PUBLIC_API_ONLY
         let method = BrightnessMethod.software
         #else
@@ -1790,7 +1844,8 @@ final class AppModel: ObservableObject {
             presentOSD(kind: .brightness, value: brightness[id] ?? value, for: observation, source: source,
                        showsLocalHUD: origin != .slider)
         }
-        syncGroupBrightness(value, from: observation, token: syncToken, origin: origin)  // Issue #39
+        syncGroupBrightness(value, applied: brightness[id], previous: previous, from: observation,
+                            token: syncToken, origin: origin, bypass: syncBypass)  // Issue #39
     }
 
     // MARK: - Display Groups (Issue #39): brightness/contrast fan-out
@@ -1804,8 +1859,10 @@ final class AppModel: ObservableObject {
     /// times a second forever is a standing wake-up cost for nothing. So the loop idles slowly and
     /// samples fast only for a short while after it last saw a change.
     private func reconcileGroupBrightnessLoop() {
-        let members = Set(settings.displayGroups.filter(\.syncBrightness).flatMap(\.memberRecordIDs))
-        let active = Set(displays.filter { $0.isActive && members.contains($0.recordID) }.map(\.recordID))
+        // Named groups' members plus the Default group's live ones, when each syncs brightness. A
+        // group that ignores outside changes is still polled: a delta needs each member's real level.
+        let active = Set(displays.filter { $0.isActive && isBrightnessGroupGoverned($0.recordID) }
+            .map(\.recordID))
         nativeMonitors = nativeMonitors.filter { active.contains($0.key) || nativeWriters[$0.key] != nil }
         guard !active.isEmpty else {
             groupBrightnessLoop?.cancel()
@@ -1830,7 +1887,7 @@ final class AppModel: ObservableObject {
     private func pollGroupBrightness() async {
         for observation in displays where observation.isActive {
             let id = observation.recordID
-            guard DisplayGroupStore.isGroupGoverned(id, in: settings.displayGroups),
+            guard isBrightnessGroupGoverned(id),
                   let cgID = observation.cgDisplayID, CGDisplayIsAsleep(cgID) == 0 else { continue }
             if brightnessMethod[id] == nil { await refreshBrightness(for: observation) }
             guard brightnessMethod[id] == .native else { continue }
@@ -1839,15 +1896,20 @@ final class AppModel: ObservableObject {
             let sample = await Task.detached(priority: .utility) { control.brightness(for: cgID) }.value
             guard !Task.isCancelled,
                   displays.contains(where: { $0.recordID == id && $0.cgDisplayID == cgID && $0.isActive }),
-                  DisplayGroupStore.isGroupGoverned(id, in: settings.displayGroups),
+                  isBrightnessGroupGoverned(id),
                   let sample else { continue }
+            // The monitor's own last level, not the cache: a menu refresh or the adaptive tick may
+            // already have put `sample` in the cache, and a delta group would then see no change.
+            let previous = nativeMonitors[id]?.baseline
             if nativeMonitors[id, default: BrightnessMonitor()].observe(sample, revision: revision) {
                 brightness[id] = sample
                 groupBrightnessLastChange = Date()
                 // This is already a hardware change. Only write followers, with no duplicate OSD.
-                // Observed changes always lead: auto-brightness or a key press is never the user
-                // correcting one panel, so it must not teach an offset.
-                syncGroupBrightness(sample, from: observation, token: nil, origin: .observed)
+                // Observed changes always lead (unless the group ignores outside changes):
+                // auto-brightness or a key press is never the user correcting one panel, so it must
+                // not teach an offset.
+                syncGroupBrightness(sample, applied: sample, previous: previous, from: observation,
+                                    token: nil, origin: .observed, bypass: false)
             }
         }
     }
@@ -1880,25 +1942,78 @@ final class AppModel: ObservableObject {
     /// `GroupSyncPolicy`; this only reads the world, issues the follower writes through the SILENT
     /// path (no per-follower OSD — the leader already showed one — and no manual-cooldown teaching),
     /// and persists a re-learned offset.
-    private func syncGroupBrightness(_ value: Float, from observation: DisplayObservation,
+    ///
+    /// `value` is what the funnel was asked for, `applied` what the leader now shows (the software
+    /// route floors a request) and `previous` its level before — absolute and delta groups use the
+    /// latter two, the offsets mode keeps reading `value` exactly as before. The group is the
+    /// display's named group or, failing that, the Default group (SO-05/AM-17).
+    private func syncGroupBrightness(_ value: Float, applied: Float?, previous: Float?,
+                                     from observation: DisplayObservation,
                                      token: GroupSyncPolicy.SyncEcho.Token?,
-                                     origin: GroupSyncPolicy.ManualWrite.Origin) {
+                                     origin: GroupSyncPolicy.ManualWrite.Origin, bypass: Bool) {
         let leader = observation.recordID
-        guard let group = DisplayGroupStore.group(containing: leader, in: settings.displayGroups)
-        else { return }
+        guard let group = brightnessSyncGroup(containing: leader) else { return }
         let write = GroupSyncPolicy.ManualWrite(value: value, display: leader, token: token,
-                                                now: Date(), world: groupSyncWorld(), origin: origin)
+                                                now: Date(), world: groupSyncWorld(), origin: origin,
+                                                appliedValue: applied, previousValue: previous,
+                                                bypass: bypass)
         let result = GroupSyncPolicy.classify(write, group: group,
                                               state: groupSyncStates[group.id] ?? .init(),
                                               echo: groupSyncEcho)
         groupSyncStates[group.id] = result.state
         switch result.outcome {
-        case .echo, .governed, .syncDisabled:
+        case .echo, .governed, .syncDisabled, .bypassed, .outsideChangeIgnored:
             return
         case .followerCorrection:
             storeDisplayGroupOffsets(result.group)
         case .leader(let fanOut):
             applyFollowerBrightness(fanOut, leader: leader)
+            refreshUnknownGroupLevels(fanOut.unknownLevel)
+        }
+    }
+
+    /// The displays the Default group can include right now: every present one except virtual
+    /// screens — OpenDisplay's own (which Core Graphics reports as external; the presence
+    /// classifier knows better), macOS's placeholder and headless adapters — which have no panel
+    /// whose brightness is worth matching. Only present displays count, so a group left with a
+    /// single one stops governing it (`DisplayGroupStore.syncGroup`).
+    private var defaultGroupEligible: [DisplayRecordID] {
+        displays.filter {
+            $0.isActive && $0.physicalPresence != .virtual
+                && $0.displayClass != .virtual && $0.displayClass != .headlessAdapter
+        }.map(\.recordID)
+    }
+
+    /// The group whose brightness rules apply to `member`: its named group, else the Default group
+    /// when the display is one of its live members.
+    private func brightnessSyncGroup(containing member: DisplayRecordID) -> DisplayGroup? {
+        DisplayGroupStore.syncGroup(containing: member, in: settings.displayGroups,
+                                    defaultGroup: settings.defaultDisplayGroup, eligible: defaultGroupEligible)
+    }
+
+    /// Whether a group — named, or the Default group switched on — drives this display's brightness.
+    /// Such a display is left out of Adaptive Display (the two never write against each other).
+    private func isBrightnessGroupGoverned(_ member: DisplayRecordID) -> Bool {
+        DisplayGroupStore.isGroupGoverned(member, in: settings.displayGroups,
+                                          defaultGroup: settings.defaultDisplayGroup, eligible: defaultGroupEligible)
+    }
+
+    /// The Default group's members right now (Settings shows them; nothing is stored).
+    var defaultGroupMembers: [DisplayRecordID] {
+        DisplayGroupStore.resolvedDefaultGroup(settings.defaultDisplayGroup, eligible: defaultGroupEligible,
+                                               groups: settings.displayGroups).memberRecordIDs
+    }
+
+    /// Delta followers skipped because their level was never read: read it now, so the leader's next
+    /// change reaches them instead of skipping them again. One read in flight per display.
+    private func refreshUnknownGroupLevels(_ members: [DisplayRecordID]) {
+        for member in members where !groupLevelReads.contains(member) {
+            guard let observation = displays.first(where: { $0.recordID == member }) else { continue }
+            groupLevelReads.insert(member)
+            Task { [weak self] in
+                await self?.refreshBrightness(for: observation)
+                self?.groupLevelReads.remove(member)
+            }
         }
     }
 
@@ -1982,8 +2097,10 @@ final class AppModel: ObservableObject {
         // A contrast level in the cache IS the probe's verdict that the channel works — the same
         // signal `toggleFaceLight` uses to decide whether a display gets a contrast write at all.
         let contrastCapable = present.filter { ddcControlLevel[$0]?[HardwareControl.contrast.vcp] != nil }
+        // The brightness cache holds each display's applied (or read-back) level — what a delta
+        // group adds the leader's change to.
         return GroupSyncPolicy.World(present: Set(present), governed: governed,
-                                     contrastCapable: Set(contrastCapable))
+                                     contrastCapable: Set(contrastCapable), levels: brightness)
     }
 
     /// Hands a display its own prior brightness back without leading its group. Restores (FaceLight,
@@ -2745,24 +2862,27 @@ final class AppModel: ObservableObject {
         #endif
     }
 
-    /// Whether OpenDisplay itself is dimming or tinting this display (software dim or temperature) —
-    /// what `resetSoftwareAdjustments` would undo.
+    /// Whether OpenDisplay itself is dimming, tinting or re-toning this display (software dim,
+    /// temperature or contrast) — what `resetSoftwareAdjustments` would undo.
     func hasSoftwareAdjustments(_ observation: DisplayObservation) -> Bool {
         let id = observation.recordID
         return (softwareDim[id].map { $0 < 1 } ?? false) || colorTemperature[id] != nil
+            || softwareContrast[id] != nil
     }
 
-    /// Returns OpenDisplay's own software layers for a display — dim (gamma + overlay) and colour
-    /// temperature — to neutral. Independent of the monitor's factory reset (AM-06): the user picks it
-    /// separately, so a monitor reset that failed (or a user who wants to keep the app's evening
-    /// warmth) leaves them alone. Cleared in the cache first so `writeGamma` re-expresses a neutral
-    /// slot. Under Black Out the panel is held at gamma 0 on purpose — the cache still resets, and
-    /// lifting the blackout restores neutral.
+    /// Returns OpenDisplay's own software layers for a display — dim (gamma + overlay), colour
+    /// temperature and contrast — to neutral. Independent of the monitor's factory reset (AM-06): the
+    /// user picks it separately, so a monitor reset that failed (or a user who wants to keep the app's
+    /// evening warmth) leaves them alone. Cleared in the cache first so `writeGamma` re-expresses a
+    /// neutral slot. Under Black Out the panel is held at gamma 0 on purpose — the cache still resets,
+    /// and lifting the blackout restores neutral. A suspension (AM-18) is the user's switch, not an
+    /// adjustment: it stays as it is, as do the dimming method and the XDR boost.
     func resetSoftwareAdjustments(for observation: DisplayObservation) async {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
         softwareDim[id] = nil
         colorTemperature[id] = nil
+        softwareContrast[id] = nil
         if !blackedOut.contains(id) {
             writeGamma(level: 1.0, id: id, cgID: cgID)
             dimOverlay.remove(for: cgID)
@@ -2893,7 +3013,7 @@ final class AppModel: ObservableObject {
             // A grouped display's brightness is driven by its group (Issue #39) — the two features
             // are mutually exclusive per display, so adaptive leaves brightness alone here. Warmth is
             // orthogonal (groups never touch the colour preset) and keeps running.
-            let groupDrivesBrightness = DisplayGroupStore.isGroupGoverned(id, in: settings.displayGroups)
+            let groupDrivesBrightness = isBrightnessGroupGoverned(id)
             if warmthOn, colorPreset[id] == nil { await refreshColorPreset(for: observation) }
 
             let state = adaptiveStates[id] ?? seededAdaptiveState(for: id)
@@ -3411,8 +3531,56 @@ final class AppModel: ObservableObject {
     }
 
     /// The "synced with <group>" caption for a display's detail row, or nil when it isn't grouped.
+    /// A Default-group member gets one only while that group syncs and has someone to sync with.
     func groupSyncCaption(for observation: DisplayObservation) -> String? {
-        displayGroup(containing: observation.recordID).map { String(localized: "Synced with \($0.name)") }
+        if let named = displayGroup(containing: observation.recordID) {
+            return String(localized: "Synced with \(named.name)")
+        }
+        // The Default group resolves only while it has someone to sync with.
+        guard let group = brightnessSyncGroup(containing: observation.recordID), group.syncBrightness
+        else { return nil }
+        return String(localized: "Brightness synced with the other displays")
+    }
+
+    /// Whether this display's brightness moves with a group right now — what offers the Shift
+    /// bypass hint on its sliders.
+    func brightnessIsGroupSynced(_ observation: DisplayObservation) -> Bool {
+        isBrightnessGroupGoverned(observation.recordID)
+    }
+
+    /// Switches the Default group's brightness sync on or off (SO-05/AM-17). Its leader state starts
+    /// fresh either way, and the native-brightness poll follows the new membership.
+    func setDefaultGroupSyncBrightness(_ enabled: Bool) {
+        guard settings.defaultDisplayGroup.syncBrightness != enabled else { return }
+        settings.defaultDisplayGroup.syncBrightness = enabled
+        groupSyncStates[DisplayGroup.defaultGroupID] = nil
+        persistSettings()
+    }
+
+    /// Picks how a group's brightness reaches its followers (TR-15). Edits the live group, so a
+    /// learned offset is never overwritten by a stale view copy, and starts its leader state fresh:
+    /// a correction window opened under one mode means nothing under another. Offsets are kept.
+    func setDisplayGroupBrightnessMode(_ mode: BrightnessSyncMode, for group: DisplayGroup) {
+        editLiveDisplayGroup(group) { $0.brightnessMode = mode }
+    }
+
+    /// Whether changes made outside OpenDisplay that the app observes (macOS keys, System Settings,
+    /// auto-brightness) lead the group.
+    func setDisplayGroupFollowsOutsideChanges(_ follows: Bool, for group: DisplayGroup) {
+        editLiveDisplayGroup(group) { $0.followsOutsideChanges = follows }
+    }
+
+    /// Applies `edit` to the stored copy of `group` — the Default group or a named one — and persists.
+    private func editLiveDisplayGroup(_ group: DisplayGroup, _ edit: (inout DisplayGroup) -> Void) {
+        if group.isDefaultGroup {
+            edit(&settings.defaultDisplayGroup)
+        } else {
+            guard var edited = settings.displayGroups.first(where: { $0.id == group.id }) else { return }
+            edit(&edited)
+            settings.displayGroups = DisplayGroupStore.update(edited, in: settings.displayGroups)
+        }
+        groupSyncStates[group.id] = nil
+        persistSettings()
     }
 
     /// A name for a display that may not be present right now: its live/aliased name when the

@@ -1039,8 +1039,9 @@ func finishBrightness(_ writes: [BrightnessWrite], skipped: [ResultEnvelope.Targ
 }
 
 /// `opendisplay brightness group:<name> <0..1>` — the group itself is the target, so `level` is the
-/// group's new base level and every present member takes it with its own learned offset, decided by
-/// the same `GroupSyncPolicy` the app fans out through.
+/// group's new base level and every present member takes it with its own learned offset (in the
+/// absolute and delta modes, which have no base, every member takes `level` itself), decided by the
+/// same `GroupSyncPolicy` the app fans out through.
 ///
 /// That includes the precedence ladder: group sync sits below FaceLight and App Presets, and both
 /// record the displays they are holding in the settings file this process just read. Fanning out
@@ -1566,13 +1567,16 @@ func runGroupList(_ groups: [DisplayGroup]) async {
     }
     let pairs = await resolveCurrentDisplays()
     for group in groups {
-        let channels = [group.syncBrightness ? "brightness" : nil,
+        // A group on the original offsets mode reads exactly as before; another mode is named.
+        let brightness = group.brightnessMode == .offsets ? "brightness" : "brightness (\(group.brightnessMode.rawValue))"
+        let channels = [group.syncBrightness ? brightness : nil,
                         group.syncContrast ? "contrast" : nil].compactMap { $0 }
         print("\(group.name)  (\(group.memberRecordIDs.count) displays · syncs \(channels.joined(separator: " + ")))")
         for member in group.memberRecordIDs {
             let pair = pairs.first { $0.observation.recordID == member }
             let label = await memberLabel(member, in: pairs)
-            let offset = group.offset(for: member)
+            // Stored offsets apply only in the offsets mode; the plain modes keep them unused.
+            let offset = group.brightnessMode == .offsets ? group.offset(for: member) : 0
             let offsetNote = offset == 0 ? "" : String(format: "  %+.0f%%", offset * 100)
             print("  \(pair == nil ? "○" : "●") \(label)\(offsetNote)")
         }

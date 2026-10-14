@@ -160,6 +160,10 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// `DisplayGroupStore` enforces on every mutation. Empty by default; a grouped display is
     /// excluded from Adaptive Display targeting, so the two features never write against each other.
     public var displayGroups: [DisplayGroup]
+    /// The Default group (SO-05/AM-17): basic brightness sync for every connected display no named
+    /// group claims. Only its switches and mode are stored — membership is live
+    /// (`DisplayGroupStore.resolvedDefaultGroup`). Off by default, so nothing syncs until asked.
+    public var defaultDisplayGroup: DisplayGroup
 
     public init(
         persistencePolicy: PersistencePolicy = .reconnectOnQuit,
@@ -209,7 +213,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         xdrRestoreOnPower: Bool = true,
         layoutProtectionEnabled: Bool = false,
         protectedLayouts: [String: ProtectedConfig] = [:],
-        displayGroups: [DisplayGroup] = []
+        displayGroups: [DisplayGroup] = [],
+        defaultDisplayGroup: DisplayGroup = .defaultGroup
     ) {
         self.persistencePolicy = persistencePolicy
         self.confirmationCountdownSeconds = confirmationCountdownSeconds
@@ -259,6 +264,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.layoutProtectionEnabled = layoutProtectionEnabled
         self.protectedLayouts = protectedLayouts
         self.displayGroups = displayGroups
+        self.defaultDisplayGroup = defaultDisplayGroup
     }
 
     public static let `default` = OpenDisplaySettings()
@@ -310,6 +316,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case layoutProtectionEnabled
         case protectedLayouts
         case displayGroups
+        case defaultDisplayGroup
     }
 
     /// Tolerant decoder: every missing OR undecodable key falls back to its default and unknown
@@ -415,6 +422,17 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             ?? defaults.protectedLayouts
         displayGroups = container.lenient([DisplayGroup].self, forKey: .displayGroups)
             ?? defaults.displayGroups
+        // Its identity is fixed, whatever the file says, so it can never pose as a named group. It
+        // offers only the plain modes, so a mode it can't use (a group decoder's `.offsets`
+        // fallback for a missing or unknown value) becomes its own default, delta.
+        var defaultGroup = container.lenient(DisplayGroup.self, forKey: .defaultDisplayGroup)
+            ?? defaults.defaultDisplayGroup
+        defaultGroup.id = DisplayGroup.defaultGroupID
+        defaultGroup.memberRecordIDs = []
+        if defaultGroup.brightnessMode == .offsets {
+            defaultGroup.brightnessMode = DisplayGroup.defaultGroup.brightnessMode
+        }
+        defaultDisplayGroup = defaultGroup
     }
 }
 
