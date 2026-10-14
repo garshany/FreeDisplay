@@ -87,15 +87,35 @@ final class DisplayRegistryAmbiguityTests: XCTestCase {
         XCTAssertFalse(after.contains(where: \.isProvisional))
     }
 
-    /// A record claimed through this Mac's CG UUID index outranks a claim on the serial alone.
+    /// A record claimed through this Mac's CG UUID index outranks a claim on the serial alone — and
+    /// the outranked display, known not to be that record, becomes a display of its own.
     func testTheStrongerClaimKeepsTheRecord() async {
         let registry = await DisplayRegistry(store: InMemoryRegistryStore())
         let same = fingerprint(serial: "S1")
         let known = await registry.resolve(fingerprint: same, cgUUID: "U1")
+        await registry.setAlias("Desk", for: known.id)
         let resolved = await registry.resolveAll([input(same, "U9"), input(same, "U1")])
         XCTAssertEqual(resolved[1].id, known.id)
-        XCTAssertTrue(resolved[0].isProvisional)
-        XCTAssertEqual(resolved[0].unresolvedCandidates, [known.id])
+        XCTAssertEqual(resolved[1].alias, "Desk")
+        XCTAssertNotEqual(resolved[0].id, known.id)
+        XCTAssertFalse(resolved[0].isProvisional)
+        XCTAssertNil(resolved[0].alias)
+        let again = await registry.resolveAll([input(same, "U9"), input(same, "U1")])
+        XCTAssertEqual(again.map(\.id), resolved.map(\.id), "both stay put on the next refresh")
+    }
+
+    /// The CG UUID index is a routing hint: a record whose serial says it is another display is not
+    /// followed (and not overwritten with this display's identity).
+    func testACGUUIDPointingAtAContradictingRecordIsNotFollowed() async {
+        let registry = await DisplayRegistry(store: InMemoryRegistryStore())
+        let original = await registry.resolve(fingerprint: fingerprint(serial: "A"), cgUUID: "U1")
+        await registry.setAlias("Original", for: original.id)
+        let other = await registry.resolve(fingerprint: fingerprint(serial: "B"), cgUUID: "U1")
+        XCTAssertNotEqual(other.id, original.id)
+        XCTAssertNil(other.alias)
+        let kept = await registry.record(for: original.id)
+        XCTAssertEqual(kept?.fingerprint.serialNumber, "A")
+        XCTAssertEqual(kept?.alias, "Original")
     }
 
     /// A third unit with the shared serial and an unknown CG UUID, once records were split: there is

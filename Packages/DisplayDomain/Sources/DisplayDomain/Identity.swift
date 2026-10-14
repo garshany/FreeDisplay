@@ -161,4 +161,17 @@ public enum IdentityScorer {
         else { return false }
         return true
     }
+
+    /// Whether two fingerprints positively name *different* displays: both know vendor and product
+    /// and those differ, or both carry a serial for the same vendor and product and the serials
+    /// differ. Missing fields never conflict — a display that stops reporting its serial is still
+    /// the display it was.
+    public static func identitiesConflict(_ a: DisplayFingerprint, _ b: DisplayFingerprint) -> Bool {
+        guard let vendorA = a.vendorID, let productA = a.productID,
+              let vendorB = b.vendorID, let productB = b.productID else { return false }
+        if vendorA != vendorB || productA != productB { return true }
+        guard let serialA = a.serialNumber ?? a.serialHash,
+              let serialB = b.serialNumber ?? b.serialHash else { return false }
+        return serialA != serialB
+    }
 }

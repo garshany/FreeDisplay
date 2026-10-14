@@ -65,4 +65,13 @@ final class IdentityScorerTests: XCTestCase {
             DisplayFingerprint(vendorID: 1, productID: 2, serialNumber: "S1"),
             DisplayFingerprint(vendorID: 1, productID: 2, serialNumber: "S1")))
     }
+
+    func testIdentitiesConflictOnlyOnPositiveDifferences() {
+        let base = DisplayFingerprint(vendorID: 1, productID: 2, serialNumber: "S1")
+        XCTAssertTrue(IdentityScorer.identitiesConflict(base, DisplayFingerprint(vendorID: 9, productID: 2, serialNumber: "S1")))
+        XCTAssertTrue(IdentityScorer.identitiesConflict(base, DisplayFingerprint(vendorID: 1, productID: 2, serialNumber: "S2")))
+        XCTAssertFalse(IdentityScorer.identitiesConflict(base, DisplayFingerprint(vendorID: 1, productID: 2)))
+        XCTAssertFalse(IdentityScorer.identitiesConflict(base, DisplayFingerprint(vendorID: nil, productID: 2, serialNumber: "S9")))
+        XCTAssertFalse(IdentityScorer.identitiesConflict(base, base))
+    }
 }

@@ -166,7 +166,7 @@ public actor DisplayRegistry {
         _ inputs: [(fingerprint: DisplayFingerprint, cgUUID: String?, displayClass: DisplayClass)],
         now: Date
     ) -> [DisplayRecord] {
-        var claims = inputs.map { claim(for: $0.fingerprint, cgUUID: $0.cgUUID) }
+        var claims = inputs.map { claim(for: $0.fingerprint, cgUUID: $0.cgUUID, excluding: []) }
 
         // One record per present display. Two displays on the desk at once are two displays, so a
         // record both claim can be at most one of them: the strictly better-evidenced claimant
@@ -175,6 +175,7 @@ public actor DisplayRegistry {
         for (index, claim) in claims.enumerated() {
             if case .record(let id, _) = claim { claimants[id, default: []].append(index) }
         }
+        var outranked: [Int] = []
         for (id, indices) in claimants where indices.count > 1 {
             let strengths = indices.map { index -> Evidence in
                 guard case .record(_, let evidence) = claims[index] else { return .scored }
@@ -184,6 +185,28 @@ public actor DisplayRegistry {
             let strongest = indices.indices.filter { strengths[$0] == best }.map { indices[$0] }
             for index in indices where strongest.count > 1 || strongest.first != index {
                 claims[index] = .ambiguous([id])
+                if strongest.count == 1 { outranked.append(index) }
+            }
+        }
+        // A display that lost its record to a better-evidenced one is known NOT to be that record,
+        // so it resolves once more without any record already held — to its own, a score, or a new
+        // one. Should two of them land on the same record again, neither gets it.
+        if !outranked.isEmpty {
+            var held: Set<DisplayRecordID> = []
+            for claim in claims { if case .record(let id, _) = claim { held.insert(id) } }
+            var retried: [DisplayRecordID: [Int]] = [:]
+            for index in outranked {
+                let next = claim(for: inputs[index].fingerprint, cgUUID: inputs[index].cgUUID, excluding: held)
+                // `.ambiguous` from this round is about the remaining candidates; keep the one it lost too.
+                if case .ambiguous(let candidates) = next, case .ambiguous(let lost) = claims[index] {
+                    claims[index] = .ambiguous(lost + candidates)
+                } else {
+                    claims[index] = next
+                }
+                if case .record(let id, _) = claims[index] { retried[id, default: []].append(index) }
+            }
+            for (id, indices) in retried where indices.count > 1 {
+                for index in indices { claims[index] = .ambiguous([id]) }
             }
         }
 
@@ -216,13 +239,20 @@ public actor DisplayRegistry {
         return records
     }
 
-    /// What one display claims on its own, before the batch's one-record-per-display rule.
-    private func claim(for fingerprint: DisplayFingerprint, cgUUID: String?) -> Claim {
+    /// What one display claims on its own, before the batch's one-record-per-display rule, among
+    /// the records not in `excluded`.
+    private func claim(for fingerprint: DisplayFingerprint, cgUUID: String?,
+                       excluding excluded: Set<DisplayRecordID>) -> Claim {
+        let candidates = state.records.filter { !excluded.contains($0.id) }
+        // The CG UUID index is a same-Mac routing hint, not identity: a record whose own vendor,
+        // model or qualified serial says it is a different display is not this one, whatever the
+        // index says — following it would merge the two and overwrite the record's identity.
         let indexed = cgUUID.flatMap { state.cgUUIDIndex[$0] }
-            .flatMap { id in state.records.contains { $0.id == id } ? id : nil }
+            .flatMap { id in candidates.first { $0.id == id } }
+            .flatMap { IdentityScorer.identitiesConflict(fingerprint, $0.fingerprint) ? nil : $0.id }
 
         // 1. Qualified serial: the same serial from the same vendor and model.
-        let serialMatches = state.records
+        let serialMatches = candidates
             .filter { IdentityScorer.serialsMatch(fingerprint, $0.fingerprint) }
             .map(\.id)
         if serialMatches.count == 1 {
@@ -239,7 +269,7 @@ public actor DisplayRegistry {
         if let indexed { return .record(indexed, .cgUUID) }
 
         // 3. The single best scored fingerprint match; a tie is an answer of its own.
-        let scored = state.records
+        let scored = candidates
             .map { ($0.id, IdentityScorer.score(observed: fingerprint, candidate: $0).score) }
             .filter { $0.1 >= recognitionThreshold }
         if let best = scored.map(\.1).max() {
