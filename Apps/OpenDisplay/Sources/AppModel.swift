@@ -642,8 +642,11 @@ final class AppModel: ObservableObject {
         (try? DiskCheckpointStore.defaultDirectory().path) ?? String(localized: "(unavailable)")
     }
 
-    /// The bound global recovery hotkey, shown in Settings.
-    let reconnectAllHotkey = "⌃⌥⌘R"
+    /// The bound global recovery hotkey, shown in Settings — whatever chord is in force now, or nil
+    /// when Reconnect All has none.
+    var reconnectAllHotkey: String? {
+        effectiveHotkeyRegistry.binding(for: .reconnectAll).map(KeyBindingFormatter.string(for:))
+    }
 
     /// Probes the observation + lifecycle providers and publishes their status for Settings.
     func refreshDiagnostics() async {
@@ -1789,9 +1792,8 @@ final class AppModel: ObservableObject {
     /// This is the USER funnel — sliders and media keys — so a write here is what makes a display
     /// its group's leader (Issue #39). `syncToken` marks the write as OpenDisplay's own hand instead
     /// (a group fan-out, a FaceLight restore); those never lead. `origin` says which gesture it was:
-    /// only the slider can teach a group offset, keys always lead. `SetBrightnessIntent` does NOT
-    /// come through here (it writes DisplayServices/DDC directly); on a natively controlled display
-    /// the group picks that change up by observation instead (`pollGroupBrightness`).
+    /// only the slider can teach a group offset, keys always lead. `SetBrightnessIntent` comes
+    /// through here too, like the HTTP route (TB-05).
     ///
     /// `eventSource` names the origin in the published OSD event when the gesture alone can't (HTTP
     /// and hotkeys look like a slider and a key press to group sync); nil derives it.
@@ -5119,30 +5121,54 @@ final class AppModel: ObservableObject {
         return "\(version) (\(build))"
     }
 
-    // MARK: - Global keyboard shortcuts (Batch-2 #4)
+    // MARK: - Global keyboard shortcuts (Batch-2 #4, SO-30)
 
-    /// Registers a Carbon global hotkey for every bound action in the (defaults-merged) shortcut
-    /// registry, mapping each to its handler. Reconnect-All honours the existing enable toggle.
+    /// The shortcuts in force: persisted choices over the shipped defaults, with the older
+    /// Reconnect-All switch applied. Registration, Settings and every conflict check read this one.
+    var effectiveHotkeyRegistry: KeyboardShortcutRegistry {
+        settings.hotkeyShortcuts.effective(reconnectAllEnabled: settings.reconnectAllHotkeyEnabled)
+    }
+
+    /// Registers a Carbon global hotkey for every slot the registration plan keeps, mapping each to
+    /// its handler, and publishes each action's outcome for Settings. A chord a slot shares with an
+    /// earlier one is reported as a conflict and not registered; one macOS refuses is reported as
+    /// failed. While a shortcut is being recorded nothing is registered (`hotkeysPaused`).
     private func registerHotkeys() {
-        hotKeys.removeAll()
-        let registry = settings.hotkeyShortcuts.mergedWithDefaults()
-        var nextID: UInt32 = 1
+        hotKeys.removeAll()  // unregisters the old chords first, or re-registering them would fail
+        let registry = effectiveHotkeyRegistry
+        let plan = HotkeyRegistrationPlan(registry: registry)
+        var failed: Set<HotkeySlot> = []
+        if !hotkeysPaused {
+            var nextID: UInt32 = 1
+            for registration in plan.registrations {
+                let handler: () -> Void
+                switch registration.slot {
+                case .action(let action):
+                    handler = hotkeyHandler(for: action)
+                case .inputSwitch(let id):
+                    guard let entry = registry.inputSwitchBindings.first(where: { $0.id == id }) else { continue }
+                    handler = inputSwitchHotkeyHandler(for: entry)
+                }
+                if let hotkey = GlobalHotKey(keyCode: registration.binding.keyCode,
+                                             modifiers: registration.binding.modifiers,
+                                             id: nextID, action: handler) {
+                    hotKeys.append(hotkey)
+                } else {
+                    failed.insert(registration.slot)
+                }
+                nextID += 1
+            }
+        }
+        var statuses: [HotkeyAction: HotkeyRegistrationStatus] = [:]
         for action in HotkeyAction.allCases {
-            guard let binding = registry.binding(for: action) else { continue }
-            if action == .reconnectAll && !settings.reconnectAllHotkeyEnabled { continue }
-            if let hotkey = GlobalHotKey(keyCode: binding.keyCode, modifiers: binding.modifiers,
-                                         id: nextID, action: hotkeyHandler(for: action)) {
-                hotKeys.append(hotkey)
-            }
-            nextID += 1
+            statuses[action] = plan.status(for: action, failed: failed, paused: hotkeysPaused)
         }
+        if hotkeyStatus != statuses { hotkeyStatus = statuses }
+        var inputStatuses: [String: HotkeyRegistrationStatus] = [:]
         for entry in registry.inputSwitchBindings {
-            if let hotkey = GlobalHotKey(keyCode: entry.binding.keyCode, modifiers: entry.binding.modifiers,
-                                         id: nextID, action: inputSwitchHotkeyHandler(for: entry)) {
-                hotKeys.append(hotkey)
-            }
-            nextID += 1
+            inputStatuses[entry.id] = plan.status(forInputSwitch: entry.id, failed: failed, paused: hotkeysPaused)
         }
+        if inputHotkeyStatus != inputStatuses { inputHotkeyStatus = inputStatuses }
     }
 
     private func inputSwitchHotkeyHandler(for entry: InputSwitchBinding) -> () -> Void {
@@ -5160,16 +5186,108 @@ final class AppModel: ObservableObject {
             }
         case .cycleMainDisplay:
             return { [weak self] in Task { await self?.cycleMainDisplay() } }
+        // SO-29: the same steps the native keys take, so a shortcut and a key press agree.
         case .brightnessUp:
-            return { [weak self] in Task { await self?.adjustMainBrightness(by: 0.1) } }
+            return { [weak self] in Task { await self?.adjustMainBrightness(fine: false, sign: 1) } }
         case .brightnessDown:
-            return { [weak self] in Task { await self?.adjustMainBrightness(by: -0.1) } }
+            return { [weak self] in Task { await self?.adjustMainBrightness(fine: false, sign: -1) } }
+        case .brightnessUpFine:
+            return { [weak self] in Task { await self?.adjustMainBrightness(fine: true, sign: 1) } }
+        case .brightnessDownFine:
+            return { [weak self] in Task { await self?.adjustMainBrightness(fine: true, sign: -1) } }
         case .faceLight:
             return { [weak self] in
                 guard let self, let main = self.displays.first(where: \.isMain) else { return }
                 self.toggleFaceLight(for: main)
             }
+        // SO-38: the app delegate owns the panel and the Settings window.
+        case .toggleMenu:
+            return { NotificationCenter.default.post(name: .openDisplayToggleMenu, object: nil) }
+        case .openSettings:
+            return { NotificationCenter.default.post(name: .openDisplayShowSettings, object: nil) }
+        case .quit:
+            // The ordinary termination path, so `applicationShouldTerminate` still restores what
+            // quitting owes (offline displays, gamma, FaceLight) before the process exits.
+            return { NSApp.terminate(nil) }
         }
+    }
+
+    /// Whether each action's shortcut is live (SO-30), as of the last registration.
+    @Published private(set) var hotkeyStatus: [HotkeyAction: HotkeyRegistrationStatus] = [:]
+    /// The same for each input-switch hotkey, keyed by its id.
+    @Published private(set) var inputHotkeyStatus: [String: HotkeyRegistrationStatus] = [:]
+    /// True while Settings records a shortcut: every chord is unregistered so the keys being typed
+    /// reach the recorder instead of firing actions (an app's own Carbon hotkey would swallow them).
+    @Published private(set) var hotkeysPaused = false
+
+    /// Sets an action's chord — or, with nil, leaves it explicitly without one (SO-01) — then saves
+    /// and re-registers. Choosing a Reconnect-All chord also turns the older on/off switch back on:
+    /// picking a chord is asking for it to work.
+    func setHotkeyBinding(_ binding: KeyBinding?, for action: HotkeyAction) {
+        var registry = settings.hotkeyShortcuts
+        registry.setBinding(binding, for: action)
+        settings.hotkeyShortcuts = registry
+        if action == .reconnectAll, binding != nil { settings.reconnectAllHotkeyEnabled = true }
+        persistSettings()
+        registerHotkeys()
+    }
+
+    /// Puts one action back on its shipped chord (or none, for actions without one).
+    func restoreDefaultHotkey(for action: HotkeyAction) {
+        var registry = settings.hotkeyShortcuts
+        registry.restoreDefault(for: action)
+        settings.hotkeyShortcuts = registry
+        if action == .reconnectAll { settings.reconnectAllHotkeyEnabled = true }
+        persistSettings()
+        registerHotkeys()
+    }
+
+    /// Every fixed action back on its shipped chord; input hotkeys are the user's own and stay.
+    func restoreDefaultHotkeys() {
+        settings.hotkeyShortcuts = settings.hotkeyShortcuts.restoringDefaults()
+        settings.reconnectAllHotkeyEnabled = true
+        persistSettings()
+        registerHotkeys()
+    }
+
+    /// The slot already using `binding`, other than `action` itself — Settings refuses to save a
+    /// chord twice rather than leave one of the two silently dead.
+    func hotkeySlot(using binding: KeyBinding, excluding action: HotkeyAction) -> HotkeySlot? {
+        effectiveHotkeyRegistry.slot(using: binding, excluding: .action(action))
+    }
+
+    /// The display name Settings uses for a slot that holds a chord.
+    func hotkeySlotName(_ slot: HotkeySlot) -> String {
+        switch slot {
+        case .action(let action):
+            return action.localizedTitle
+        case .inputSwitch(let id):
+            guard let entry = settings.hotkeyShortcuts.inputSwitchBindings.first(where: { $0.id == id }) else {
+                return String(localized: "an input hotkey")
+            }
+            return String(localized: "the input hotkey for \(rememberedDisplayName(for: entry.displayID))")
+        }
+    }
+
+    /// Unregisters every chord while a shortcut is recorded (SO-30). Idempotent.
+    func pauseHotkeys() {
+        guard !hotkeysPaused else { return }
+        hotkeysPaused = true
+        registerHotkeys()
+    }
+
+    /// Registers the chords again once recording ends. Idempotent.
+    func resumeHotkeys() {
+        guard hotkeysPaused else { return }
+        hotkeysPaused = false
+        registerHotkeys()
+    }
+
+    /// Saves new adjustment steps (SO-29); the next key press or shortcut uses them.
+    func setAdjustmentSteps(_ steps: AdjustmentSteps) {
+        guard settings.adjustmentSteps != steps else { return }
+        settings.adjustmentSteps = steps
+        persistSettings()
     }
 
     /// Adds (or replaces, matching by id) an input-switch hotkey binding (todo 4), persists it, and
@@ -5196,7 +5314,7 @@ final class AppModel: ObservableObject {
     func inputSwitchHotkeyConflicts(_ combo: KeyBinding, excludingInputSwitchID: String?) -> Bool {
         // Checked against what `registerHotkeys` actually registers: defaults filled in, cleared
         // shortcuts left out (SO-01) — not the raw persisted map, which may lack either.
-        settings.hotkeyShortcuts.mergedWithDefaults()
+        effectiveHotkeyRegistry
             .inputSwitchBindingConflicts(combo, excludingInputSwitchID: excludingInputSwitchID)
     }
 
@@ -5208,13 +5326,15 @@ final class AppModel: ObservableObject {
         await setMain(for: actives[(idx + 1) % actives.count])
     }
 
-    /// Nudges the configured brightness-key target, clamped to 0...1.
-    func adjustMainBrightness(by delta: Float) async {
+    /// Nudges the configured brightness-key target one standard or fine step (SO-29: the steps the
+    /// native keys use), clamped to 0...1. `sign` is +1 to brighten, -1 to dim.
+    func adjustMainBrightness(fine: Bool, sign: Float) async {
         guard let main = MediaKeyTargetPolicy.target(
             for: .brightnessUp, in: displays, cursor: cursorInCGCoordinates(),
             mode: settings.mediaKeyTargetMode, volumeCapable: [], audioTarget: nil) else { return }
         if brightnessMethod[main.recordID] == nil { await refreshBrightness(for: main) }
         let current = brightness[main.recordID] ?? 0.5
+        let delta = sign * settings.adjustmentSteps.fraction(fine: fine)
         setBrightness(max(0, min(1, current + delta)), for: main, origin: .keys, eventSource: .hotkey)
     }
 
@@ -5275,13 +5395,13 @@ final class AppModel: ObservableObject {
         switch action {
         case .brightnessUp, .brightnessDown:
             let current = brightness[id] ?? 0.5
-            setBrightness(min(1, max(0, current + action.signedDelta(fineStep: fineStep))), for: target,
-                          origin: .keys, eventSource: .mediaKey)
+            let delta = action.signedDelta(fineStep: fineStep, steps: settings.adjustmentSteps)
+            setBrightness(min(1, max(0, current + delta)), for: target, origin: .keys, eventSource: .mediaKey)
         case .volumeUp, .volumeDown:
             // Eligibility guarantees a read-back level; nothing is invented here.
             guard let current = ddcControl(.volume, for: target) else { return false }
-            setHardwareControl(.volume, min(1, max(0, current + action.signedDelta(fineStep: fineStep))),
-                               for: target, eventSource: .mediaKey)
+            let delta = action.signedDelta(fineStep: fineStep, steps: settings.adjustmentSteps)
+            setHardwareControl(.volume, min(1, max(0, current + delta)), for: target, eventSource: .mediaKey)
         case .muteToggle:
             return toggleMute(for: target, eventSource: .mediaKey)
         }
@@ -5726,6 +5846,66 @@ final class AppModel: ObservableObject {
         }
     }
     #endif
+}
+
+// MARK: - App Intents support (IN-07, TB-05, TB-06, FB-14)
+
+extension AppModel {
+    /// Every display automation can name right now — the Shortcuts display picker.
+    var automationDisplayEntries: [AutomationDisplayEntry] {
+        AutomationDisplayCatalog.entries(displays: displays, offline: managedOffline, name: displayName(for:))
+    }
+
+    /// The name of a display the app remembers but doesn't see now, so a shortcut saved with it still
+    /// shows the right display; nil for an identifier the app has never known.
+    func automationRememberedName(_ id: DisplayRecordID) -> String? {
+        guard records[id] != nil || registryKnownRecords[id] != nil else { return nil }
+        return rememberedDisplayName(for: id)
+    }
+
+    /// Lets the launch-time display read finish before automation looks at the displays: an intent
+    /// that starts the app would otherwise see an empty list and call every display missing.
+    func prepareForAutomation() async {
+        if phase == .scanning { await refresh() }
+    }
+
+    /// The display's brightness as read back once every write already queued for it has run (TB-05):
+    /// a fresh DisplayServices or DDC read for hardware routes, and the level OpenDisplay put on
+    /// screen for software dimming (unless macOS rejected that change). Never the requested value.
+    func automationBrightnessReadback(for observation: DisplayObservation) async -> AutomationBrightness.Readback {
+        let id = observation.recordID
+        #if !PUBLIC_API_ONLY
+        // Native and DDC writes are coalesced on one task per display; the request just made is on it.
+        if let writer = nativeWriters[id] { await writer.value }
+        if let writer = ddcWriters[id] { await writer.value }
+        #endif
+        switch brightnessMethod[id] {
+        case .native?:
+            #if !PUBLIC_API_ONLY
+            guard let cgID = observation.cgDisplayID else { return .none }
+            let control = brightnessControl
+            let level = await Task.detached(priority: .userInitiated) { control.brightness(for: cgID) }.value
+            return level.map(AutomationBrightness.Readback.level) ?? .none
+            #else
+            return .none
+            #endif
+        case .hardware?:
+            #if !PUBLIC_API_ONLY
+            guard let controller = await ddcController(for: observation),
+                  let reading = await controller.read(vcp: ExternalDisplayDDC.Feature.brightness.rawValue)
+            else { return .none }
+            return .ddc(current: reading.current, max: reading.max)
+            #else
+            return .none
+            #endif
+        case .software?:
+            // With gamma as the only carrier, a rejected table write changed nothing on screen.
+            if gammaWriteFailures[id] != nil && effectiveDimmingMethod == .gamma { return .none }
+            return brightness[id].map(AutomationBrightness.Readback.level) ?? .none
+        case nil:
+            return .none
+        }
+    }
 }
 
 /// Prefers a primary lifecycle provider and falls back to a public one only when the primary

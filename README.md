@@ -134,17 +134,17 @@ to you, and at your own risk.
 |---|---|
 | **CLI `opendisplay`** | Covers display lists, brightness, DDC (including raw VCP), scenes, layout protection, groups, favourites, EDID, ambient light (`lux`), lid state, diagnostics and recovery. `listen` streams events as JSON lines. |
 | **URL scheme** | `opendisplay://reconnect-all` runs immediately. A `disconnect` URL is recognised but never runs silently; it only brings the app forward. |
-| **Shortcuts & Siri** | Two actions: *Reconnect All Displays* and *Set Display Brightness*, which sets the built-in display. |
+| **Shortcuts & Siri** | Actions with a display picker: *Get* and *Set Display Brightness* (0–100 %, the result says whether the display confirmed the level), *Set Display Mode* (the display's exact modes; the change is kept or reverted like one made in the menu), *Set Main Display*, plus *Reconnect All Displays*. Results are typed, so a shortcut can branch on them. *Settings → Automation* opens the Shortcuts app. |
 | **Local HTTP API** | Listens only on 127.0.0.1, on a random port, with a new 256-bit bearer token each session. Endpoints: `GET /v1/displays`, `POST /v1/brightness`, `POST /v1/reconnect-all`. It runs only while *Settings → Automation* is open. |
 | **Media keys & OSD** | The brightness keys control the chosen display, in hardware or software. The volume keys use DDC only when sound plays through that monitor. The on-screen HUD has several styles, and events can optionally be broadcast to external HUD apps. Needs Accessibility permission. |
-| **Input hotkeys** | Global ⌃⌥⌘-digit shortcuts switch a monitor to a chosen input, which is handy with a KVM. |
+| **Keyboard shortcuts** | *Settings → Keyboard* records a global shortcut for each action (Reconnect All, brightness steps, FaceLight, the menu, Settings, Quit), shows whether it is active or which shortcut it clashes with, and sets the brightness/volume step size. Input hotkeys (⌃⌥⌘-digit) switch a monitor to a chosen input, which is handy with a KVM. |
 | **Notifications** | Posts a system notification when an external display connects or disconnects. |
 
 ### Safety & recovery
 
 | Feature | What it does |
 |---|---|
-| **Reconnect All** | Available from the menu, the global hotkey **⌃⌥⌘R**, Shortcuts, the URL scheme, HTTP and `opendisplay recover`. |
+| **Reconnect All** | Available from the menu, a global hotkey (**⌃⌥⌘R** by default), Shortcuts, the URL scheme, HTTP and `opendisplay recover`. |
 | **Transactions & audit log** | Risky changes go through checkpoints, verification and rollback. Quitting the app reconnects every display it turned off. |
 | **Rescue app** | The standalone **OpenDisplay Rescue** restores the last known-safe arrangement, even when the main app can't run. |
 | **Diagnostics export** | Saves one zip to your Desktop with the app's records, macOS display configuration and recent display-related log lines. It is never sent anywhere. |
@@ -189,7 +189,7 @@ all 501 guide pages are covered, giving 392 backlog items (58 of them P0 fixes).
 | **HDMI-CEC, DisplayLink** | ✘ |
 | **EDID override installation** | ✘ Validate and export only |
 | Virtual screens | Partial: session-only, basic settings, no associations, no HDR |
-| Automation breadth | Partial: CLI, 2 Shortcuts actions, 3 HTTP endpoints, 1 URL command; no console or per-display event hooks |
+| Automation breadth | Partial: CLI, 5 Shortcuts actions, 3 HTTP endpoints, 1 URL command; no console or per-display event hooks |
 | Intel Macs | ✘ Apple Silicon only |
 
 Where FreeDisplay takes a different path:

@@ -109,6 +109,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self, selector: #selector(showSettings), name: .openDisplayShowSettings, object: nil)
         NotificationCenter.default.addObserver(
             self, selector: #selector(showAbout), name: .openDisplayShowAbout, object: nil)
+        // The "Show or Hide the Menu" keyboard shortcut (SO-38) acts like a click on the icon.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(toggleMenuFromShortcut), name: .openDisplayToggleMenu, object: nil)
 
         // ⌘, is registered by the placeholder SwiftUI `Settings` scene, whose window is not the real
         // settings UI. Intercept the shortcut before the scene sees it and open OUR Settings window —
@@ -188,6 +191,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func dismissPopover() {
         tray.close()
+    }
+
+    @objc private func toggleMenuFromShortcut() {
+        guard let button = statusItem?.button else { return }
+        tray.toggle(from: button)
     }
 
     /// Opening the app while it is already running (Finder, Spotlight, Launchpad) opens Settings.
@@ -329,5 +337,7 @@ extension Notification.Name {
     static let openDisplayShowSettingsFromSibling = Notification.Name("dev.opendisplay.app.showSettings")
     /// Posted by the menu's "About OpenDisplay" item; the delegate owns the About window.
     static let openDisplayShowAbout = Notification.Name("OpenDisplayShowAbout")
+    /// Posted by the "Show or Hide the Menu" keyboard shortcut; the delegate owns the panel.
+    static let openDisplayToggleMenu = Notification.Name("OpenDisplayToggleMenu")
 }
 #endif

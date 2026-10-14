@@ -174,6 +174,9 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// When the app shows a Dock icon (SO-13/FB-15). The bundle stays a menu-bar agent; this only
     /// changes the running app's activation policy. Default: while Settings is open.
     public var dockIconPolicy: DockIconPolicy
+    /// How far one brightness/volume step moves, for the native keys and the custom shortcuts alike
+    /// (SO-29). Defaults to macOS's 1/16 and 1/64 steps.
+    public var adjustmentSteps: AdjustmentSteps
 
     public init(
         persistencePolicy: PersistencePolicy = .reconnectOnQuit,
@@ -227,7 +230,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         defaultDisplayGroup: DisplayGroup = .defaultGroup,
         notificationStyle: NotificationStyle = .notificationCenter,
         routineProtectionNoticesEnabled: Bool = true,
-        dockIconPolicy: DockIconPolicy = .whileSettingsOpen
+        dockIconPolicy: DockIconPolicy = .whileSettingsOpen,
+        adjustmentSteps: AdjustmentSteps = .default
     ) {
         self.persistencePolicy = persistencePolicy
         self.confirmationCountdownSeconds = confirmationCountdownSeconds
@@ -281,6 +285,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.notificationStyle = notificationStyle
         self.routineProtectionNoticesEnabled = routineProtectionNoticesEnabled
         self.dockIconPolicy = dockIconPolicy
+        self.adjustmentSteps = adjustmentSteps
     }
 
     public static let `default` = OpenDisplaySettings()
@@ -336,6 +341,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case notificationStyle
         case routineProtectionNoticesEnabled
         case dockIconPolicy
+        case adjustmentSteps
     }
 
     /// Tolerant decoder: every missing OR undecodable key falls back to its default and unknown
@@ -458,6 +464,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             ?? defaults.routineProtectionNoticesEnabled
         dockIconPolicy = container.lenient(DockIconPolicy.self, forKey: .dockIconPolicy)
             ?? defaults.dockIconPolicy
+        adjustmentSteps = container.lenient(AdjustmentSteps.self, forKey: .adjustmentSteps)
+            ?? defaults.adjustmentSteps
     }
 }
 

@@ -6,8 +6,8 @@ import TopologyCore
 
 /// The small fixed set of ⌃⌥⌘-digit chords offered for a new input-switch hotkey (todo 4: Lunar's
 /// "Input Hotkeys"). A short pick-list, like the input-code menu already offers with
-/// `AppModel.standardInputs`, rather than an open-ended key-capture recorder — that's a bigger
-/// feature saved for the general hotkey-rebind follow-up this repo already has pending.
+/// `AppModel.standardInputs`. The open-ended recorder in Settings → Keyboard (SO-30) covers the
+/// fixed actions; input hotkeys still choose from this list.
 enum HotkeyDigitChords {
     /// Carbon ANSI virtual key codes for the digit row, keyed by the digit itself (1...9).
     private static let keyCodesByDigit: [Int: UInt32] = [
@@ -23,7 +23,7 @@ enum HotkeyDigitChords {
     static func label(forDigit digit: Int) -> String { "\u{2303}\u{2325}\u{2318}\(digit)" }
 }
 
-/// Settings → Health & Recovery section for input-switch hotkeys: lists the configured bindings and
+/// Settings → Keyboard section for input-switch hotkeys: lists the configured bindings and
 /// lets the user add or remove one. Reuses `AppModel.setInputSource`'s DDC path end to end — this
 /// view only edits which chord targets which (display, input code) pair.
 struct InputHotkeySection: View {
@@ -63,14 +63,27 @@ private struct InputHotkeyRow: View {
     let entry: InputSwitchBinding
 
     var body: some View {
-        ODRow(rowLabel, secondary: HotkeyDigitChords.label(forDigit: digit)) {
-            Button {
-                model.removeInputSwitchHotkey(id: entry.id)
-            } label: {
-                Image(systemName: "trash")
-                    .accessibilityLabel("Remove input hotkey")
+        VStack(alignment: .leading, spacing: 2) {
+            ODRow(rowLabel, secondary: HotkeyDigitChords.label(forDigit: digit)) {
+                Button {
+                    model.removeInputSwitchHotkey(id: entry.id)
+                } label: {
+                    Image(systemName: "trash")
+                        .accessibilityLabel("Remove input hotkey")
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            // SO-30: a chord that didn't register must not look like it works.
+            switch model.inputHotkeyStatus[entry.id] {
+            case .conflict(let holder)?:
+                Text("Not registered: \(model.hotkeySlotName(holder)) uses the same shortcut")
+                    .font(.caption).foregroundStyle(ODColor.caution)
+            case .failed?:
+                Text("Not registered: macOS refused this shortcut; another app may already use it")
+                    .font(.caption).foregroundStyle(ODColor.caution)
+            default:
+                EmptyView()
+            }
         }
     }
 

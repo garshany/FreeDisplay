@@ -2,13 +2,23 @@ import DisplayDomain
 import Foundation
 
 /// An app action a global keyboard shortcut can trigger (Batch-2 #4). The raw value is the stable
-/// serialization key.
+/// serialization key; case order is the order Settings lists the actions in and the order
+/// registration claims chords (an earlier action keeps a chord a later one duplicates).
 public enum HotkeyAction: String, Hashable, Sendable, Codable, CaseIterable {
     case reconnectAll
     case cycleMainDisplay
     case brightnessUp
     case brightnessDown
+    /// One fine step (SO-29) — always fine, whatever the native keys' fine-by-default setting says.
+    case brightnessUpFine
+    case brightnessDownFine
     case faceLight
+    /// Opens or closes the menu-bar panel (SO-38).
+    case toggleMenu
+    /// Opens the Settings window (SO-38).
+    case openSettings
+    /// Quits through the app's normal termination path, so quit-time restoration still runs (SO-38).
+    case quit
 
     public var label: String {
         switch self {
@@ -16,7 +26,12 @@ public enum HotkeyAction: String, Hashable, Sendable, Codable, CaseIterable {
         case .cycleMainDisplay: return "Cycle Main Display"
         case .brightnessUp: return "Brightness Up"
         case .brightnessDown: return "Brightness Down"
+        case .brightnessUpFine: return "Brightness Up (Fine)"
+        case .brightnessDownFine: return "Brightness Down (Fine)"
         case .faceLight: return "Toggle FaceLight"
+        case .toggleMenu: return "Show or Hide the Menu"
+        case .openSettings: return "Open Settings"
+        case .quit: return "Quit OpenDisplay"
         }
     }
 
@@ -172,6 +187,32 @@ public struct KeyboardShortcutRegistry: Hashable, Sendable, Codable {
         merged.inputSwitchBindings = inputSwitchBindings
         merged.disabledActions = disabledActions
         return merged
+    }
+
+    /// What registration actually works from: the merge over the defaults, with the older
+    /// Reconnect-All on/off switch (`OpenDisplaySettings.reconnectAllHotkeyEnabled`) folded in as an
+    /// explicit "no shortcut". Settings shows, conflict-checks and registers this one registry, so
+    /// the three can't disagree.
+    public func effective(reconnectAllEnabled: Bool) -> KeyboardShortcutRegistry {
+        var merged = mergedWithDefaults()
+        if !reconnectAllEnabled { merged.setBinding(nil, for: .reconnectAll) }
+        return merged
+    }
+
+    /// The slot already using `binding` — a fixed action or an input-switch hotkey — other than
+    /// `excluding`, or nil when the chord is free. Fixed actions are checked first, in list order, so
+    /// the answer is deterministic. Call it on `effective(reconnectAllEnabled:)`: a raw persisted
+    /// registry lacks the defaults and would call a shipped chord free.
+    public func slot(using binding: KeyBinding, excluding: HotkeySlot? = nil) -> HotkeySlot? {
+        for action in HotkeyAction.allCases where bindings[action] == binding {
+            let slot = HotkeySlot.action(action)
+            if slot != excluding { return slot }
+        }
+        for entry in inputSwitchBindings where entry.binding == binding {
+            let slot = HotkeySlot.inputSwitch(id: entry.id)
+            if slot != excluding { return slot }
+        }
+        return nil
     }
 
     private enum CodingKeys: String, CodingKey {
