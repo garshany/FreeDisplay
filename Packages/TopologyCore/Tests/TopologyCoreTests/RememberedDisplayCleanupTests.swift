@@ -116,6 +116,25 @@ final class RememberedDisplayCleanupTests: XCTestCase {
         XCTAssertTrue(entries.allSatisfy(\.isTurnedOffByApp))
     }
 
+    /// One monitor switched off under two of its UUIDs: forgetting would drop both entries, so one
+    /// failed reconnect isn't enough while the other entry is still owed its way back.
+    func testEveryLedgerEntryOfADisplayDecidesWhetherItCanBeForgotten() {
+        let deskRecord = record("disp_desk", alias: "Desk")
+        let mixed = RememberedDisplayInventory.build(
+            registry: [(deskRecord, [desk, deskOtherPort])], live: [],
+            offline: [offline(desk, failed: true), offline(deskOtherPort)])
+        XCTAssertEqual(mixed.map(\.status), [.turnedOff])
+        XCTAssertEqual(mixed.first?.forgetRefusal, .turnedOffByApp)
+        XCTAssertEqual(mixed.first?.offline?.recordID, deskOtherPort, "the owed entry speaks for it")
+        XCTAssertEqual(mixed.first?.offlineEntries.count, 2)
+
+        let bothFailed = RememberedDisplayInventory.build(
+            registry: [(deskRecord, [desk, deskOtherPort])], live: [],
+            offline: [offline(desk, failed: true), offline(deskOtherPort, failed: true)])
+        XCTAssertEqual(bothFailed.map(\.status), [.reconnectFailed])
+        XCTAssertNil(bothFailed.first?.forgetRefusal)
+    }
+
     /// A ledger entry the registry has no record for is still a display OpenDisplay switched off —
     /// it must be listed, or its card could never be dismissed.
     func testInventoryListsALedgerEntryWithoutARecord() {

@@ -722,7 +722,9 @@ final class AppModel: ObservableObject {
     private func refreshRegistryKnownRecords() async {
         guard let registry else { return }
         registryKnownRecords = await registry.recordsByObservationID()
-        // Republish only on a change: every view observing the model re-evaluates on a publish.
+        // Republish only on a change: every view observing the model re-evaluates on a publish. While a
+        // display is present its `lastSeen` moves on every resolve, so this mainly spares the refreshes
+        // of a registry with nothing live — comparing without `lastSeen` would leave "last seen" stale.
         let inventory = await registry.rememberedDisplays()
         if !inventory.elementsEqual(registryInventory, by: {
             $0.record == $1.record && $0.observationIDs == $1.observationIDs

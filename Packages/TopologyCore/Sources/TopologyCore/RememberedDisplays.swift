@@ -30,21 +30,34 @@ public struct RememberedDisplay: Hashable, Sendable, Identifiable {
     /// Every id the per-display stores may use for this display, sorted.
     public var observationIDs: [DisplayRecordID]
     public var status: Status
-    /// The managed-offline ledger entry, when OpenDisplay switched this display off.
-    public var offline: ManagedOfflineDisplay?
+    /// Every managed-offline ledger entry under this display's ids — usually one, but the same
+    /// monitor can have been switched off under two of its UUIDs (two ports).
+    public var offlineEntries: [ManagedOfflineDisplay]
     /// A connected display the registry couldn't tell apart from this record names it as a
     /// candidate: "not connected" may then be this very display under another id. Shown, not acted on.
     public var mayBeConnectedDisplay: Bool
 
+    /// The ledger entry that speaks for the display: one still owed a reconnect before a failed one.
+    public var offline: ManagedOfflineDisplay? {
+        offlineEntries.first { $0.reconnectFailedAt == nil } ?? offlineEntries.first
+    }
+
     public init(id: String, record: DisplayRecord?, isRegistered: Bool, observationIDs: [DisplayRecordID],
-                status: Status, offline: ManagedOfflineDisplay?, mayBeConnectedDisplay: Bool = false) {
+                status: Status, offlineEntries: [ManagedOfflineDisplay], mayBeConnectedDisplay: Bool = false) {
         self.id = id
         self.record = record
         self.isRegistered = isRegistered
         self.observationIDs = observationIDs
         self.status = status
-        self.offline = offline
+        self.offlineEntries = offlineEntries
         self.mayBeConnectedDisplay = mayBeConnectedDisplay
+    }
+
+    public init(id: String, record: DisplayRecord?, isRegistered: Bool, observationIDs: [DisplayRecordID],
+                status: Status, offline: ManagedOfflineDisplay?, mayBeConnectedDisplay: Bool = false) {
+        self.init(id: id, record: record, isRegistered: isRegistered, observationIDs: observationIDs,
+                  status: status, offlineEntries: offline.map { [$0] } ?? [],
+                  mayBeConnectedDisplay: mayBeConnectedDisplay)
     }
 
     public var isConnected: Bool { status == .connected }
@@ -62,12 +75,15 @@ public struct RememberedDisplay: Hashable, Sendable, Identifiable {
     /// can be forgotten only once a reconnect has been tried and found no display — the case of a
     /// monitor unplugged while off, whose card would otherwise never go away. The built-in panel is
     /// never in that case: it can't have been unplugged, and forgetting its entry would leave the
-    /// safety net nothing to light when the last external goes.
+    /// safety net nothing to light when the last external goes. Forgetting drops every ledger entry
+    /// under the display's ids, so each of them has to allow it (`status` already says
+    /// `.turnedOff` while any one is still owed).
     public var forgetRefusal: RememberedDisplayCleanup.Refusal? {
         switch status {
         case .connected: return .connected
         case .turnedOff: return .turnedOffByApp
-        case .reconnectFailed: return offline?.displayClass == .builtIn ? .builtInTurnedOff : nil
+        case .reconnectFailed:
+            return offlineEntries.contains { $0.displayClass == .builtIn } ? .builtInTurnedOff : nil
         case .notConnected: return nil
         }
     }
@@ -101,30 +117,30 @@ public enum RememberedDisplayInventory {
             var ids = Set(indexed)
             // A UUID-less display (`cgid:<n>`) has no index entry; the live resolution is the only link.
             for display in live where display.record?.id == record.id { ids.insert(display.observationID) }
-            let offlineEntry = offline.first { ids.contains($0.recordID) }
-            if let offlineEntry { ids.insert(offlineEntry.recordID) }
+            let offlineEntries = offline.filter { ids.contains($0.recordID) }
             claimed.formUnion(ids)
             let isLive = live.contains { ids.contains($0.observationID) || $0.record?.id == record.id }
             entries.append(RememberedDisplay(
                 id: record.id.rawValue, record: record, isRegistered: true,
                 observationIDs: ids.sorted { $0.rawValue < $1.rawValue },
-                status: status(live: isLive, offline: offlineEntry), offline: offlineEntry,
+                status: status(live: isLive, offline: offlineEntries), offlineEntries: offlineEntries,
                 mayBeConnectedDisplay: !isLive && liveCandidates.contains(record.id)))
         }
         for display in live where !claimed.contains(display.observationID) {
             // Provisional (ambiguous) or not yet resolved: the observation id is all there is.
-            let offlineEntry = offline.first { $0.recordID == display.observationID }
             claimed.insert(display.observationID)
             entries.append(RememberedDisplay(
                 id: display.observationID.rawValue, record: display.record,
                 isRegistered: display.record.map { registeredIDs.contains($0.id) } ?? false,
-                observationIDs: [display.observationID], status: .connected, offline: offlineEntry))
+                observationIDs: [display.observationID], status: .connected,
+                offlineEntries: offline.filter { $0.recordID == display.observationID }))
         }
         for entry in offline where !claimed.contains(entry.recordID) {
             claimed.insert(entry.recordID)
             entries.append(RememberedDisplay(
                 id: entry.recordID.rawValue, record: nil, isRegistered: false,
-                observationIDs: [entry.recordID], status: status(live: false, offline: entry), offline: entry))
+                observationIDs: [entry.recordID], status: status(live: false, offline: [entry]),
+                offlineEntries: [entry]))
         }
         return entries.sorted { lhs, rhs in
             let l = rank(lhs.status), r = rank(rhs.status)
@@ -143,10 +159,12 @@ public enum RememberedDisplayInventory {
         return entry.record?.friendlyName() ?? entry.id
     }
 
-    private static func status(live: Bool, offline: ManagedOfflineDisplay?) -> RememberedDisplay.Status {
+    /// Switched off while any ledger entry is still owed a reconnect; "didn't reconnect" only once
+    /// every one of them has had a reconnect find no display.
+    private static func status(live: Bool, offline: [ManagedOfflineDisplay]) -> RememberedDisplay.Status {
         if live { return .connected }
-        guard let offline else { return .notConnected }
-        return offline.reconnectFailedAt == nil ? .turnedOff : .reconnectFailed
+        if offline.isEmpty { return .notConnected }
+        return offline.contains { $0.reconnectFailedAt == nil } ? .turnedOff : .reconnectFailed
     }
 
     private static func rank(_ status: RememberedDisplay.Status) -> Int {

@@ -323,6 +323,9 @@ final class TrayPanelController: NSObject {
     func show(from button: NSStatusBarButton?) {
         anchorButton = button
         anchor = nil
+        // No `isVisible` test on the status-item window: an icon behind the notch still has an
+        // on-screen frame there, and anchoring under it is right; the normal click path must stay
+        // exactly as it was. Only a frame that lies on no screen falls through to the fallback.
         if let button, let window = button.window,
            let screen = window.screen ?? NSScreen.main, let id = screen.displayID {
             let icon = window.convertToScreen(button.convert(button.bounds, to: nil))

@@ -108,8 +108,10 @@ private struct RememberedDisplayRow: View {
                 if let live {
                     Button("Settings") { onShow(live.recordID) }.controlSize(.small)
                 }
-                // Also for a display that is still enumerated: mirroring keeps it in the display list.
-                if let offline = entry.offline {
+                // Also for a display that is still enumerated because mirroring keeps it in the list.
+                // A lit display with a ledger entry under the disconnect method is one macOS relit
+                // during a wake: its "off" is still owed, and "Reconnect" would only cancel that.
+                if let offline = entry.offline, entry.isTurnedOffByApp || model.logicalOffMethod == .mirror {
                     Button(model.logicalOffMethod == .mirror ? String(localized: "Stop Mirroring")
                                                              : String(localized: "Reconnect")) {
                         Task { await model.reconnectOffline(offline) }

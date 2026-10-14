@@ -1235,6 +1235,8 @@ private struct TrayManageDisplay: View {
                                 display.mode.map { TrayModeCatalog.sizeText($0) } ?? "")
                 }
                 TrayPillButton(String(localized: "All settings…")) {
+                    // This display's own settings, not the Remembered list a Forget… link asked for.
+                    model.rememberedDisplayFocus = nil
                     model.selectedDisplayID = display.recordID
                     ui.openSettings(.displays)
                 }
