@@ -3,11 +3,37 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
-/// An installed ICC display profile the user can assign.
+/// An installed ICC display profile the user can assign. Identified by its file, never by its
+/// name: two files can carry the same description ("Display P3" in the user and the shared
+/// folder), and they are different profiles.
 struct ICCProfile: Identifiable, Hashable {
-    let id: String   // file path — stable across launches
+    let id: String   // standardized file path — stable across launches
     let name: String
     let url: URL
+
+    init(name: String, url: URL) {
+        self.id = url.standardizedFileURL.path
+        self.name = name
+        self.url = url
+    }
+
+    /// Whether `other` names the same profile file.
+    func isFile(_ other: URL?) -> Bool {
+        other.map { $0.standardizedFileURL.path == id } ?? false
+    }
+}
+
+/// What ColorSync reports a display is assigned: a user-chosen profile overriding the factory one,
+/// or none, plus the display's factory profile files.
+struct ICCAssignment: Hashable, Sendable {
+    var customURL: URL?
+    var factoryURLs: [URL]
+
+    /// The display shows its factory profile: no custom entry, or one naming its own factory file.
+    var isFactory: Bool {
+        guard let custom = customURL?.standardizedFileURL else { return true }
+        return factoryURLs.contains { $0.standardizedFileURL == custom }
+    }
 }
 
 /// Per-display ICC colour-profile control via **public ColorSync** (App-Store-safe). Displays are
@@ -32,7 +58,8 @@ enum ColorProfileService {
         return ColorSyncDeviceCopyDeviceInfo(displayClass, uuid)?.takeRetainedValue() != nil
     }
 
-    /// Installed display (RGB) ICC profiles, de-duplicated by name and sorted.
+    /// Installed display (RGB) ICC profiles, one row per file (same-named files stay distinct),
+    /// sorted by name and then path.
     static func availableProfiles() -> [ICCProfile] {
         var collected: [ICCProfile] = []
         withUnsafeMutablePointer(to: &collected) { pointer in
@@ -47,28 +74,46 @@ enum ColorProfileService {
                    space.trimmingCharacters(in: .whitespaces) != "RGB" {
                     return true
                 }
-                list.pointee.append(ICCProfile(id: url.path, name: name, url: url))
+                list.pointee.append(ICCProfile(name: name, url: url))
                 return true
             }
             ColorSyncIterateInstalledProfiles(callback, nil, pointer, nil)
         }
         var seen = Set<String>()
         return collected
-            .filter { seen.insert($0.name).inserted }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .filter { seen.insert($0.id).inserted }
+            .sorted {
+                let order = $0.name.localizedCaseInsensitiveCompare($1.name)
+                return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+            }
+    }
+
+    /// The display's assignment, or nil when ColorSync has no readable device info for it.
+    static func assignment(for displayID: CGDirectDisplayID) -> ICCAssignment? {
+        guard let uuid = deviceUUID(for: displayID),
+              let info = ColorSyncDeviceCopyDeviceInfo(displayClass, uuid)?.takeRetainedValue() as NSDictionary?
+        else { return nil }
+        let custom = (info["CustomProfiles"] as? NSDictionary).flatMap { profileURLs(in: $0).first }
+        let factory = (info["FactoryProfiles"] as? NSDictionary).map(profileURLs(in:)) ?? []
+        return ICCAssignment(customURL: custom, factoryURLs: factory)
+    }
+
+    /// Profile URLs in a ColorSync profiles dictionary, whose values are either the URL itself or a
+    /// profile-info dictionary carrying it ("DeviceProfileURL", `kColorSyncDeviceProfileURL`).
+    private static func profileURLs(in dictionary: NSDictionary) -> [URL] {
+        dictionary.allValues.compactMap { value in
+            if let url = value as? URL { return url }
+            return (value as? NSDictionary)?["DeviceProfileURL"] as? URL
+        }
     }
 
     /// The display's current profile name (a custom override if set, else its factory default).
     static func currentProfileName(for displayID: CGDirectDisplayID) -> String? {
-        guard let uuid = deviceUUID(for: displayID),
-              let info = ColorSyncDeviceCopyDeviceInfo(displayClass, uuid)?.takeRetainedValue() as NSDictionary?
-        else { return nil }
-        if let custom = info["CustomProfiles"] as? NSDictionary,
-           let url = custom.allValues.compactMap({ $0 as? URL }).first {
+        guard let assignment = assignment(for: displayID) else { return nil }
+        if let url = assignment.customURL {
             return profileDescription(url) ?? url.deletingPathExtension().lastPathComponent
         }
-        if let factory = info["FactoryProfiles"] as? NSDictionary,
-           let url = factory.allValues.compactMap({ $0 as? URL }).first {
+        if let url = assignment.factoryURLs.first {
             let name = profileDescription(url) ?? url.deletingPathExtension().lastPathComponent
             return String(localized: "\(name) (factory)")
         }

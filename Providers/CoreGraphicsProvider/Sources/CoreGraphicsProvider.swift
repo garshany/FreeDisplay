@@ -162,7 +162,10 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
     /// Software-dims a display by scaling its gamma transfer ramp (`level` 0.15...1, where 1 = no
     /// dim). Works on any display — including externals without DDC and below the hardware minimum.
     /// Floored so the screen can never go fully black. Public Core Graphics (CGSetDisplayTransferByFormula).
-    public nonisolated func setGammaDim(_ level: Float, for displayID: CGDirectDisplayID) {
+    /// Returns Core Graphics' result, like every gamma write here, so a rejected write is never
+    /// reported as applied.
+    @discardableResult
+    public nonisolated func setGammaDim(_ level: Float, for displayID: CGDirectDisplayID) -> CGError {
         setGammaAdjustment(dim: level, red: 1, green: 1, blue: 1, for: displayID)
     }
 
@@ -170,9 +173,10 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
     /// (each 0...1). Dim and warmth share the single `CGSetDisplayTransferByFormula` slot per
     /// display, so every gamma-touching path must come through here (or `setGammaDim`, its
     /// neutral-colour wrapper) — separate calls would silently overwrite each other.
+    @discardableResult
     public nonisolated func setGammaAdjustment(
         dim: Float, red: Float, green: Float, blue: Float, for displayID: CGDirectDisplayID
-    ) {
+    ) -> CGError {
         setGammaAdjustment(dim: dim, red: red, green: green, blue: blue, boost: 1, for: displayID)
     }
 
@@ -183,17 +187,17 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
     /// meaningful boost this delegates to the formula path, so existing behavior is untouched.
     /// Like the formula path, the table is an absolute re-expression from the app's own state
     /// (never a scale of the current hardware table), so repeated writes can't compound.
+    @discardableResult
     public nonisolated func setGammaAdjustment(
         dim: Float, red: Float, green: Float, blue: Float, boost: Float,
         for displayID: CGDirectDisplayID
-    ) {
+    ) -> CGError {
         let scale = CGGammaValue(max(0.15, min(1, dim)))
         let r = scale * CGGammaValue(min(max(red, 0), 1))
         let g = scale * CGGammaValue(min(max(green, 0), 1))
         let b = scale * CGGammaValue(min(max(blue, 0), 1))
         guard boost > 1.001 else {
-            _ = CGSetDisplayTransferByFormula(displayID, 0, r, 1, 0, g, 1, 0, b, 1)
-            return
+            return CGSetDisplayTransferByFormula(displayID, 0, r, 1, 0, g, 1, 0, b, 1)
         }
         let count = 256
         var redTable = [CGGammaValue](repeating: 0, count: count)
@@ -205,7 +209,7 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
             greenTable[i] = min(1, input * g)
             blueTable[i] = min(1, input * b)
         }
-        _ = CGSetDisplayTransferByTable(displayID, UInt32(count), redTable, greenTable, blueTable)
+        return CGSetDisplayTransferByTable(displayID, UInt32(count), redTable, greenTable, blueTable)
     }
 
     /// Restores every display's gamma to its ColorSync calibration, clearing any software dim. Call
@@ -225,9 +229,16 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
     /// Mirrors `displayID` onto the current main display (both show the same content), or stops
     /// mirroring when `enabled` is false. Reversible; public Core Graphics only.
     public func setMirroring(of displayID: CGDirectDisplayID, enabled: Bool) -> Bool {
-        let master = enabled ? CGMainDisplayID() : kCGNullDirectDisplay
+        setMirrorSource(of: displayID, to: enabled ? CGMainDisplayID() : nil)
+    }
+
+    /// Mirrors `displayID` onto exactly `source`, or makes it an independent desktop when `source`
+    /// is nil — what a restore needs to put back a saved relationship whose source isn't main.
+    /// Refuses a display as its own source. Reversible; public Core Graphics only.
+    public func setMirrorSource(of displayID: CGDirectDisplayID, to source: CGDirectDisplayID?) -> Bool {
+        guard source != displayID else { return false }
         do {
-            try applyMirror(of: displayID, onto: master)
+            try applyMirror(of: displayID, onto: source ?? kCGNullDirectDisplay)
             return true
         } catch {
             return false

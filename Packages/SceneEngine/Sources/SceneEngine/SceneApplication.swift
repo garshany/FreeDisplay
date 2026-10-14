@@ -138,8 +138,9 @@ public enum SceneApplication {
         }
         if let hdr = desired.hdr {
             let label = { (on: Bool) in on ? "on" : "off" }
+            // Unknown HDR state (nil — no provider observes it yet) never counts as satisfied.
             if was.hdrEnabled == hdr { add(.hdr, .alreadySatisfied, requested: label(hdr)) }
-            else { add(.hdr, .skipped, requested: label(hdr), observed: label(was.hdrEnabled)) }
+            else { add(.hdr, .skipped, requested: label(hdr), observed: was.hdrEnabled.map(label) ?? "unknown") }
         }
         // The topology doesn't carry brightness, so there is nothing to compare against either.
         if let brightness = desired.brightness {

@@ -4,19 +4,8 @@ import DisplayDomain
 import Foundation
 
 /// One selectable display mode as the tray shows it: the exact `DisplayMode` that `AppModel.setMode`
-/// expects, plus the panel's own markers that `DisplayMode` does not carry.
-struct TrayModeOption: Hashable, Identifiable {
-    let mode: DisplayMode
-    /// macOS reports this framebuffer as the panel's native pixel grid (IOKit native flag) — the
-    /// image is drawn 1:1, so it is the sharpest choice.
-    let isNative: Bool
-    /// The mode macOS itself picks by default for this display.
-    let isDefault: Bool
-
-    var id: String {
-        "\(mode.pointWidth)x\(mode.pointHeight)/\(mode.pixelWidth)x\(mode.pixelHeight)@\(mode.refreshHz)"
-    }
-}
+/// expects, plus the native/default markers the display reports (see `DisplayModeOption`).
+typealias TrayModeOption = DisplayModeOption
 
 /// Reads the display's modes straight from Core Graphics so the tray can mark native/default modes
 /// and drop the ones macOS flags as unusable for a desktop. `AppModel.allModes` keeps every mode
@@ -88,25 +77,10 @@ enum TrayModeCatalog {
                 option.mode.refreshHz)
     }
 
-    /// Stops for the resolution slider: one per point size with the panel's native aspect ratio
-    /// (BetterDisplay's default), ascending by size so dragging right means "more space".
+    /// Stops for the resolution slider — see `DisplayModeCatalog.sliderStops` for how each size's
+    /// variant is chosen so a size-only drag keeps the current refresh rate, depth and density.
     static func sliderStops(_ options: [TrayModeOption], current: DisplayMode?) -> [TrayModeOption] {
-        let aspect = nativeAspect(options)
-        let compactList = compact(options, current: current)
-        let filtered = compactList.filter { option in
-            if let current, option.mode == current { return true }
-            guard let aspect else { return true }
-            let ratio = Double(option.mode.pointWidth) / Double(option.mode.pointHeight)
-            return abs(ratio - aspect) < 0.02
-        }
-        return filtered.reversed()
-    }
-
-    private static func nativeAspect(_ options: [TrayModeOption]) -> Double? {
-        let reference = options.first(where: \.isNative)
-            ?? options.filter { !$0.mode.isHiDPI }.max { $0.mode.pixelWidth * $0.mode.pixelHeight < $1.mode.pixelWidth * $1.mode.pixelHeight }
-        guard let mode = reference?.mode, mode.pixelHeight > 0 else { return nil }
-        return Double(mode.pixelWidth) / Double(mode.pixelHeight)
+        DisplayModeCatalog.sliderStops(options, current: current)
     }
 
     /// Refresh rates offered at the current point size, framebuffer and density.

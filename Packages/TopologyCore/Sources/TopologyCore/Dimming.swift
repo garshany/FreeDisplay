@@ -37,6 +37,14 @@ public enum DimmingComposer {
         }
     }
 
+    /// The level the software brightness route actually applies for a requested slider value:
+    /// never below `gammaFloor`, whatever the dimming method. This is the value the brightness
+    /// slider, cache and OSD must show — showing the request instead made 0 % and 10 % look
+    /// different while both applied the floor, and let key presses pile up below it unseen.
+    public static func softwareBrightnessLevel(requested: Float) -> Float {
+        min(max(requested, gammaFloor), 1)
+    }
+
     /// `level` is the dim slider's value, 1 (no dimming) down to 0 (maximum), clamped.
     /// Blackout owns the physical output until lifted; callers may still cache desired levels.
     public static func application(method: DimmingMethod, desiredLevel: Float, blackedOut: Bool) -> Split? {

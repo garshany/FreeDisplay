@@ -102,6 +102,17 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertFalse(SettingsStore(directory: directory).load().preventDisplaySleepWithExternal)
     }
 
+    func testCustomProfileGammaOverrideDefaultsOffAndRoundTrips() throws {
+        // The safeguard is on unless the user explicitly overrides it — also for an older file.
+        XCTAssertFalse(OpenDisplaySettings.default.allowGammaWithCustomProfiles)
+        let json = #"{"persistencePolicy":"reconnectOnQuit","dimmingMethod":"overlay"}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+        XCTAssertFalse(SettingsStore(directory: directory).load().allowGammaWithCustomProfiles)
+        let store = SettingsStore(directory: directory)
+        try store.save(OpenDisplaySettings(allowGammaWithCustomProfiles: true))
+        XCTAssertTrue(store.load().allowGammaWithCustomProfiles)
+    }
+
     func testXDRBrightnessDefaultsOffAndRoundTrips() throws {
         XCTAssertFalse(OpenDisplaySettings.default.xdrBrightnessEnabled)
         let store = SettingsStore(directory: directory)

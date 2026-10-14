@@ -310,17 +310,29 @@ struct AppearanceCard: View {
             ODDivider()
             ODRow(String(localized: "Colour profile")) {
                 if model.colorProfileControllable[display.recordID] == true {
+                    let profiles = model.availableColorProfilesCache
+                    // Same-named files are different profiles: their file name tells them apart.
+                    let sharedNames = Set(Dictionary(grouping: profiles, by: \.name).filter { $0.value.count > 1 }.keys)
+                    let assigned = model.colorProfileAssignment[display.recordID]?.customURL
                     Menu(model.colorProfileName[display.recordID] ?? "—") {
                         Button("Factory Default") { Task { await model.resetColorProfile(for: display) } }
                         Divider()
-                        ForEach(model.availableColorProfilesCache) { profile in
-                            Button(profile.name) { Task { await model.setColorProfile(profile, for: display) } }
+                        ForEach(profiles) { profile in
+                            let title = sharedNames.contains(profile.name)
+                                ? "\(profile.name) — \(profile.url.lastPathComponent)" : profile.name
+                            Button { Task { await model.setColorProfile(profile, for: display) } } label: {
+                                if profile.isFile(assigned) { Label(title, systemImage: "checkmark") } else { Text(title) }
+                            }
                         }
                     }
                     .menuStyle(.borderlessButton).fixedSize()
                 } else {
                     Text("Unavailable").font(.system(size: 11)).foregroundStyle(.tertiary)
                 }
+            }
+            if let error = model.colorProfileError[display.recordID] { secondaryNote(error) }
+            if let issue = model.gammaIssueText(for: display), model.colorTemperature[display.recordID] != nil {
+                secondaryNote(issue)  // the temperature above is set but isn't on screen
             }
         }
         if let reason = model.rotationUnavailableReason {
@@ -577,9 +589,10 @@ struct DimmingCard: View {
     let display: DisplayObservation
 
     /// Gamma alone bottoms out at its floor; the overlay methods can keep going (still capped short
-    /// of full black by the composer).
+    /// of full black by the composer). The method in force decides — the overlay while the
+    /// custom-profile safeguard pauses gamma.
     private var range: ClosedRange<Double> {
-        model.settings.dimmingMethod == .gamma ? 0.15...1 : 0...1
+        model.effectiveDimmingMethod == .gamma ? Double(DimmingComposer.gammaFloor)...1 : 0...1
     }
 
     private var footnote: String {
@@ -614,6 +627,21 @@ struct DimmingCard: View {
                     Text("Combined").tag(DimmingMethod.combined)
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
+            if let issue = model.gammaIssueText(for: display) {
+                Text(issue).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            // The safeguard's override, offered only where it matters: a custom profile is assigned
+            // somewhere, or the override is already on and should stay visible to be undone.
+            if !model.customProfileDisplays.isEmpty || model.settings.allowGammaWithCustomProfiles {
+                Toggle(isOn: Binding(get: { model.settings.allowGammaWithCustomProfiles },
+                                     set: { model.setAllowGammaWithCustomProfiles($0) })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Allow gamma with custom colour profiles")
+                        Text("Applies to all displays. Custom ICC profiles combined with gamma changes can leave a screen black or tinted; if that happens, turn this off or choose a factory profile.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }

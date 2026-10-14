@@ -93,7 +93,22 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
     public var rotation: Rotation
     public var isMain: Bool
     public var mirrorSourceID: DisplayRecordID?
-    public var hdrEnabled: Bool
+    /// Whether the output is in HDR mode, or nil when nothing observed it. No current provider
+    /// reads HDR output state, so nil is the normal value — and it must stay distinguishable from a
+    /// confirmed `false`, or an "HDR off" request would count as already satisfied on no evidence.
+    public var hdrEnabled: Bool? {
+        get { hdrObserved == true ? hdrReported : nil }
+        set {
+            hdrReported = newValue ?? false
+            hdrObserved = newValue == nil ? nil : true
+        }
+    }
+    /// Storage behind `hdrEnabled`. `hdrReported` keeps the historical "hdrEnabled" key and a plain
+    /// Bool, so observations persisted by this build (protected layouts, the revert marker) still
+    /// decode in older builds; `hdrObserved` says whether it means anything. Older files lack
+    /// `hdrObserved`, and their `false` was never observed — they decode as unknown.
+    private var hdrReported: Bool
+    private var hdrObserved: Bool?
     public var colorProfileName: String?
     public var transport: ConnectionTransport
     public var displayClass: DisplayClass
@@ -116,7 +131,7 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
         rotation: Rotation = .degrees0,
         isMain: Bool = false,
         mirrorSourceID: DisplayRecordID? = nil,
-        hdrEnabled: Bool = false,
+        hdrEnabled: Bool? = nil,
         colorProfileName: String? = nil,
         transport: ConnectionTransport = .unknown,
         displayClass: DisplayClass = .unknown,
@@ -135,7 +150,8 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
         self.rotation = rotation
         self.isMain = isMain
         self.mirrorSourceID = mirrorSourceID
-        self.hdrEnabled = hdrEnabled
+        self.hdrReported = hdrEnabled ?? false
+        self.hdrObserved = hdrEnabled == nil ? nil : true
         self.colorProfileName = colorProfileName
         self.transport = transport
         self.displayClass = displayClass
@@ -146,6 +162,17 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
 
     /// `true` when this display is mirroring another endpoint.
     public var isMirrored: Bool { mirrorSourceID != nil }
+
+    /// Spelled out only to keep `hdrReported` under its historical "hdrEnabled" key. EVERY stored
+    /// property must be listed: an optional one left out would compile and then silently never
+    /// persist (`testEveryStoredFieldSurvivesCoding` guards it).
+    private enum CodingKeys: String, CodingKey {
+        case recordID, cgDisplayID, cgUUID, ioServicePath, isActive, overlay, origin, mode, rotation
+        case isMain, mirrorSourceID
+        case hdrReported = "hdrEnabled"
+        case hdrObserved
+        case colorProfileName, transport, displayClass, physicalPresence, generation, observedAt
+    }
 }
 
 /// The persistent record that user intent (alias, tags, pairing, policies) attaches to. It is

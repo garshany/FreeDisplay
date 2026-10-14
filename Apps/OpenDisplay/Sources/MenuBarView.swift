@@ -360,7 +360,11 @@ private struct TrayBrightnessControl: View {
                 .font(.system(size: 17)).foregroundStyle(on ? ODColor.accent : Color.secondary)
         }
         .buttonStyle(.plain)
-        .help("XDR boost: SDR brightness above the normal maximum")
+        // The boost is a gamma table, so the custom-profile safeguard pauses it too.
+        .disabled(model.gammaBlockedByCustomProfile)
+        .help(model.gammaBlockedByCustomProfile
+              ? String(localized: "paused: custom colour profile")
+              : String(localized: "XDR boost: SDR brightness above the normal maximum"))
     }
 }
 
@@ -383,7 +387,9 @@ private struct TrayVolumeControl: View {
 }
 
 /// BetterDisplay-style resolution slider: one stop per size in the panel's aspect ratio; dragging
-/// previews the size, releasing applies it (with the usual keep/revert countdown).
+/// previews the size, releasing applies it (with the usual keep/revert countdown). Each stop keeps
+/// the current refresh rate, depth and density where the display offers them; a stop that can't
+/// says what it changes in the caption while it is being dragged to.
 private struct TrayResolutionSlider: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var ui: TrayUIState
@@ -395,41 +401,45 @@ private struct TrayResolutionSlider: View {
     @State private var applyingIndex: Int?
 
     var body: some View {
-        let stops = TrayModeCatalog.sliderStops(modes, current: display.mode)
-        if stops.count > 1, !display.isMirrored || display.isMain {
-            let current = display.mode.flatMap { mode in
-                stops.firstIndex { $0.mode.pointWidth == mode.pointWidth && $0.mode.pointHeight == mode.pointHeight }
-            } ?? 0
-            let shown = dragIndex ?? applyingIndex ?? current
-            let option = stops[min(shown, stops.count - 1)]
-            VStack(alignment: .leading, spacing: 3) {
-                TrayStepSlider(count: stops.count, index: applyingIndex ?? current,
-                               markers: stops.indices.filter { stops[$0].isNative || stops[$0].isDefault },
-                               icon: "arrow.up.left.and.arrow.down.right",
-                               valueText: TrayModeCatalog.sizeText(option.mode),
-                               enabled: !ui.isModeLocked(model, for: display),
-                               onDrag: { dragIndex = $0 }) { index in
-                    dragIndex = nil
-                    guard index != current else { return }
-                    applyingIndex = index
-                    ui.applyMode(stops[index].mode, for: display, model: model) { applyingIndex = nil }
-                }
-                HStack(spacing: 6) {
-                    if applyingIndex != nil {
-                        ProgressView().controlSize(.mini)
-                        Text("Applying mode…").font(.system(size: 10)).foregroundStyle(.secondary)
-                    } else {
-                        Text(caption(option, dragging: dragIndex != nil && dragIndex != current))
-                            .font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
+        // Hidden for a mirror target — `mirrorSourceID` names that role directly, whereas "is main"
+        // says nothing about it — and while the applied mode is unknown, because the knob could
+        // only guess where it sits.
+        if let mode = display.mode, display.mirrorSourceID == nil {
+            let stops = TrayModeCatalog.sliderStops(modes, current: mode)
+            if stops.count > 1, let current = DisplayModeCatalog.index(of: mode, in: stops) {
+                let shown = dragIndex ?? applyingIndex ?? current
+                let option = stops[min(shown, stops.count - 1)]
+                VStack(alignment: .leading, spacing: 3) {
+                    TrayStepSlider(count: stops.count, index: applyingIndex ?? current,
+                                   markers: stops.indices.filter { stops[$0].isNative || stops[$0].isDefault },
+                                   icon: "arrow.up.left.and.arrow.down.right",
+                                   valueText: TrayModeCatalog.sizeText(option.mode),
+                                   enabled: !ui.isModeLocked(model, for: display),
+                                   onDrag: { dragIndex = $0 }) { index in
+                        dragIndex = nil
+                        guard index != current else { return }
+                        applyingIndex = index
+                        ui.applyMode(stops[index].mode, for: display, model: model) { applyingIndex = nil }
                     }
+                    HStack(spacing: 6) {
+                        if applyingIndex != nil {
+                            ProgressView().controlSize(.mini)
+                            Text("Applying mode…").font(.system(size: 10)).foregroundStyle(.secondary)
+                        } else {
+                            Text(caption(option, current: mode, dragging: dragIndex != nil && dragIndex != current))
+                                .font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
+                        }
+                    }
+                    .padding(.leading, 4)
+                    .frame(height: 14)
+                    // Logical size, framebuffer, rate and density spelled out separately.
+                    .help(AppModel.modeLabel(option.mode))
                 }
-                .padding(.leading, 4)
-                .frame(height: 14)
             }
         }
     }
 
-    private func caption(_ option: TrayModeOption, dragging: Bool) -> String {
+    private func caption(_ option: TrayModeOption, current: DisplayMode, dragging: Bool) -> String {
         if model.pendingRevert != nil {
             return ui.isModeLocked(model, for: display)
                 ? String(localized: "Confirm the other display's change at the bottom of the panel first")
@@ -437,14 +447,26 @@ private struct TrayResolutionSlider: View {
                             : String(localized: "You can keep adjusting · confirm at the bottom"))
         }
         if let error = model.modeChangeError, !dragging { return error }
-        var parts = [String(localized: "Resolution")]
+        // While dragging, the word "Resolution" makes room for what the stop would change.
+        var parts = dragging ? [] : [String(localized: "Resolution")]
+        // The native flag is what the display reports — not proof of unscaled output.
         if option.isNative {
-            parts.append(String(localized: "native, no scaling"))
+            parts.append(String(localized: "native"))
         } else if option.isDefault {
             parts.append(String(localized: "recommended by macOS"))
         }
         if option.mode.isHiDPI { parts.append("HiDPI") }
-        if dragging { parts.append(String(localized: "release to apply")) }
+        if dragging {
+            let change = DisplayModeCatalog.change(from: current, to: option.mode)
+            if change.density, !option.mode.isHiDPI { parts.append(String(localized: "no HiDPI")) }
+            if change.refreshRate {
+                let rate = TrayModeCatalog.refreshText(option.mode.refreshHz)
+                let now = TrayModeCatalog.refreshText(current.refreshHz)
+                parts.append(String(localized: "\(rate) instead of \(now)"))
+            }
+            if change.bitDepth, let bits = option.mode.bitDepth { parts.append(String(localized: "\(bits)-bit")) }
+            parts.append(String(localized: "release to apply"))
+        }
         return parts.joined(separator: " · ")
     }
 }
@@ -576,6 +598,11 @@ private struct TrayModeList: View {
                 TraySubheader(String(localized: "Favorites"))
                 ForEach(favorites) { row($0, current: current) }
             }
+            let unavailable = model.unavailableFavoriteKeys(among: modes.map(\.mode), for: display)
+            if !unavailable.isEmpty {
+                TraySubheader(String(localized: "Favorites not offered now"))
+                ForEach(unavailable, id: \.self) { unavailableRow($0) }
+            }
             TraySubheader(showAll ? String(localized: "All modes") : String(localized: "Other sizes"))
             ForEach(rest) { row($0, current: current) }
             // Below the rows on purpose: a message appearing here never pushes the row that was clicked.
@@ -584,7 +611,9 @@ private struct TrayModeList: View {
                 if showAll { ui.showAllModes.remove(key) } else { ui.showAllModes.insert(key) }
             }
             .padding(.top, 4)
-            TrayNote(String(localized: "“Native” is the sharpest: the picture is drawn 1:1, without scaling. A new mode has to be confirmed, or it reverts on its own."))
+            // The native flag is reported metadata; whether the panel shows the framebuffer 1:1
+            // isn't observable here, so the note must not promise "sharpest" or "no scaling".
+            TrayNote(String(localized: "“Native” is the mode the display reports as native; it doesn’t guarantee unscaled output. Sizes are in points — a HiDPI framebuffer is larger. A new mode has to be confirmed, or it reverts on its own."))
         }
     }
 
@@ -597,6 +626,7 @@ private struct TrayModeList: View {
         }) {
             HStack(spacing: 5) {
                 Text(TrayModeCatalog.sizeText(option.mode)).font(.system(size: 12).monospacedDigit())
+                    .help(AppModel.modeLabel(option.mode))  // logical vs framebuffer size, exact rate
                 if option.mode.isHiDPI { TrayTag("HiDPI", tint: ODColor.accent) }
                 Text(TrayModeCatalog.refreshText(option.mode.refreshHz))
                     .font(.system(size: 10.5)).foregroundStyle(.secondary)
@@ -611,6 +641,30 @@ private struct TrayModeList: View {
                 .help(favorite ? "Remove from favorites" : "Add to favorites")
             }
         }
+    }
+
+    /// A favourite the display doesn't offer right now: shown as it was stored — never matched to a
+    /// near mode — not selectable, and removable.
+    private func unavailableRow(_ favoriteKey: String) -> some View {
+        let stored = FavoriteResolutions.storedMode(forKey: favoriteKey)
+        return HStack(spacing: 5) {
+            if let stored {
+                Text(TrayModeCatalog.sizeText(stored)).font(.system(size: 12).monospacedDigit())
+                if stored.isHiDPI { TrayTag("HiDPI", tint: .secondary) }
+                Text(TrayModeCatalog.refreshText(stored.refreshHz)).font(.system(size: 10.5))
+            } else {
+                Text(verbatim: favoriteKey).font(.system(size: 12).monospacedDigit())  // older rounded key
+            }
+            Spacer(minLength: 2)
+            Button { model.removeFavoriteKey(favoriteKey, for: display) } label: {
+                Image(systemName: "star.fill").font(.system(size: 10)).foregroundStyle(Color.yellow)
+            }
+            .buttonStyle(.plain)
+            .help("Remove from favorites")
+        }
+        .foregroundStyle(.secondary)
+        .padding(.leading, 24).padding(.trailing, 6).padding(.vertical, 4)  // aligned with the choice rows' text
+        .help(stored.map(AppModel.modeLabel) ?? favoriteKey)
     }
 }
 
@@ -659,7 +713,11 @@ private struct TrayToggles: View {
             let otherLit = model.displays.contains {
                 $0.recordID != display.recordID && $0.isActive && !model.isBlackedOut($0)
             }
-            TraySwitchRow(title: String(localized: "Black Out"), detail: String(localized: "fully black screen"),
+            // Without gamma (overlay-only dimming, or the custom-profile safeguard) Black Out is the
+            // overlay alone, which sits under the menu bar — so the menu bar stays lit.
+            TraySwitchRow(title: String(localized: "Black Out"),
+                          detail: model.effectiveDimmingMethod == .overlay
+                              ? String(localized: "black except the menu bar") : String(localized: "fully black screen"),
                           isOn: model.isBlackedOut(display),
                           enabled: model.isBlackedOut(display) || otherLit) { _ in
                 model.toggleBlackOut(for: display)
@@ -669,7 +727,11 @@ private struct TrayToggles: View {
                 model.toggleFaceLight(for: display)
             }
             if model.xdrCapable(display) {
-                TraySwitchRow(title: String(localized: "XDR boost"), isOn: (model.xdrBoostFraction[display.recordID] ?? 0) > 0) { on in
+                // The boost is a gamma table: unavailable while the custom-profile safeguard pauses gamma.
+                TraySwitchRow(title: String(localized: "XDR boost"),
+                              detail: model.gammaBlockedByCustomProfile ? String(localized: "paused: custom colour profile") : nil,
+                              isOn: (model.xdrBoostFraction[display.recordID] ?? 0) > 0,
+                              enabled: !model.gammaBlockedByCustomProfile) { on in
                     model.setXDRBoost(on ? XDRBrightnessPolicy.defaultBoostFraction : 0, for: display)
                 }
             }
@@ -691,7 +753,8 @@ private struct TrayImageAdjustments: View {
         let id = display.recordID
         let minK = Double(ColorTemperatureCurve.minKelvin), maxK = Double(ColorTemperatureCurve.maxKelvin)
         let kelvin = Double(model.colorTemperature[id] ?? ColorTemperatureCurve.neutralKelvin)
-        let dimFloor = model.settings.dimmingMethod == .gamma ? 0.15 : 0
+        // The method in force: overlay while the custom-profile safeguard pauses gamma.
+        let dimFloor = model.effectiveDimmingMethod == .gamma ? Double(DimmingComposer.gammaFloor) : 0
         let dim = Double(model.softwareDim[id] ?? 1)
         VStack(alignment: .leading, spacing: 8) {
             TrayLabeled(String(localized: "Color temperature"),
@@ -714,6 +777,7 @@ private struct TrayImageAdjustments: View {
                                     (String(localized: "Overlay"), DimmingMethod.overlay),
                                     (String(localized: "Both"), DimmingMethod.combined)],
                           selection: model.settings.dimmingMethod) { model.setDimmingMethod($0) }
+            if let issue = model.gammaIssueText(for: display) { TrayNote(issue, tint: ODColor.caution) }
             TrayNote(String(localized: "The dimming method is shared by all displays. Temperature and dimming stay until you quit OpenDisplay."))
         }
     }
@@ -907,19 +971,30 @@ private struct TrayColorProfileList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             if model.colorProfileControllable[display.recordID] == true {
-                let current = model.colorProfileName[display.recordID] ?? ""
-                // Must match the factory names `ColorProfileService.currentProfileName` reports (same
-                // localized keys), so the check holds in every UI language.
-                TrayChoiceRow(selected: current == String(localized: "Factory default") || current.hasSuffix(String(localized: "(factory)")),
+                // Rows are marked by the assigned FILE: two installed profiles can share a name.
+                // Unknown until the assignment has been read, so nothing is marked before that.
+                let assignment = model.colorProfileAssignment[display.recordID]
+                let profiles = model.availableColorProfilesCache
+                let sharedNames = Set(Dictionary(grouping: profiles, by: \.name).filter { $0.value.count > 1 }.keys)
+                TrayChoiceRow(selected: assignment?.isFactory == true,
                               action: { Task { await model.resetColorProfile(for: display) } }) {
                     Text("Factory default").font(.system(size: 12))
                 }
-                ForEach(model.availableColorProfilesCache) { profile in
-                    TrayChoiceRow(selected: profile.name == model.colorProfileName[display.recordID],
+                ForEach(profiles) { profile in
+                    TrayChoiceRow(selected: profile.isFile(assignment?.customURL),
                                   action: { Task { await model.setColorProfile(profile, for: display) } }) {
-                        Text(profile.name).font(.system(size: 12)).lineLimit(1)
+                        HStack(spacing: 4) {
+                            Text(profile.name).font(.system(size: 12)).lineLimit(1)
+                            if sharedNames.contains(profile.name) {
+                                // Same description, different file: the file name tells them apart.
+                                Text(profile.url.lastPathComponent).font(.system(size: 10))
+                                    .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                            }
+                        }
                     }
+                    .help(profile.url.path)
                 }
+                if let error = model.colorProfileError[display.recordID] { TrayNote(error, tint: ODColor.caution) }
             } else {
                 TrayNote(String(localized: "macOS doesn't allow changing this display's profile."))
             }

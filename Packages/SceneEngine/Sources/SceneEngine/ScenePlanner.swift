@@ -170,10 +170,13 @@ public struct ScenePlanner: Sendable {
         }
 
         if let hdr = desired.hdr {
-            let satisfied = observed?.hdrEnabled == hdr
+            // Only an observed state can satisfy the request. An unknown one (nil — what every
+            // live provider reports today) is planned as work, and says why.
+            let observedHDR = observed?.hdrEnabled
+            let detail = hdr ? "Enable HDR" : "Disable HDR"
             ops.append(.init(kind: .setHDR, target: target,
-                             detail: hdr ? "Enable HDR" : "Disable HDR",
-                             status: satisfied ? .alreadySatisfied : .willApply,
+                             detail: observedHDR == nil ? detail + " (current HDR state unknown)" : detail,
+                             status: observedHDR == hdr ? .alreadySatisfied : .willApply,
                              risk: hdr ? .experimental : .normal))
         }
 

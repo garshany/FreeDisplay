@@ -177,6 +177,26 @@ final class AppModel: ObservableObject {
     /// Installed ICC profiles the user can assign, enumerated off-main once and cached (the scan reads
     /// and parses every installed profile from disk, so it must never run during a SwiftUI body).
     @Published private(set) var availableColorProfilesCache: [ICCProfile] = []
+    /// What ColorSync reports each display is assigned — the profile FILE, so the menus mark the
+    /// actual current profile even when two installed files share a name. Absent = not read yet.
+    @Published private(set) var colorProfileAssignment: [DisplayRecordID: ICCAssignment] = [:]
+    /// Why the last profile change on a display didn't land (ColorSync refused it, or the re-read
+    /// shows a different profile); cleared by the next change that does.
+    @Published private(set) var colorProfileError: [DisplayRecordID: String] = [:]
+    /// Connected displays with a user/shared custom ICC profile assigned (`ColorProfileGuard`).
+    /// While non-empty, OpenDisplay's gamma writes are blocked on every display unless the user
+    /// overrode the safeguard.
+    @Published private(set) var customProfileDisplays: Set<DisplayRecordID> = []
+    /// Per display, the Core Graphics error of the last gamma write that was rejected; nil once a
+    /// write lands. Surfaced next to the software brightness, dimming and temperature controls,
+    /// whose cached values are the request — this says the request isn't on screen.
+    @Published private(set) var gammaWriteFailures: [DisplayRecordID: Int32] = [:]
+    /// Displays whose gamma table currently holds OpenDisplay's formula/table rather than
+    /// ColorSync's. Only these ever need handing back, so a display nothing has dimmed or warmed
+    /// gets no colour-table call at all.
+    private var gammaOwned: Set<DisplayRecordID> = []
+    /// Sequence number of the newest custom-profile safeguard read (`refreshCustomProfileGuard`).
+    private var customProfileGuardRead = 0
 
     /// Standard DDC colour-preset labels (VCP 0x14, MCCS 2.2 codes 0x01…0x0C). Monitors vary; the
     /// menu offers the advertised codes (or a bounded 1...max guess) and labels the standard ones,
@@ -496,6 +516,16 @@ final class AppModel: ObservableObject {
             #endif
         }
         Task { await observeTopologyChanges() }
+        // ColorSync announces profile assignments made anywhere (System Settings, another app) on
+        // the distributed centre (`kColorSyncDeviceProfilesNotification`,
+        // `kColorSyncDisplayDeviceProfilesNotification`); the custom-profile safeguard must hear
+        // them, not wait for the next topology change.
+        for name in ["com.apple.ColorSync.DeviceProfilesNotification", "com.apple.ColorSync.DisplayProfileNotification"] {
+            DistributedNotificationCenter.default().addObserver(
+                forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in await self?.refreshCustomProfileGuard() }
+            }
+        }
         // A software gamma dim persists until logout; restore on quit so it never outlives the app.
         // The keep-awake assertion is process-bound, but release it explicitly so it's gone the instant
         // we quit rather than at process teardown.
@@ -723,12 +753,29 @@ final class AppModel: ObservableObject {
 
     /// Moves a single display to a new origin (used by the drag-to-arrange canvas), then re-reads
     /// the resulting topology (Core Graphics may adjust neighbours to keep the layout adjacent).
+    ///
+    /// The drop is checked against the topology as it is now, not as the tile was drawn: a display
+    /// that has since become a mirror target (an origin write can change its mirror set) or left is
+    /// not moved. A rejected write is reported in `arrangementError` instead of being dropped.
     func setPosition(_ origin: DisplayOrigin, for observation: DisplayObservation) async {
-        guard let cgID = observation.cgDisplayID else { return }
-        _ = observer.applyArrangement([.init(displayID: cgID, origin: origin, mode: nil)])
+        arrangementError = nil
+        let snapshot = await observer.currentSnapshot()
+        guard ArrangementTiles.canMove(observation.recordID, in: snapshot),
+              let cgID = snapshot.observation(for: observation.recordID)?.cgDisplayID else {
+            arrangementError = String(localized: "The arrangement changed before the drop, so nothing was moved.")
+            await refresh()
+            return
+        }
+        let warnings = observer.applyArrangement([.init(displayID: cgID, origin: origin, mode: nil)])
+        if !warnings.isEmpty {
+            arrangementError = String(localized: "macOS didn’t accept the new position. The canvas shows the arrangement in effect.")
+        }
         await refresh()
         await noteLayoutSelfChange()
     }
+
+    /// Why the last drag on the arrangement canvas didn't move anything; nil after a clean drop.
+    @Published private(set) var arrangementError: String?
 
     /// Mirrors a display onto the main display (both show the same content) or stops mirroring.
     /// Reversible (public Core Graphics mirroring).
@@ -748,12 +795,32 @@ final class AppModel: ObservableObject {
         applyDim(level: level, id: observation.recordID, cgID: cgID)
     }
 
-    /// Expresses one dim level through the current method's gamma/overlay split.
-    private func applyDim(level: Float, id: DisplayRecordID, cgID: CGDirectDisplayID) {
-        guard let split = DimmingComposer.application(method: settings.dimmingMethod,
-            desiredLevel: level, blackedOut: blackedOut.contains(id)) else { return }
-        writeGamma(level: split.gammaLevel, id: id, cgID: cgID)
+    /// Whether the custom-profile safeguard is blocking gamma writes right now: a user/shared
+    /// custom ICC profile is assigned to a connected display and the user hasn't overridden it.
+    var gammaBlockedByCustomProfile: Bool {
+        !customProfileDisplays.isEmpty && !settings.allowGammaWithCustomProfiles
+    }
+
+    /// The dimming method in force: the configured one, or the overlay while the safeguard blocks
+    /// gamma — the dim keeps working, and the UI says why (`gammaIssueText`).
+    var effectiveDimmingMethod: DimmingMethod {
+        GammaSlotPolicy.effectiveMethod(settings.dimmingMethod, gammaBlocked: gammaBlockedByCustomProfile)
+    }
+
+    /// Expresses one dim level through the effective method's gamma/overlay split. Returns whether
+    /// the gamma half is on screen as requested (true when there was nothing to write).
+    @discardableResult
+    private func applyDim(level: Float, id: DisplayRecordID, cgID: CGDirectDisplayID) -> Bool {
+        guard let split = DimmingComposer.application(method: effectiveDimmingMethod,
+            desiredLevel: level, blackedOut: blackedOut.contains(id)) else { return true }
+        let landed = writeGamma(level: split.gammaLevel, id: id, cgID: cgID)
         dimOverlay.setAlpha(split.overlayAlpha, for: cgID)
+        return landed
+    }
+
+    /// The gamma half of a display's current software dim under the effective method.
+    private func dimGammaLevel(for id: DisplayRecordID) -> Float {
+        DimmingComposer.split(method: effectiveDimmingMethod, level: softwareDim[id] ?? 1).gammaLevel
     }
 
     /// Per-display software colour temperature in kelvin; absent = neutral (calibration untouched).
@@ -768,15 +835,21 @@ final class AppModel: ObservableObject {
         // Snap to native near the neutral point so a slider drag can actually land on "untouched".
         colorTemperature[id] = abs(kelvin - ColorTemperatureCurve.neutralKelvin) < 100 ? nil : kelvin
         guard !blackedOut.contains(id) else { return }  // applied when the blackout lifts
-        let split = DimmingComposer.split(method: settings.dimmingMethod, level: softwareDim[id] ?? 1)
-        writeGamma(level: split.gammaLevel, id: id, cgID: cgID)
+        writeGamma(level: dimGammaLevel(for: id), id: id, cgID: cgID)
     }
 
     /// The one funnel for gamma writes: dim scale × the display's colour-temperature gains × the
     /// XDR boost (Issue #35 — read live here so no caller can silently clear an active boost).
     /// Direct `setGammaDim` calls would silently clear an active warmth — only Black Out (which
-    /// wants the neutral floor) bypasses this.
-    private func writeGamma(level: Float, id: DisplayRecordID, cgID: CGDirectDisplayID) {
+    /// wants the neutral floor) bypasses this, through `writeBlackOutGamma`.
+    ///
+    /// Makes no colour-table call when nothing needs gamma (an identity formula would still replace
+    /// the ColorSync calibration — overlay-only dimming must leave it alone), hands the slot back to
+    /// ColorSync when OpenDisplay's table is no longer wanted or allowed, and records a rejected
+    /// write in `gammaWriteFailures` instead of discarding it. Returns whether the requested gamma
+    /// state is on screen.
+    @discardableResult
+    private func writeGamma(level: Float, id: DisplayRecordID, cgID: CGDirectDisplayID) -> Bool {
         let gains = ColorTemperatureCurve.gains(
             kelvin: colorTemperature[id] ?? ColorTemperatureCurve.neutralKelvin)
         // Headroom is only read while a boost is set — a plain dim/warmth write skips the
@@ -785,21 +858,156 @@ final class AppModel: ObservableObject {
         let boost = fraction > 0
             ? XDRBrightnessPolicy.boost(forFraction: fraction, headroom: xdrHeadroom(cgID: cgID))
             : 1
-        observer.setGammaAdjustment(
-            dim: level, red: gains.red, green: gains.green, blue: gains.blue, boost: boost, for: cgID)
+        let needsGamma = GammaSlotPolicy.needsGamma(dim: level, gains: gains, boost: boost)
+        switch GammaSlotPolicy.action(needsGamma: needsGamma, owned: gammaOwned.contains(id),
+                                      blocked: gammaBlockedByCustomProfile) {
+        case .none:
+            noteGammaWrite(.success, id: id)
+            return true
+        case .release:
+            releaseGamma(id)
+            return !needsGamma
+        case .blocked:
+            return false
+        case .write:
+            let result = observer.setGammaAdjustment(
+                dim: level, red: gains.red, green: gains.green, blue: gains.blue, boost: boost, for: cgID)
+            if result == .success { gammaOwned.insert(id) }
+            noteGammaWrite(result, id: id)
+            return result == .success
+        }
     }
 
-    /// Switches the dimming method and re-expresses every live dim through it, so the slider
-    /// positions keep meaning the same darkness. (A software-brightness fallback dim migrates too —
-    /// both layers read from the same per-display level.)
+    /// Black Out's gamma half — the floor, which also darkens the menu-bar strip the overlay leaves
+    /// visible. Not written (no colour-table call) when dimming is overlay-only or gamma is blocked;
+    /// the opaque overlay does the blacking out either way.
+    private func writeBlackOutGamma(id: DisplayRecordID, cgID: CGDirectDisplayID) {
+        guard effectiveDimmingMethod != .overlay else {
+            if gammaOwned.contains(id) { releaseGamma(id) }
+            return
+        }
+        let result = observer.setGammaDim(0.0, for: cgID)
+        if result == .success { gammaOwned.insert(id) }
+        noteGammaWrite(result, id: id)
+    }
+
+    /// Records a gamma write's result: success clears a reported failure, anything else is
+    /// surfaced. Republishes only on change — this runs per slider tick.
+    private func noteGammaWrite(_ result: CGError, id: DisplayRecordID) {
+        if result == .success {
+            if gammaWriteFailures[id] != nil { gammaWriteFailures[id] = nil }
+        } else if gammaWriteFailures[id] != result.rawValue {
+            gammaWriteFailures[id] = result.rawValue
+        }
+    }
+
+    /// Hands `id`'s gamma slot back to ColorSync — the recovery that restores the profile's own
+    /// calibration without touching the user's ICC selection. Core Graphics can only restore every
+    /// display at once, so the displays still holding an OpenDisplay table are re-expressed after.
+    private func releaseGamma(_ id: DisplayRecordID) {
+        gammaOwned.remove(id)
+        if gammaWriteFailures[id] != nil { gammaWriteFailures[id] = nil }
+        CoreGraphicsProvider.restoreGamma()
+        for other in gammaOwned { reexpressSoftwareImage(other) }
+    }
+
+    /// Re-expresses a display's whole software image state — dim (gamma + overlay), warmth and
+    /// boost, or Black Out — under the current method and safeguard. The overlay window is touched
+    /// only when a dim is set: without one it may be FaceLight's warm wash, which a zero-alpha dim
+    /// write would remove.
+    private func reexpressSoftwareImage(_ id: DisplayRecordID) {
+        guard let cgID = displays.first(where: { $0.recordID == id })?.cgDisplayID else {
+            gammaOwned.remove(id)
+            return
+        }
+        if blackedOut.contains(id) {
+            writeBlackOutGamma(id: id, cgID: cgID)
+        } else if let level = softwareDim[id], level < 1 {
+            applyDim(level: level, id: id, cgID: cgID)
+        } else {
+            writeGamma(level: 1, id: id, cgID: cgID)  // warmth and boost only
+        }
+    }
+
+    /// Re-expresses every display — after the dimming method or the custom-profile safeguard
+    /// changed. A display with no software state gets no colour-table call.
+    private func reexpressAllSoftwareImages() {
+        for display in displays where display.cgDisplayID != nil {
+            reexpressSoftwareImage(display.recordID)
+        }
+    }
+
+    /// Switches the dimming method and re-expresses every display through it, so the slider
+    /// positions keep meaning the same darkness — and a switch to overlay-only hands the gamma
+    /// table (Black Out's included) back to ColorSync. (A software-brightness fallback dim migrates
+    /// too — both layers read from the same per-display level.)
     func setDimmingMethod(_ method: DimmingMethod) {
         guard settings.dimmingMethod != method else { return }
         settings.dimmingMethod = method
         persistSettings()
-        for (id, level) in softwareDim where level < 1.0 && !blackedOut.contains(id) {
-            guard let cgID = displays.first(where: { $0.recordID == id })?.cgDisplayID else { continue }
-            applyDim(level: level, id: id, cgID: cgID)
+        reexpressAllSoftwareImages()
+    }
+
+    /// The custom-profile safeguard override (Settings › Displays › Dimming). Off by default.
+    func setAllowGammaWithCustomProfiles(_ allowed: Bool) {
+        guard settings.allowGammaWithCustomProfiles != allowed else { return }
+        let wasBlocked = gammaBlockedByCustomProfile
+        settings.allowGammaWithCustomProfiles = allowed
+        persistSettings()
+        if wasBlocked != gammaBlockedByCustomProfile { gammaBlockChanged() }
+    }
+
+    /// The safeguard just engaged or lifted. An XDR boost is a gamma table, so an engaged guard
+    /// drops it the way the Labs switch does rather than leave its toggle lit over nothing; then
+    /// every display is re-expressed under the new rule.
+    private func gammaBlockChanged() {
+        if gammaBlockedByCustomProfile {
+            for display in displays where (xdrBoostFraction[display.recordID] ?? 0) > 0 {
+                setXDRBoost(0, for: display)
+            }
         }
+        reexpressAllSoftwareImages()
+    }
+
+    /// Re-reads every connected display's ColorSync assignment (off-main) and, when the safeguard's
+    /// verdict changes, re-expresses every display under the new rule: engaging it hands gamma back
+    /// to ColorSync and moves dims to the overlay; lifting it puts gamma back where it was wanted.
+    func refreshCustomProfileGuard() async {
+        // Refresh, profile changes and ColorSync notifications can overlap; only the newest read
+        // may decide, or a slower stale one could land last and undo a newer verdict.
+        customProfileGuardRead &+= 1
+        let read = customProfileGuardRead
+        let targets = displays.compactMap { display in display.cgDisplayID.map { (display.recordID, $0) } }
+        let readings = await Task.detached(priority: .utility) {
+            targets.map { id, cgID in (id, ColorProfileService.assignment(for: cgID)) }
+        }.value
+        guard read == customProfileGuardRead else { return }
+        var classified: [DisplayRecordID: ColorProfileGuard.Assignment] = [:]
+        var unreadable: Set<DisplayRecordID> = []
+        for (id, assignment) in readings {
+            guard let assignment else { unreadable.insert(id); continue }
+            if colorProfileAssignment[id] != assignment { colorProfileAssignment[id] = assignment }
+            classified[id] = ColorProfileGuard.classify(assignedPath: assignment.customURL?.path,
+                                                        factoryPaths: assignment.factoryURLs.map(\.path))
+        }
+        let blocking = ColorProfileGuard.blockingDisplays(readings: classified, unreadable: unreadable,
+                                                          previous: customProfileDisplays)
+        guard blocking != customProfileDisplays else { return }
+        let wasBlocked = gammaBlockedByCustomProfile
+        customProfileDisplays = blocking
+        if wasBlocked != gammaBlockedByCustomProfile { gammaBlockChanged() }
+    }
+
+    /// Why a display's software image (gamma dim, colour temperature, XDR boost) isn't on screen as
+    /// set, or nil when it is: a rejected gamma write, or the custom-profile safeguard pausing gamma.
+    func gammaIssueText(for observation: DisplayObservation) -> String? {
+        if let code = gammaWriteFailures[observation.recordID] {
+            return String(localized: "macOS rejected the gamma change (error \(code)), so it isn’t on screen.")
+        }
+        guard gammaBlockedByCustomProfile else { return nil }
+        let names = displays.filter { customProfileDisplays.contains($0.recordID) }
+            .map { displayName(for: $0) }.sorted().joined(separator: ", ")
+        return String(localized: "Gamma is paused because \(names) uses a custom colour profile, which can turn a screen black or tinted. Dimming uses the overlay instead; colour temperature and XDR boost are off. Choose a factory profile, or allow gamma with custom profiles in Settings › Displays › Dimming.")
     }
 
     // MARK: - XDR Brightness (Labs, Issue #35)
@@ -890,11 +1098,14 @@ final class AppModel: ObservableObject {
             xdrTrigger.disengage()
             // Black Out stays the last gamma writer; a departed panel has no gamma to re-express.
             guard let cgID = observation.cgDisplayID, !blackedOut.contains(id) else { return }
-            let split = DimmingComposer.split(method: settings.dimmingMethod, level: softwareDim[id] ?? 1)
-            writeGamma(level: split.gammaLevel, id: id, cgID: cgID)
+            writeGamma(level: dimGammaLevel(for: id), id: id, cgID: cgID)
             return
         }
         guard let cgID = observation.cgDisplayID else { return }  // gone from CG: nothing to boost
+        // The boost IS a gamma table: with gamma blocked by the custom-profile safeguard, engaging
+        // the EDR trigger would only raise the backlight for content WindowServer then attenuates.
+        // Lands as zero, which `setXDRBoost` records; `gammaIssueText` says why.
+        guard !gammaBlockedByCustomProfile else { return }
         xdrBoostFraction[id] = fraction
         xdrRampTask?.cancel()
         xdrRampTask = nil
@@ -921,8 +1132,7 @@ final class AppModel: ObservableObject {
                 xdrTrigger.setEngaged(true, on: screen)
             }
             if !blackedOut.contains(id) {
-                let split = DimmingComposer.split(method: settings.dimmingMethod, level: softwareDim[id] ?? 1)
-                writeGamma(level: split.gammaLevel, id: id, cgID: cgID)
+                writeGamma(level: dimGammaLevel(for: id), id: id, cgID: cgID)
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
@@ -1093,7 +1303,7 @@ final class AppModel: ObservableObject {
             }
             guard anotherLit else { return }
             blackedOut.insert(id)
-            observer.setGammaDim(0.0, for: cgID)
+            writeBlackOutGamma(id: id, cgID: cgID)
             // The provider floors gamma at 0.15 so a dim can never become unreadable; that floor
             // left Black Out at ~15 %. The click-through opaque overlay does the actual blacking
             // out, and lifting it goes through applyDim, which resets the overlay alpha.
@@ -1279,6 +1489,10 @@ final class AppModel: ObservableObject {
         dimOverlay.reconcile()  // drop overlays for departed displays, re-fit after mode/layout changes
         xdrTrigger.reconcile(screens: NSScreen.screens)  // re-fit / re-present the EDR trigger, drop if its display left
         if !colorProfileControllable.keys.allSatisfy(ids.contains) { colorProfileControllable = colorProfileControllable.filter { ids.contains($0.key) } }
+        if !colorProfileAssignment.keys.allSatisfy(ids.contains) { colorProfileAssignment = colorProfileAssignment.filter { ids.contains($0.key) } }
+        if !colorProfileError.keys.allSatisfy(ids.contains) { colorProfileError = colorProfileError.filter { ids.contains($0.key) } }
+        if !gammaWriteFailures.keys.allSatisfy(ids.contains) { gammaWriteFailures = gammaWriteFailures.filter { ids.contains($0.key) } }
+        gammaOwned.formIntersection(ids)  // a departed display's table went with it
         if !blackedOut.allSatisfy(ids.contains) { blackedOut = blackedOut.filter(ids.contains) }
         #if !PUBLIC_API_ONLY
         pruneDDCCaches(to: ids)
@@ -1366,6 +1580,9 @@ final class AppModel: ObservableObject {
         phase = displays.isEmpty ? .empty : .ready
         await resolveRecords(snapshot)
         await refreshDiagnostics()
+        // A display that arrived (or left) can carry a custom profile; the safeguard covers every
+        // connected display, so it is re-judged whenever the set might have changed.
+        await refreshCustomProfileGuard()
         #if DEBUG
         if ProcessInfo.processInfo.environment["OPENDISPLAY_DUMP"] != nil {
             Self.dump(snapshot)
@@ -1476,15 +1693,33 @@ final class AppModel: ObservableObject {
 
     /// The caption for a display's brightness slider ("Hardware · DDC", "Software · gamma"), or nil for
     /// native control where no qualifier is needed.
+    ///
+    /// For software brightness it names the method actually in force (the overlay while the
+    /// custom-profile safeguard pauses gamma), says when the slider sits on the software floor —
+    /// the lowest level this route applies — and when the gamma half isn't on screen.
     func brightnessCaption(for observation: DisplayObservation) -> String? {
-        guard brightnessMethod[observation.recordID] == .software else {
-            return brightnessMethod[observation.recordID]?.caption
+        let id = observation.recordID
+        guard brightnessMethod[id] == .software else {
+            return brightnessMethod[id]?.caption
         }
-        switch settings.dimmingMethod {
-        case .gamma: return String(localized: "Software · gamma")
-        case .overlay: return String(localized: "Software · overlay")
-        case .combined: return String(localized: "Software · combined")
+        var parts: [String]
+        switch effectiveDimmingMethod {
+        case .gamma: parts = [String(localized: "Software · gamma")]
+        case .overlay: parts = [String(localized: "Software · overlay")]
+        case .combined: parts = [String(localized: "Software · combined")]
         }
+        // Exactly the floor: that is where this route stops. A lower level can only come from the
+        // dimming slider (overlay methods) and is applied as shown, so it gets no note.
+        if brightness[id] == DimmingComposer.gammaFloor {
+            let floorPercent = Int((DimmingComposer.gammaFloor * 100).rounded())
+            parts.append(String(localized: "software minimum \(floorPercent)%"))
+        }
+        if gammaWriteFailures[id] != nil {
+            parts.append(String(localized: "gamma change rejected"))
+        } else if gammaBlockedByCustomProfile && settings.dimmingMethod != .overlay {
+            parts.append(String(localized: "gamma paused: custom colour profile"))
+        }
+        return parts.joined(separator: " · ")
     }
 
     /// Sets a display's brightness (0...1) through whichever route was resolved for it, updating the
@@ -1506,7 +1741,6 @@ final class AppModel: ObservableObject {
                        eventSource: OSDBroadcast.Source? = nil) {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
-        brightness[id] = value
         #if PUBLIC_API_ONLY
         let method = BrightnessMethod.software
         #else
@@ -1514,6 +1748,9 @@ final class AppModel: ObservableObject {
             ? BrightnessMethod.software
             : brightnessMethod[id] ?? (observation.displayClass == .builtIn ? .native : .hardware)
         #endif
+        // One cache write per tick: the software route stores its floored level below instead.
+        if method != .software { brightness[id] = value }
+        var onScreen = true
         switch method {
         case .native:
             #if !PUBLIC_API_ONLY
@@ -1532,16 +1769,27 @@ final class AppModel: ObservableObject {
             }
             #endif
         case .software:
-            let gamma = max(0.15, value)
-            softwareDim[id] = gamma
-            applyDim(level: gamma, id: id, cgID: cgID)
+            // The cache holds what is applied, not the request: the route floors the level, and a
+            // slider/OSD showing 5 % over a 15 % image (or keys stepping below the floor unseen)
+            // would misreport it. The floor value itself is unchanged.
+            let level = DimmingComposer.softwareBrightnessLevel(requested: value)
+            brightness[id] = level
+            softwareDim[id] = level
+            let landed = applyDim(level: level, id: id, cgID: cgID)
+            // With gamma as the only carrier a rejected write changed nothing on screen, so no HUD
+            // may confirm it; the caption reports the failure instead.
+            onScreen = landed || effectiveDimmingMethod != .gamma
         }
         // Batch-3 #4: the HUD confirms key presses; a slider already shows its own value. The event
         // goes out for every change regardless (IN-04) — a slider, HTTP or restore draws no HUD,
-        // but `listen` and external HUD apps still have to hear about it.
-        let source = eventSource ?? (syncToken != nil ? .app : origin == .keys ? .mediaKey : .menu)
-        presentOSD(kind: .brightness, value: value, for: observation, source: source,
-                   showsLocalHUD: origin != .slider)
+        // but `listen` and external HUD apps still have to hear about it. Both carry the level that
+        // is applied (the software floor included), and neither goes out for a rejected software
+        // write that changed nothing on screen.
+        if onScreen {
+            let source = eventSource ?? (syncToken != nil ? .app : origin == .keys ? .mediaKey : .menu)
+            presentOSD(kind: .brightness, value: brightness[id] ?? value, for: observation, source: source,
+                       showsLocalHUD: origin != .slider)
+        }
         syncGroupBrightness(value, from: observation, token: syncToken, origin: origin)  // Issue #39
     }
 
@@ -1674,7 +1922,6 @@ final class AppModel: ObservableObject {
     private func applySilentBrightness(_ value: Float, for observation: DisplayObservation) {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
-        brightness[id] = value  // keep the visible slider honest
         #if PUBLIC_API_ONLY
         let method = BrightnessMethod.software
         #else
@@ -1682,6 +1929,8 @@ final class AppModel: ObservableObject {
             ? BrightnessMethod.software
             : brightnessMethod[id] ?? (observation.displayClass == .builtIn ? .native : .hardware)
         #endif
+        // Keep the visible slider honest — the software route caches its floored level below.
+        if method != .software { brightness[id] = value }
         switch method {
         case .native:
             #if !PUBLIC_API_ONLY
@@ -1692,9 +1941,11 @@ final class AppModel: ObservableObject {
             applyAdaptiveBrightness(value, for: observation)  // the existing coalesced DDC writer
             #endif
         case .software:
-            let gamma = max(0.15, value)
-            softwareDim[id] = gamma
-            applyDim(level: gamma, id: id, cgID: cgID)
+            // Same as the user funnel: cache the floored level that is applied.
+            let level = DimmingComposer.softwareBrightnessLevel(requested: value)
+            brightness[id] = level
+            softwareDim[id] = level
+            applyDim(level: level, id: id, cgID: cgID)
         }
     }
 
@@ -2243,9 +2494,10 @@ final class AppModel: ObservableObject {
         return DDCPowerRisk.assess(isMain: observation.isMain, otherVisibleScreens: others.count)
     }
 
-    /// Refreshes a display's cached ICC state — controllability, current profile name, and (once) the
-    /// installed-profile list — all OFF the main actor, since ColorSync iterates and parses profiles
-    /// from disk. The menu reads only the published caches and never touches ColorSync in a view body.
+    /// Refreshes a display's cached ICC state — controllability, current profile (name and file),
+    /// and (once) the installed-profile list — all OFF the main actor, since ColorSync iterates and
+    /// parses profiles from disk. The menu reads only the published caches and never touches
+    /// ColorSync in a view body.
     func refreshColorProfile(for observation: DisplayObservation) async {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
@@ -2253,46 +2505,71 @@ final class AppModel: ObservableObject {
         let result = await Task.detached(priority: .userInitiated) {
             (controllable: ColorProfileService.isControllable(cgID),
              name: ColorProfileService.currentProfileName(for: cgID),
+             assignment: ColorProfileService.assignment(for: cgID),
              profiles: needProfiles ? ColorProfileService.availableProfiles() : nil)
         }.value
         colorProfileControllable[id] = result.controllable
         colorProfileName[id] = result.name
+        if let assignment = result.assignment { colorProfileAssignment[id] = assignment }
         if let profiles = result.profiles { availableColorProfilesCache = profiles }
     }
 
     /// Assigns an ICC profile to a display (validated by ColorSyncProfileVerify inside the service),
-    /// then re-reads the applied name off-main ("verify, don't assume"). User-driven.
+    /// then re-reads the assignment off-main ("verify, don't assume"). The change counts only when
+    /// ColorSync accepted it AND the re-read shows that very file — a refusal used to be dropped,
+    /// and the name check could not tell two same-named files apart. User-driven.
     func setColorProfile(_ profile: ICCProfile, for observation: DisplayObservation) async {
         guard FeatureFlags.iccProfileWrite, let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
-        let name = await Task.detached(priority: .userInitiated) { () -> String? in
-            ColorProfileService.setProfile(profile, for: cgID)
-            return ColorProfileService.currentProfileName(for: cgID)
+        let result = await Task.detached(priority: .userInitiated) {
+            (accepted: ColorProfileService.setProfile(profile, for: cgID),
+             assignment: ColorProfileService.assignment(for: cgID),
+             name: ColorProfileService.currentProfileName(for: cgID))
         }.value
-        colorProfileName[id] = name
-        reapplySoftwareDim(for: observation)
+        noteProfileChange(name: result.name, assignment: result.assignment, id: id,
+                          landed: result.accepted && profile.isFile(result.assignment?.customURL),
+                          failure: String(localized: "macOS didn’t apply “\(profile.name)”. The profile shown is the one in effect."))
+        await afterProfileChange(observation)
     }
 
-    /// Reverts a display to its factory ICC profile, then re-reads the resulting name off-main.
+    /// Reverts a display to its factory ICC profile, then re-reads the assignment off-main; it
+    /// counts only when ColorSync accepted it and no custom profile remains.
     func resetColorProfile(for observation: DisplayObservation) async {
         guard FeatureFlags.iccProfileWrite, let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
-        let name = await Task.detached(priority: .userInitiated) { () -> String? in
-            ColorProfileService.resetToFactory(for: cgID)
-            return ColorProfileService.currentProfileName(for: cgID)
+        let result = await Task.detached(priority: .userInitiated) {
+            (accepted: ColorProfileService.resetToFactory(for: cgID),
+             assignment: ColorProfileService.assignment(for: cgID),
+             name: ColorProfileService.currentProfileName(for: cgID))
         }.value
+        let landed = result.accepted && result.assignment?.isFactory == true
+        noteProfileChange(name: result.name, assignment: result.assignment, id: id, landed: landed,
+                          failure: String(localized: "macOS didn’t switch back to the factory profile. The profile shown is the one in effect."))
+        await afterProfileChange(observation)
+    }
+
+    private func noteProfileChange(name: String?, assignment: ICCAssignment?, id: DisplayRecordID,
+                                   landed: Bool, failure: String) {
         colorProfileName[id] = name
+        if let assignment { colorProfileAssignment[id] = assignment }
+        colorProfileError[id] = landed ? nil : failure
+    }
+
+    /// A profile change can engage or lift the custom-profile safeguard (which re-expresses every
+    /// display itself), and ColorSync reinstalling the display's table wipes an OpenDisplay one.
+    private func afterProfileChange(_ observation: DisplayObservation) async {
+        await refreshCustomProfileGuard()
         reapplySoftwareDim(for: observation)
     }
 
-    /// Re-asserts an active software-gamma dim after a colour-profile change. Applying a profile can
+    /// Re-asserts OpenDisplay's gamma table after a colour-profile change. Applying a profile can
     /// rebuild the display's transfer tables WindowServer-side, silently wiping a formula-based dim —
-    /// the screen would jump to full brightness while the slider still shows the dimmed level.
-    /// Skipped while Black Out holds the panel at gamma 0: dim < blackout, re-asserting would light it.
+    /// the screen would jump to full brightness while the slider still shows the dimmed level. Only
+    /// a display whose table is OpenDisplay's needs it; Black Out is re-expressed as Black Out, so
+    /// it isn't lit by a dim level.
     private func reapplySoftwareDim(for observation: DisplayObservation) {
-        guard let cgID = observation.cgDisplayID, !blackedOut.contains(observation.recordID),
-              let dim = softwareDim[observation.recordID], dim < 1.0 else { return }
-        applyDim(level: dim, id: observation.recordID, cgID: cgID)
+        guard gammaOwned.contains(observation.recordID) else { return }
+        reexpressSoftwareImage(observation.recordID)
     }
 
     /// Current rotation of a display in degrees (0/90/180/270), read via public Core Graphics.
@@ -3412,17 +3689,29 @@ final class AppModel: ObservableObject {
         favorites.isFavorite(mode, for: observation.recordID)
     }
 
-    /// Pins/unpins `mode` as a favourite for this display and persists.
+    /// Pins/unpins `mode` as a favourite for this display and persists. Every mode the display offers
+    /// goes along so a favourite saved under the old rounded key — which covered a 59.94/60 Hz pair
+    /// at once — is first split into exact keys: un-pinning one of the pair keeps the other.
     func toggleFavoriteResolution(_ mode: DisplayMode, for observation: DisplayObservation) {
-        favorites.toggle(mode, for: observation.recordID)
+        favorites.toggle(mode, among: allModes(for: observation), for: observation.recordID)
         try? favoritesStore?.save(favorites)
     }
 
-    /// The display's favourite modes (newest first), resolved against `stops` — stale ones drop out.
+    /// The display's favourite modes (newest first) among `stops`; favourites it doesn't offer right
+    /// now are left out here but stay stored.
     func favoriteResolutions(among stops: [DisplayMode], for observation: DisplayObservation) -> [DisplayMode] {
-        let merged = favorites.merged(stops: stops, for: observation.recordID)
-        let count = favorites.favoriteKeys(for: observation.recordID).count
-        return merged.prefix(count).filter { isFavoriteResolution($0, for: observation) }
+        favorites.favoriteModes(among: stops, for: observation.recordID)
+    }
+
+    /// The display's favourites that none of `stops` matches — kept, listed apart, removable.
+    func unavailableFavoriteKeys(among stops: [DisplayMode], for observation: DisplayObservation) -> [String] {
+        favorites.unavailableKeys(among: stops, for: observation.recordID)
+    }
+
+    /// Removes a favourite by its stored key (one the display doesn't offer has no mode to toggle).
+    func removeFavoriteKey(_ key: String, for observation: DisplayObservation) {
+        favorites.removeKey(key, for: observation.recordID)
+        try? favoritesStore?.save(favorites)
     }
 
     /// Switches the refresh rate at the current resolution.
@@ -3543,10 +3832,13 @@ final class AppModel: ObservableObject {
             let observer = self.observer
             _ = await Task.detached(priority: .userInitiated) { observer.applyArrangement(targets) }.value
         }
-        for obs in observations {
-            guard let cgID = obs.cgDisplayID else { continue }
-            _ = await observer.setMirroring(of: cgID, enabled: obs.isMirrored)
-        }
+        // Back to each display's exact prior source (or independence) — not "onto main", which put a
+        // display that mirrored a non-main source onto the wrong one.
+        let current = await observer.currentSnapshot()
+        let steps = MirrorRestorePlan.steps(
+            wanted: observations.map { MirrorRestorePlan.Step(target: $0.recordID, source: $0.mirrorSourceID) },
+            current: current)
+        _ = await applyMirrorSteps(steps, in: current)
         await refresh()
         await noteLayoutSelfChange()
     }
@@ -4251,7 +4543,10 @@ final class AppModel: ObservableObject {
             now: Date(),
             isEnabled: settings.layoutProtectionEnabled,
             asleepDisplayIDs: sleepingDisplayIDs(),
-            managedOfflineIDs: Set(managedOffline.map(\.recordID)))
+            managedOfflineIDs: Set(managedOffline.map(\.recordID)),
+            // Read-only rotation backend (default, and the only one in the public build): rotation
+            // drift is excluded rather than "restored" by a scene apply that cannot rotate.
+            canRestoreRotation: rotationWritable)
     }
 
     /// Displays macOS reports as asleep right now. The observer already folds sleep into `isActive`
@@ -4272,6 +4567,8 @@ final class AppModel: ObservableObject {
                                         before generation: TopologyGeneration) async {
         await appendLayoutProtectionAudit(status: "attempted", analysis: analysis)
         await restoreProtectedActiveState(config, analysis: analysis)
+        // Before the scene: the saved origins were captured with the saved rotation.
+        await restoreProtectedRotation(config, analysis: analysis)
         await applyScene(LayoutProtectionPolicy.restoreScene(for: config))
         await restoreProtectedMirroring(config, analysis: analysis)
 
@@ -4319,6 +4616,22 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Puts back a rotation the policy marked actionable — which it does only while the gated
+    /// experimental rotation backend is on (`Context.canRestoreRotation`). Goes through
+    /// `setRotation`, the one rotation writer with the recovery marker and the safe-angle rollback;
+    /// `applyScene` cannot rotate at all.
+    private func restoreProtectedRotation(_ config: ProtectedConfig,
+                                          analysis: DisplayConfigDrifter.DriftAnalysis) async {
+        guard rotationWritable else { return }
+        for change in analysis.changes {
+            guard case .rotationChanged(let id) = change,
+                  let wanted = config.snapshot.observation(for: id)?.rotation,
+                  let live = displays.first(where: { $0.recordID == id && $0.isActive }),
+                  currentRotation(for: live) != wanted.rawValue else { continue }
+            await setRotation(wanted.rawValue, for: live)
+        }
+    }
+
     /// Re-applies the protected mirror relationships. `DesiredState` carries no mirror field, so this
     /// rides alongside the scene apply exactly as the arrangement-revert path does.
     ///
@@ -4327,19 +4640,34 @@ final class AppModel: ObservableObject {
     /// public lifecycle provider, so comparing mirror state directly would un-mirror — turn back
     /// on — exactly the display that must stay off. The policy filters those out; reading its
     /// answer is what keeps that guarantee from being quietly re-derived here.
+    ///
+    /// Each target goes back to the exact source it was saved with (`mirrorRestoreSteps`), not to
+    /// "mirrored onto whatever is main" — a C→A arrangement that drifted to C→B is put back to C→A.
     private func restoreProtectedMirroring(_ config: ProtectedConfig,
                                            analysis: DisplayConfigDrifter.DriftAnalysis) async {
-        var changed = false
-        for change in analysis.changes {
-            guard case .mirrorChanged(let id) = change,
-                  let wanted = config.snapshot.observation(for: id),
-                  let live = displays.first(where: { $0.recordID == id }),
-                  let cgID = live.cgDisplayID,
-                  live.isMirrored != wanted.isMirrored else { continue }
-            _ = await observer.setMirroring(of: cgID, enabled: wanted.isMirrored)
-            changed = true
+        let current = await observer.currentSnapshot()
+        let steps = LayoutProtectionPolicy.mirrorRestoreSteps(
+            protected: config.snapshot, current: current, analysis: analysis)
+        if await applyMirrorSteps(steps, in: current) { await refresh() }
+    }
+
+    /// Performs mirror steps against fresh Core Graphics IDs from `snapshot`. A step whose display or
+    /// source has no live ID is skipped rather than substituted. Returns whether anything was written.
+    /// A rejected write isn't retried here: Protected Layout's residual check reports it, and the
+    /// keep/revert path (like before) relies on the refreshed topology the menus then show.
+    private func applyMirrorSteps(_ steps: [MirrorRestorePlan.Step], in snapshot: TopologySnapshot) async -> Bool {
+        var wrote = false
+        for step in steps {
+            guard let target = snapshot.observation(for: step.target)?.cgDisplayID else { continue }
+            var source: CGDirectDisplayID?
+            if let sourceID = step.source {
+                guard let live = snapshot.observation(for: sourceID)?.cgDisplayID else { continue }
+                source = live
+            }
+            _ = await observer.setMirrorSource(of: target, to: source)
+            wrote = true
         }
-        if changed { await refresh() }
+        return wrote
     }
 
     /// Display names for the restore notification, covering displays that have since left.
@@ -4416,6 +4744,7 @@ final class AppModel: ObservableObject {
             persistManagedOffline()
         }
         CoreGraphicsProvider.restoreGamma()
+        gammaOwned.removeAll()  // every table is ColorSync's again
         softwareDim.removeAll()
         dimOverlay.removeAll()
         xdrRampTask?.cancel()

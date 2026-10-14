@@ -164,6 +164,9 @@ private struct ArrangeSection: View {
         ScrollView {
             VStack(alignment: .leading, spacing: ODSpacing.md) {
                 DisplayArrangementView()
+                if let error = model.arrangementError {
+                    ODInlineBanner(tone: .orange, systemImage: "exclamationmark.triangle", title: error)
+                }
                 Text("Drag a display to reposition it. Changes apply immediately; save the layout as a scene under Scenes.")
                     .font(.caption).foregroundStyle(.secondary)
                 ODDivider()
@@ -198,6 +201,17 @@ private struct ProtectedLayoutCard: View {
                 }
             }
             if model.settings.layoutProtectionEnabled {
+                // Said out loud because protection silently skips it: with the read-only rotation
+                // backend a restore can't rotate, so rotation drift is excluded, not retried.
+                if !model.rotationWritable {
+                    #if PUBLIC_API_ONLY
+                    Text("Rotation isn’t protected: this build can’t rotate displays.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    #else
+                    Text("Rotation isn’t protected: OpenDisplay can rotate displays only with Labs › Experimental display rotation on.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    #endif
+                }
                 CurrentLayoutProtectionRow()
                 OtherProtectedLayoutsList()
             }
@@ -966,15 +980,21 @@ private struct ProjectLinkRow: View {
 /// The drag-to-arrange canvas: each active display is a proportionally-sized, positioned tile
 /// (mirroring System Settings › Displays › Arrange). Dropping a tile applies its new origin live;
 /// Core Graphics then re-snaps the layout so displays stay adjacent and the canvas re-renders.
+/// A mirror set is one tile — its source, naming the displays that mirror it — because a mirror
+/// target is not a separate desktop and moving it can change its mirror set (`ArrangementTiles`).
 private struct DisplayArrangementView: View {
     @EnvironmentObject private var model: AppModel
     private let canvas = CGSize(width: 480, height: 210)
 
     var body: some View {
-        let tiles = model.displays.compactMap { display -> (DisplayObservation, CGRect)? in
-            guard let mode = display.mode, display.isActive else { return nil }
+        let tiles = ArrangementTiles.tiles(for: model.displays).compactMap { tile -> (DisplayObservation, CGRect, [String])? in
+            let display = tile.display
+            guard let mode = display.mode else { return nil }
+            let mirrors = tile.mirrorTargets.compactMap { id in
+                model.displays.first { $0.recordID == id }.map { model.displayName(for: $0) }
+            }
             return (display, CGRect(x: CGFloat(display.origin.x), y: CGFloat(display.origin.y),
-                                    width: CGFloat(mode.pointWidth), height: CGFloat(mode.pointHeight)))
+                                    width: CGFloat(mode.pointWidth), height: CGFloat(mode.pointHeight)), mirrors)
         }
         let union = tiles.map(\.1).reduce(CGRect.null) { $0.union($1) }
         let scale: CGFloat = (union.isNull || union.width < 1 || union.height < 1)
@@ -985,9 +1005,10 @@ private struct DisplayArrangementView: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.secondary.opacity(0.1))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.secondary.opacity(0.3)))
-            ForEach(tiles, id: \.0.recordID) { display, frame in
+            ForEach(tiles, id: \.0.recordID) { display, frame, mirrors in
                 DisplayTile(
                     display: display,
+                    mirroredOn: mirrors,
                     tileSize: CGSize(width: frame.width * scale, height: frame.height * scale),
                     center: CGPoint(x: (frame.midX - union.midX) * scale + canvas.width / 2,
                                     y: (frame.midY - union.midY) * scale + canvas.height / 2),
@@ -1001,6 +1022,8 @@ private struct DisplayArrangementView: View {
 private struct DisplayTile: View {
     @EnvironmentObject private var model: AppModel
     let display: DisplayObservation
+    /// Names of the displays mirroring this one; they move with it.
+    let mirroredOn: [String]
     let tileSize: CGSize
     let center: CGPoint
     let scale: CGFloat
@@ -1015,6 +1038,11 @@ private struct DisplayTile: View {
                 VStack(spacing: 1) {
                     Text(model.displayName(for: display)).font(.caption2).lineLimit(1).padding(.horizontal, 3)
                     if display.isMain { Text("Main").font(.system(size: 8)).foregroundStyle(.secondary) }
+                    if !mirroredOn.isEmpty {
+                        let names = mirroredOn.joined(separator: ", ")
+                        Text("also on \(names)").font(.system(size: 8)).foregroundStyle(.secondary)
+                            .lineLimit(1).padding(.horizontal, 3)
+                    }
                 }
             )
             .frame(width: max(tileSize.width, 36), height: max(tileSize.height, 24))
