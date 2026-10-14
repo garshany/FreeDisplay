@@ -447,7 +447,8 @@ private struct TrayFeatureList: View {
                         model.inputSource[display.recordID].map { model.inputName($0) }) {
                     TrayInputList(display: display)
                 }
-                feature("colorMode", "paintpalette", String(localized: "Monitor color mode"),
+                // TR-07: the monitor's own picture preset (VCP 0x14), not a connection colour format.
+                feature("colorMode", "paintpalette", String(localized: "Monitor color preset"),
                         model.colorPreset[display.recordID].map { model.presetName($0) }) {
                     TrayColorPresetList(display: display)
                 }
@@ -837,10 +838,10 @@ private struct TrayColorPresetList: View {
                 }
             }
             if model.ddcWriteWasIgnored(0x14, for: display), let current = model.colorPreset[display.recordID] {
-                TrayNote(String(localized: "The monitor kept the “\(model.presetName(current))” mode."), tint: ODColor.caution)
+                TrayNote(String(localized: "The monitor kept the “\(model.presetName(current))” preset."), tint: ODColor.caution)
             }
             if model.ddcCapabilities[display.recordID] == nil {
-                TrayPillButton(detecting ? String(localized: "Detecting…") : String(localized: "Detect supported modes")) {
+                TrayPillButton(detecting ? String(localized: "Detecting…") : String(localized: "Detect supported presets")) {
                     detecting = true
                     Task {
                         await model.refreshCapabilities(for: display)

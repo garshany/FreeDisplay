@@ -263,9 +263,14 @@ struct AppearanceCard: View {
                     Text("\(model.currentRotation(for: display))°").font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
+            // DDC writes only — the public-API-only build has no body for `setColorPreset` (SD-03), and
+            // its Controls card says DDC isn't available there.
+            #if !PUBLIC_API_ONLY
             if display.displayClass != .builtIn {
                 ODDivider()
-                ODRow(String(localized: "Colour mode")) {
+                // TR-07: this is the MONITOR's own picture preset (VCP 0x14: sRGB, 6500K, User…), not
+                // the connection's colour format (RGB/YCbCr, range, depth) nor an ICC profile.
+                ODRow(String(localized: "Monitor colour preset")) {
                     // Offer only the preset codes the panel advertises (VCP 0x14 is a non-continuous
                     // enum); a contiguous 1...max guess offers codes the monitor silently ignores.
                     // NOTE: capabilities are only populated by an explicit read (the 0xF3 read can
@@ -273,14 +278,12 @@ struct AppearanceCard: View {
                     // the 1...max fallback path.
                     let codes = model.colorPresetCodes(for: display)
                     HStack(spacing: 8) {
-                        #if !PUBLIC_API_ONLY
                         if model.ddcCapabilities[display.recordID] == nil {
                             Button(detectingModes ? "Detecting…" : "Detect…") { detectModes() }
                                 .buttonStyle(.link).controlSize(.small)
                                 .disabled(detectingModes)
-                                .help("Ask the monitor which colour modes it supports")
+                                .help("Ask the monitor which colour presets it supports")
                         }
-                        #endif
                         if codes.isEmpty {
                             Text(model.colorPreset[display.recordID].map { model.presetName($0) } ?? "—")
                                 .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -297,14 +300,13 @@ struct AppearanceCard: View {
                 if model.ddcWriteWasIgnored(0x14, for: display), let current = model.colorPreset[display.recordID] {
                     secondaryNote(String(localized: "The monitor stayed on \(model.presetName(current))."))
                 }
-                #if !PUBLIC_API_ONLY
                 if detectFoundNothing {
                     secondaryNote(String(localized: "No capabilities reported"))
                 } else if model.ddcCapabilities[display.recordID] == nil {
-                    secondaryNote(String(localized: "Detecting asks the monitor which modes it supports. A few monitors stop answering DDC afterwards until power-cycled."))
+                    secondaryNote(String(localized: "Detecting asks the monitor which presets it supports. A few monitors stop answering DDC afterwards until power-cycled."))
                 }
-                #endif
             }
+            #endif
             ODDivider()
             ODRow(String(localized: "Colour profile")) {
                 if model.colorProfileControllable[display.recordID] == true {
@@ -527,7 +529,7 @@ struct ControlsCard: View {
             }
             #else
             ODDivider()
-            ignoredCaption(String(localized: "Input switching, monitor power and factory reset aren’t available in this build: they work over DDC, which needs private macOS interfaces."))
+            ignoredCaption(String(localized: "Input switching, monitor colour presets, monitor power and factory reset aren’t available in this build: they work over DDC, which needs private macOS interfaces."))
             #endif
         }
         .confirmationDialog("Reset “\(model.displayName(for: display))” to defaults?",
