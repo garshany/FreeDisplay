@@ -4120,11 +4120,20 @@ final class AppModel: ObservableObject {
         // disabled display drops off the online list. `coordinator.reconnectAll()` only sees the
         // observer snapshot's offline list, which doesn't include this persisted `managedOffline`
         // set, so it would no-op here and leave the display off.
-        for offline in managedOffline {
-            try? await lifecycle.reconnect(offline.reconnectID, deadline: Date().addingTimeInterval(10))
-        }
+        // A request is not a display coming back, so the ledger keeps every entry the live topology
+        // doesn't show lit afterwards, stamped as a failed reconnect: it is the only record of a
+        // display that stayed dark, and the next launch's off card and safety net work from it.
         if !managedOffline.isEmpty {
-            managedOffline.removeAll()
+            for offline in managedOffline {
+                try? await lifecycle.reconnect(offline.reconnectID, deadline: Date().addingTimeInterval(10))
+            }
+            let observed = await observer.currentSnapshot().observations
+            let kept = ReconnectVerification.ledgerAfterQuitReconnect(managedOffline, observations: observed,
+                                                                      at: Date())
+            for offline in kept {
+                await appendAudit(ReconnectVerification.failureAudit(of: offline, actor: .ui, at: Date()))
+            }
+            managedOffline = kept
             persistManagedOffline()
         }
         CoreGraphicsProvider.restoreGamma()

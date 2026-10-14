@@ -237,11 +237,17 @@ public enum WakeConvergencePolicy {
     /// unlocks, and nothing bounds how long the lock screen lasts. Dropping the entry at the
     /// window's edge is exactly the bug that left the built-in glowing beside the external for the
     /// rest of the session.
+    ///
+    /// An entry whose reconnect failed (`reconnectFailedAt` set) is the opposite case: the user
+    /// asked for it ON and it didn't come — after a failed quit-time reconnect, possibly in an
+    /// earlier session. Seeing it lit is the outcome that was owed, so it is forgotten whenever it
+    /// appears, wake window or not.
     public static func entriesToForget(_ context: Context) -> Set<DisplayRecordID> {
-        guard !isWakingUp(context) else { return [] }
         let visible = Set(visibleSurfaces(in: context.observations).map(\.recordID))
+        let waking = isWakingUp(context)
         return Set(context.managedOffline
-            .filter { $0.relitDuringWakeAt == nil && visible.contains($0.recordID) }
+            .filter { visible.contains($0.recordID) }
+            .filter { $0.reconnectFailedAt != nil || (!waking && $0.relitDuringWakeAt == nil) }
             .map(\.recordID))
     }
 
@@ -250,11 +256,15 @@ public enum WakeConvergencePolicy {
     /// owed "off" past the window: the window can only *attribute* the relight while it is open,
     /// so the attribution is recorded the moment it is made, and the owed state then decays on
     /// convergence (the re-assert succeeding) rather than on the clock.
+    ///
+    /// Never an entry whose reconnect failed: that display is owed ON, and stamping it would let the
+    /// re-assert switch off the very display the user asked to bring back.
     public static func entriesToStampRelit(_ context: Context) -> Set<DisplayRecordID> {
         guard isWakingUp(context) else { return [] }
         let visible = Set(visibleSurfaces(in: context.observations).map(\.recordID))
         return Set(context.managedOffline
-            .filter { $0.relitDuringWakeAt == nil && visible.contains($0.recordID) }
+            .filter { $0.relitDuringWakeAt == nil && $0.reconnectFailedAt == nil
+                && visible.contains($0.recordID) }
             .map(\.recordID))
     }
 
@@ -289,6 +299,7 @@ public enum WakeConvergencePolicy {
         let visible = Set(visibleSurfaces(in: context.observations).map(\.recordID))
         let owed = context.managedOffline.filter { offline in
             visible.contains(offline.recordID)
+                && offline.reconnectFailedAt == nil  // owed ON, not off (see `entriesToForget`)
                 && (waking || offline.relitDuringWakeAt != nil)
                 && context.reassertAttempts[offline.recordID, default: 0]
                     < context.maximumReassertAttempts
