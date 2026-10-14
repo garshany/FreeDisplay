@@ -37,6 +37,18 @@ public enum MonitorPower: String, Hashable, Sendable, Codable {
     case powerFailed
 }
 
+/// What "turning a display off" actually does with the lifecycle provider in use. Neither path
+/// powers a monitor down, so the menu, recovery text and notifications name this operation instead
+/// of promising power-off.
+public enum LogicalOffMethod: String, Hashable, Sendable, Codable {
+    /// The display leaves the desktop (the experimental SkyLight provider). macOS may let the panel
+    /// drop into standby, but whether it does is up to the monitor and the connection.
+    case disconnect
+    /// The display mirrors the main display (the public Core Graphics fallback, and the only path
+    /// in the public-API-only build). It stays lit, showing the main display's picture.
+    case mirror
+}
+
 extension Reachability {
     /// Legal reachability transitions. Any transition not listed here is a programming error
     /// and is rejected by the coordinator rather than written to hardware (PRD §9.3).

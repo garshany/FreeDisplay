@@ -642,12 +642,27 @@ struct UseAsCard: View {
                 }
             }
             ODDivider()
-            ODRow(String(localized: "Turn display off"), secondary: String(localized: "Logical disconnect — reconnectable")) {
-                Button("Turn Off", role: .destructive) {
-                    Task { await model.setDisplayActive(false, for: display) }
+            // Named after what the provider in use really does: neither path powers the monitor off,
+            // and the public fallback only mirrors it.
+            switch model.logicalOffMethod {
+            case .disconnect:
+                ODRow(String(localized: "Disconnect display"),
+                      secondary: String(localized: "Leaves the desktop; the monitor may go to standby. Reconnect from the menu.")) {
+                    Button(String(localized: "Disconnect"), role: .destructive) {
+                        Task { await model.setDisplayActive(false, for: display) }
+                    }
+                    .controlSize(.small)
+                    .disabled(model.busy || !model.canTurnOff(display))
                 }
-                .controlSize(.small)
-                .disabled(model.busy || model.activeDisplayCount <= 1)
+            case .mirror:
+                ODRow(String(localized: "Remove from desktop (mirror)"),
+                      secondary: String(localized: "Mirrors it onto the main display, so it stays on, and keeps it listed for recovery. Undo from the menu.")) {
+                    Button(String(localized: "Mirror onto Main"), role: .destructive) {
+                        Task { await model.setDisplayActive(false, for: display) }
+                    }
+                    .controlSize(.small)
+                    .disabled(model.busy || !model.canTurnOff(display))
+                }
             }
         }
     }

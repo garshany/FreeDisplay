@@ -1293,8 +1293,19 @@ func runEDID() async {
     let pairs = await resolveCurrentDisplays()
     let target = uniqueDisplay(sel, in: pairs, managedOffline: managedOfflineIDs)
     guard let cgID = target.observation.cgDisplayID else { fail("no display for selector '\(sel)'") }
-    guard let bytes = EDIDReader.rawEDID(for: cgID) else {
-        fail("edid: unavailable for this display")
+    // Only bytes that are provably this display's are printed or written; a guess between
+    // identical monitors would export another monitor's identity under this one's name.
+    let bytes: [UInt8]
+    switch EDIDReader.lookup(for: cgID) {
+    case .matched(let found):
+        bytes = found
+    case .ambiguous(let count):
+        fail("edid: \(count) different EDIDs carry this display's vendor, product code and serial — "
+            + "can't tell which one is this display's, so none is shown")
+    case .notFound:
+        fail("edid: unavailable for this display (no exposed EDID carries its vendor, product code and serial)")
+    case .unidentifiedTarget:
+        fail("edid: unavailable for this display (macOS reports no vendor/product code to match an EDID against)")
     }
     let parsed = EDID.parse(bytes)
     if let edid = parsed {

@@ -276,7 +276,12 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
             generation = generation.next()
         }
         let now = Date()
-        let observations = ids.map { observation(for: $0, generation: generation, at: now) }
+        let facts = ids.map(DisplayHardwareEvidence.facts(for:))
+        let presence = PhysicalPresenceClassifier.classify(
+            facts, hardware: DisplayHardwareEvidence.connectedDisplayHardware())
+        let observations = facts.map {
+            observation(for: $0, presence: presence[$0.id], generation: generation, at: now)
+        }
         return TopologySnapshot(generation: generation, observations: observations, capturedAt: now)
     }
 
@@ -289,17 +294,19 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
     }
 
     private func observation(
-        for id: CGDirectDisplayID,
+        for facts: PhysicalPresenceClassifier.Display,
+        presence: PhysicalPresence?,
         generation: TopologyGeneration,
         at now: Date
     ) -> DisplayObservation {
+        let id = facts.id
         let uuid = displayUUID(id)
-        let isBuiltin = CGDisplayIsBuiltin(id) != 0
-        // Is this macOS's synthetic stand-in for "no displays at all"? It must NOT be mistaken for
-        // a surface the user can see, or the always-one-active safety net never fires.
-        let isPlaceholder = !isBuiltin && DisplayActivity.isVirtualPlaceholder(
-            vendorNumber: CGDisplayVendorNumber(id), modelNumber: CGDisplayModelNumber(id),
-            modeCount: (CGDisplayCopyAllDisplayModes(id, nil) as? [CGDisplayMode])?.count ?? 0)
+        let isBuiltin = facts.isBuiltIn
+        // Only macOS's "no displays" placeholder is classed `.virtual`, as before. Every other
+        // screen keeps its class — `.virtual` also means "never lit" to reconnect verification and
+        // the ledger, which would strand a reconnected endpoint of ours — and is kept out of
+        // recovery decisions by `physicalPresence` instead.
+        let isVirtual = facts.isSystemPlaceholder
         let bounds = CGDisplayBounds(id)
         let mirrorMaster = CGDisplayMirrorsDisplay(id)
         let mirrorSourceID = mirrorMaster != 0
@@ -318,8 +325,9 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
             rotation: rotation(of: id),
             isMain: CGDisplayIsMain(id) != 0,
             mirrorSourceID: mirrorSourceID,
-            transport: isBuiltin ? .internalPanel : (isPlaceholder ? .virtual : .unknown),
-            displayClass: isBuiltin ? .builtIn : (isPlaceholder ? .virtual : .external),
+            transport: isBuiltin ? .internalPanel : (isVirtual ? .virtual : .unknown),
+            displayClass: isBuiltin ? .builtIn : (isVirtual ? .virtual : .external),
+            physicalPresence: presence,
             generation: generation,
             observedAt: now
         )

@@ -51,9 +51,10 @@ enum OpenDisplayAutomation {
     /// front door beside the CLI and App Intents, inheriting the same safety/verification/audit path.
     ///
     /// Safe recovery commands run immediately and are audited like every other surface. Arrangement-
-    /// altering commands are NEVER fired silently from a URL (any app or web link can trigger one):
-    /// they bring the app forward for explicit in-app confirmation instead. Malformed or unknown URLs
-    /// are a logged no-op, never a crash. Returns the parsed command (nil when unrecognized).
+    /// altering commands are NEVER fired from a URL (any app or web link can trigger one). There is
+    /// no in-app review flow for them, so they are explicitly refused with a visible alert rather
+    /// than the app merely coming forward and the request vanishing. Malformed or unknown URLs are a
+    /// logged no-op, never a crash. Returns the parsed command (nil when unrecognized).
     @discardableResult
     static func handleURL(_ url: URL, model: AppModel) async -> URLCommand? {
         guard let command = URLCommandParser.parse(url) else {
@@ -61,8 +62,12 @@ enum OpenDisplayAutomation {
             return nil
         }
         guard !command.requiresConfirmation else {
-            log("URL command \(command.name) is arrangement-altering — requires in-app confirmation, not auto-run")
-            await MainActor.run { NSApp.activate(ignoringOtherApps: true) }
+            log("refused URL command \(command.name): arrangement-altering commands aren't accepted from URLs")
+            // Shown from a run-loop block, not a main-actor job: a modal alert run inside a main-queue
+            // job would hold every other main-actor task — the display safety net included — until
+            // someone dismisses it, and any web page can open this URL.
+            RunLoop.main.perform { MainActor.assumeIsolated { presentRefusal(of: command) } }
+            CFRunLoopWakeUp(CFRunLoopGetMain())  // a scheduled block doesn't wake an idle run loop
             return command
         }
         switch command {
@@ -75,6 +80,27 @@ enum OpenDisplayAutomation {
             break  // unreachable: disconnect requiresConfirmation and returned above
         }
         return command
+    }
+
+    @MainActor private static var isPresentingRefusal = false
+
+    /// Tells the user a link's request was refused and what to do instead. Nothing from the URL is
+    /// echoed — its text is whatever the linking page chose, and an alert from this app must not be
+    /// a place to show it.
+    @MainActor private static func presentRefusal(of command: URLCommand) {
+        guard case .disconnect = command else { return }  // recovery is never refused
+        // One explanation at a time: a page firing the URL repeatedly must not stack alerts. Each
+        // refusal is still logged by the caller.
+        guard !isPresentingRefusal else { return }
+        isPresentingRefusal = true
+        defer { isPresentingRefusal = false }
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = String(localized: "A link asked OpenDisplay to disconnect a display")
+        alert.informativeText = String(localized: "OpenDisplay doesn’t change displays from links, so nothing was changed. To disconnect a display, use its switch in the OpenDisplay menu.")
+        alert.addButton(withTitle: String(localized: "OK"))
+        alert.runModal()
     }
 
     private static func log(_ message: String) {

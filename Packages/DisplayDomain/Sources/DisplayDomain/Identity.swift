@@ -113,12 +113,7 @@ public enum IdentityScorer {
             evidence.append(IdentityEvidence(signal: signal, matched: matched, weight: weights[signal] ?? 0))
         }
 
-        let serialMatches: Bool = {
-            guard let a = observed.serialNumber ?? observed.serialHash,
-                  let b = candidate.fingerprint.serialNumber ?? candidate.fingerprint.serialHash
-            else { return false }
-            return a == b
-        }()
+        let serialMatches = serialsMatch(observed, candidate.fingerprint)
 
         let modelMatches = observed.vendorID != nil
             && observed.vendorID == candidate.fingerprint.vendorID
@@ -148,5 +143,35 @@ public enum IdentityScorer {
             item.matched ? acc * (1 - item.weight) : acc
         }
         return IdentityConfidence(score: 1 - product, evidence: evidence)
+    }
+
+    /// Whether two fingerprints carry the same serial **from the same vendor and model**.
+    ///
+    /// A serial number is only unique inside one manufacturer's product line: small numbers,
+    /// factory placeholders and two vendors' numbering schemes collide all the time, and a bare
+    /// serial match is worth the 0.85 that clears the destructive threshold on its own. So the
+    /// serial counts only when both sides also name the same vendor and product; a side that
+    /// doesn't know its vendor or product can't qualify its serial, and the match falls through
+    /// to the weaker evidence instead.
+    public static func serialsMatch(_ a: DisplayFingerprint, _ b: DisplayFingerprint) -> Bool {
+        guard let serialA = a.serialNumber ?? a.serialHash,
+              let serialB = b.serialNumber ?? b.serialHash, serialA == serialB,
+              let vendor = a.vendorID, let product = a.productID,
+              vendor == b.vendorID, product == b.productID
+        else { return false }
+        return true
+    }
+
+    /// Whether two fingerprints positively name *different* displays: both know vendor and product
+    /// and those differ, or both carry a serial for the same vendor and product and the serials
+    /// differ. Missing fields never conflict — a display that stops reporting its serial is still
+    /// the display it was.
+    public static func identitiesConflict(_ a: DisplayFingerprint, _ b: DisplayFingerprint) -> Bool {
+        guard let vendorA = a.vendorID, let productA = a.productID,
+              let vendorB = b.vendorID, let productB = b.productID else { return false }
+        if vendorA != vendorB || productA != productB { return true }
+        guard let serialA = a.serialNumber ?? a.serialHash,
+              let serialB = b.serialNumber ?? b.serialHash else { return false }
+        return serialA != serialB
     }
 }

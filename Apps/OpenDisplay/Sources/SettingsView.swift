@@ -21,7 +21,10 @@ struct SettingsView: View {
     // take documentation screenshots without UI scripting. Unknown or absent values mean Displays.
     @State private var section: SettingsSection? = .launchSection
 #if !PUBLIC_API_ONLY
-    @StateObject private var virtualSession = VirtualDisplaySession()
+    // Same physical-screen evidence as lifecycle preflight, so "a real screen stays visible" means
+    // one thing everywhere — another app's virtual screen or DisplayLink doesn't qualify.
+    @StateObject private var virtualSession = VirtualDisplaySession(
+        surfacePresence: { DisplayHardwareEvidence.physicalPresence(of: $0) })
 #endif
 
     var body: some View {

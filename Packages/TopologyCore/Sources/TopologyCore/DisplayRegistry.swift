@@ -67,16 +67,28 @@ public struct DiskRegistryStore: RegistryStoring {
 /// The source of remembered display identity (PRD §10.5, REG-003/004/005). Resolves a live
 /// observation's fingerprint to a stable `DisplayRecord` — recognizing a display we've seen before
 /// or minting a new record — and owns user-attached alias/tag/pairing edits. Resolution order:
-///   1. exact EDID serial match (definitive),
+///   1. serial match qualified by vendor and model (`IdentityScorer.serialsMatch`); when several
+///      records share it, the one this CG UUID already points at,
 ///   2. same-Mac CG-UUID fast path,
-///   3. best scored fingerprint match above the recognition threshold (`IdentityScorer`),
+///   3. the single best scored fingerprint match above the recognition threshold (`IdentityScorer`),
 ///   4. otherwise mint a new record.
 /// Two identical monitors with no serial therefore stay distinct until paired, rather than being
 /// silently merged.
+///
+/// Recognition never guesses. Several records sharing the qualified serial with nothing to pick
+/// between them, a tie for the best score, or two displays present at the same time claiming one
+/// record — each of those yields a *provisional* record (`DisplayRecord.unresolvedCandidates`): no
+/// alias, tags or pairing from any candidate, nothing persisted, the candidates left untouched. A
+/// record claimed twice goes to the claimant with strictly stronger evidence (serial and CG UUID,
+/// then serial, then CG UUID, then score) and to neither on a tie. The user naming, tagging or
+/// pairing a provisional display is the resolution: it becomes a record of its own.
 public actor DisplayRegistry {
     private var state: RegistryState
     private let store: any RegistryStoring
     private let recognitionThreshold: Double
+    /// The provisional records handed out by the latest resolve, with the CG UUID each was seen
+    /// under. In memory only: provisional records are answers about the current topology.
+    private var provisional: [DisplayRecordID: (record: DisplayRecord, cgUUID: String?)] = [:]
 
     public init(store: any RegistryStoring, recognitionThreshold: Double = 0.5) async {
         self.store = store
@@ -87,7 +99,7 @@ public actor DisplayRegistry {
     public func allRecords() -> [DisplayRecord] { state.records }
 
     public func record(for id: DisplayRecordID) -> DisplayRecord? {
-        state.records.first { $0.id == id }
+        state.records.first { $0.id == id } ?? provisional[id]?.record
     }
 
     /// The record previously minted for a CG UUID, if any. Recognition normally goes through
@@ -117,62 +129,156 @@ public actor DisplayRegistry {
         displayClass: DisplayClass = .unknown,
         now: Date = Date()
     ) async -> DisplayRecord {
-        let record = resolveLocked(fingerprint: fingerprint, cgUUID: cgUUID, displayClass: displayClass, now: now)
+        let record = resolveLocked([(fingerprint, cgUUID, displayClass)], now: now)[0]
         await persist()
         return record
     }
 
     /// Batched resolve: recognizes/mints every input against in-memory state, then persists EXACTLY
-    /// once. Per-input behaviour (serial/cgUUID/scored/mint, recency + fingerprint merge) is identical
-    /// to `resolve`; only the disk write is coalesced, so N-displays-per-refresh no longer means N
-    /// full-registry JSON writes.
+    /// once. The inputs are the displays present together, so this is also where one record is kept
+    /// from being handed to two of them. Only the disk write is coalesced, so N-displays-per-refresh
+    /// no longer means N full-registry JSON writes.
     public func resolveAll(
         _ inputs: [(fingerprint: DisplayFingerprint, cgUUID: String?, displayClass: DisplayClass)],
         now: Date = Date()
     ) async -> [DisplayRecord] {
-        let records = inputs.map {
-            resolveLocked(fingerprint: $0.fingerprint, cgUUID: $0.cgUUID, displayClass: $0.displayClass, now: now)
-        }
+        let records = resolveLocked(inputs, now: now)
         if !inputs.isEmpty { await persist() }
         return records
+    }
+
+    /// How a live display claims a remembered record, weakest first. Comparable so a record two
+    /// present displays both claim can go to the one with the better evidence.
+    private enum Evidence: Int, Comparable {
+        case scored, cgUUID, serial, serialAndCGUUID
+        static func < (lhs: Evidence, rhs: Evidence) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
+    private enum Claim {
+        case record(DisplayRecordID, Evidence)
+        case ambiguous([DisplayRecordID])
+        case mint
     }
 
     /// The recognize-or-mint logic plus the recency/fingerprint mutation, WITHOUT persisting. Callers
     /// persist once after applying every mutation they intend to (see `resolve` / `resolveAll`).
     private func resolveLocked(
-        fingerprint: DisplayFingerprint,
-        cgUUID: String?,
-        displayClass: DisplayClass,
+        _ inputs: [(fingerprint: DisplayFingerprint, cgUUID: String?, displayClass: DisplayClass)],
         now: Date
-    ) -> DisplayRecord {
-        // 1. Exact serial match.
-        if let serial = fingerprint.serialNumber ?? fingerprint.serialHash,
-           let match = state.records.first(where: {
-               ($0.fingerprint.serialNumber ?? $0.fingerprint.serialHash) == serial
-           }) {
-            return touchLocked(match.id, fingerprint: fingerprint, cgUUID: cgUUID, now: now)
+    ) -> [DisplayRecord] {
+        var claims = inputs.map { claim(for: $0.fingerprint, cgUUID: $0.cgUUID, excluding: []) }
+
+        // One record per present display. Two displays on the desk at once are two displays, so a
+        // record both claim can be at most one of them: the strictly better-evidenced claimant
+        // keeps it; on a tie nothing says which, and neither does.
+        var claimants: [DisplayRecordID: [Int]] = [:]
+        for (index, claim) in claims.enumerated() {
+            if case .record(let id, _) = claim { claimants[id, default: []].append(index) }
+        }
+        var outranked: [Int] = []
+        for (id, indices) in claimants where indices.count > 1 {
+            let strengths = indices.map { index -> Evidence in
+                guard case .record(_, let evidence) = claims[index] else { return .scored }
+                return evidence
+            }
+            let best = strengths.max()
+            let strongest = indices.indices.filter { strengths[$0] == best }.map { indices[$0] }
+            for index in indices where strongest.count > 1 || strongest.first != index {
+                claims[index] = .ambiguous([id])
+                if strongest.count == 1 { outranked.append(index) }
+            }
+        }
+        // A display that lost its record to a better-evidenced one is known NOT to be that record,
+        // so it resolves once more without any record already held — to its own, a score, or a new
+        // one. Should two of them land on the same record again, neither gets it.
+        if !outranked.isEmpty {
+            var held: Set<DisplayRecordID> = []
+            for claim in claims { if case .record(let id, _) = claim { held.insert(id) } }
+            var retried: [DisplayRecordID: [Int]] = [:]
+            for index in outranked {
+                let next = claim(for: inputs[index].fingerprint, cgUUID: inputs[index].cgUUID, excluding: held)
+                // `.ambiguous` from this round is about the remaining candidates; keep the one it lost too.
+                if case .ambiguous(let candidates) = next, case .ambiguous(let lost) = claims[index] {
+                    claims[index] = .ambiguous(lost + candidates)
+                } else {
+                    claims[index] = next
+                }
+                if case .record(let id, _) = claims[index] { retried[id, default: []].append(index) }
+            }
+            for (id, indices) in retried where indices.count > 1 {
+                for index in indices { claims[index] = .ambiguous([id]) }
+            }
+        }
+
+        var handedOut: [DisplayRecordID: (record: DisplayRecord, cgUUID: String?)] = [:]
+        var records: [DisplayRecord] = []
+        for (index, input) in inputs.enumerated() {
+            switch claims[index] {
+            case .record(let id, _):
+                records.append(touchLocked(id, fingerprint: input.fingerprint, cgUUID: input.cgUUID, now: now))
+            case .mint:
+                let record = DisplayRecord(
+                    id: .generate(now: now), fingerprint: input.fingerprint,
+                    displayClass: input.displayClass, lastSeen: now)
+                state.records.append(record)
+                if let cgUUID = input.cgUUID { state.cgUUIDIndex[cgUUID] = record.id }
+                records.append(record)
+            case .ambiguous(let candidates):
+                // A stable id per CG UUID keeps the answer the same across refreshes; the index
+                // only tells apart two provisional displays reporting the same UUID.
+                var id = DisplayRecordID(rawValue: "unresolved:\(input.cgUUID ?? "#\(index)")")
+                if handedOut[id] != nil { id = DisplayRecordID(rawValue: "\(id.rawValue)#\(index)") }
+                let record = DisplayRecord(
+                    id: id, fingerprint: input.fingerprint, displayClass: input.displayClass,
+                    lastSeen: now, unresolvedCandidates: candidates.sorted { $0.rawValue < $1.rawValue })
+                handedOut[id] = (record, input.cgUUID)
+                records.append(record)
+            }
+        }
+        provisional = handedOut
+        return records
+    }
+
+    /// What one display claims on its own, before the batch's one-record-per-display rule, among
+    /// the records not in `excluded`.
+    private func claim(for fingerprint: DisplayFingerprint, cgUUID: String?,
+                       excluding excluded: Set<DisplayRecordID>) -> Claim {
+        let candidates = state.records.filter { !excluded.contains($0.id) }
+        // The CG UUID index is a same-Mac routing hint, not identity: a record whose own vendor,
+        // model or qualified serial says it is a different display is not this one, whatever the
+        // index says — following it would merge the two and overwrite the record's identity.
+        let indexed = cgUUID.flatMap { state.cgUUIDIndex[$0] }
+            .flatMap { id in candidates.first { $0.id == id } }
+            .flatMap { IdentityScorer.identitiesConflict(fingerprint, $0.fingerprint) ? nil : $0.id }
+
+        // 1. Qualified serial: the same serial from the same vendor and model.
+        let serialMatches = candidates
+            .filter { IdentityScorer.serialsMatch(fingerprint, $0.fingerprint) }
+            .map(\.id)
+        if serialMatches.count == 1 {
+            return .record(serialMatches[0], indexed == serialMatches[0] ? .serialAndCGUUID : .serial)
+        }
+        if !serialMatches.isEmpty {
+            // Several records share it — identical units, or records the user has already split.
+            // This Mac's CG UUID index is the only thing that can say which one this display is.
+            if let indexed, serialMatches.contains(indexed) { return .record(indexed, .serialAndCGUUID) }
+            return .ambiguous(serialMatches)
         }
 
         // 2. Same-Mac CG-UUID fast path.
-        if let cgUUID, let id = state.cgUUIDIndex[cgUUID], record(for: id) != nil {
-            return touchLocked(id, fingerprint: fingerprint, cgUUID: cgUUID, now: now)
-        }
+        if let indexed { return .record(indexed, .cgUUID) }
 
-        // 3. Best scored fingerprint match.
-        let best = state.records
-            .map { ($0, IdentityScorer.score(observed: fingerprint, candidate: $0).score) }
-            .max { $0.1 < $1.1 }
-        if let best, best.1 >= recognitionThreshold {
-            return touchLocked(best.0.id, fingerprint: fingerprint, cgUUID: cgUUID, now: now)
+        // 3. The single best scored fingerprint match; a tie is an answer of its own.
+        let scored = candidates
+            .map { ($0.id, IdentityScorer.score(observed: fingerprint, candidate: $0).score) }
+            .filter { $0.1 >= recognitionThreshold }
+        if let best = scored.map(\.1).max() {
+            let top = scored.filter { $0.1 == best }.map(\.0)
+            return top.count == 1 ? .record(top[0], .scored) : .ambiguous(top)
         }
 
         // 4. Mint a new record.
-        let record = DisplayRecord(
-            id: .generate(now: now), fingerprint: fingerprint, displayClass: displayClass, lastSeen: now
-        )
-        state.records.append(record)
-        if let cgUUID { state.cgUUIDIndex[cgUUID] = record.id }
-        return record
+        return .mint
     }
 
     public func setAlias(_ alias: String?, for id: DisplayRecordID) async {
@@ -197,11 +303,25 @@ public actor DisplayRegistry {
     private enum RegistryError: Error { case unknownRecord }
 
     private func mutate(_ id: DisplayRecordID, _ change: (inout DisplayRecord) -> Void) async throws {
-        guard let index = state.records.firstIndex(where: { $0.id == id }) else {
+        guard let index = state.records.firstIndex(where: { $0.id == id }) ?? materializeLocked(id) else {
             throw RegistryError.unknownRecord
         }
         change(&state.records[index])
         await persist()
+    }
+
+    /// Turns a provisional record into a remembered display of its own, at the moment the user
+    /// attaches something to it: naming *this* display is the one piece of evidence recognition
+    /// lacked. Its CG UUID now points here; the candidates it couldn't be told from keep their
+    /// alias, tags and pairing, and the CG UUIDs that still point at them. Returns the new index.
+    private func materializeLocked(_ id: DisplayRecordID) -> Int? {
+        guard let pending = provisional.removeValue(forKey: id) else { return nil }
+        var record = pending.record
+        record.id = .generate(now: record.lastSeen ?? Date())
+        record.unresolvedCandidates = nil
+        state.records.append(record)
+        if let cgUUID = pending.cgUUID { state.cgUUIDIndex[cgUUID] = record.id }
+        return state.records.count - 1
     }
 
     private func touchLocked(
