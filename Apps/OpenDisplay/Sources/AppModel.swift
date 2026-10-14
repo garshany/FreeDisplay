@@ -1732,9 +1732,8 @@ final class AppModel: ObservableObject {
     /// This is the USER funnel — sliders and media keys — so a write here is what makes a display
     /// its group's leader (Issue #39). `syncToken` marks the write as OpenDisplay's own hand instead
     /// (a group fan-out, a FaceLight restore); those never lead. `origin` says which gesture it was:
-    /// only the slider can teach a group offset, keys always lead. `SetBrightnessIntent` does NOT
-    /// come through here (it writes DisplayServices/DDC directly); on a natively controlled display
-    /// the group picks that change up by observation instead (`pollGroupBrightness`).
+    /// only the slider can teach a group offset, keys always lead. `SetBrightnessIntent` comes
+    /// through here too, like the HTTP route (TB-05).
     ///
     /// `eventSource` names the origin in the published OSD event when the gesture alone can't (HTTP
     /// and hotkeys look like a slider and a key press to group sync); nil derives it.
@@ -5485,6 +5484,66 @@ final class AppModel: ObservableObject {
         }
     }
     #endif
+}
+
+// MARK: - App Intents support (IN-07, TB-05, TB-06, FB-14)
+
+extension AppModel {
+    /// Every display automation can name right now — the Shortcuts display picker.
+    var automationDisplayEntries: [AutomationDisplayEntry] {
+        AutomationDisplayCatalog.entries(displays: displays, offline: managedOffline, name: displayName(for:))
+    }
+
+    /// The name of a display the app remembers but doesn't see now, so a shortcut saved with it still
+    /// shows the right display; nil for an identifier the app has never known.
+    func automationRememberedName(_ id: DisplayRecordID) -> String? {
+        guard records[id] != nil || registryKnownRecords[id] != nil else { return nil }
+        return rememberedDisplayName(for: id)
+    }
+
+    /// Lets the launch-time display read finish before automation looks at the displays: an intent
+    /// that starts the app would otherwise see an empty list and call every display missing.
+    func prepareForAutomation() async {
+        if phase == .scanning { await refresh() }
+    }
+
+    /// The display's brightness as read back once every write already queued for it has run (TB-05):
+    /// a fresh DisplayServices or DDC read for hardware routes, and the level OpenDisplay put on
+    /// screen for software dimming (unless macOS rejected that change). Never the requested value.
+    func automationBrightnessReadback(for observation: DisplayObservation) async -> AutomationBrightness.Readback {
+        let id = observation.recordID
+        #if !PUBLIC_API_ONLY
+        // Native and DDC writes are coalesced on one task per display; the request just made is on it.
+        if let writer = nativeWriters[id] { await writer.value }
+        if let writer = ddcWriters[id] { await writer.value }
+        #endif
+        switch brightnessMethod[id] {
+        case .native?:
+            #if !PUBLIC_API_ONLY
+            guard let cgID = observation.cgDisplayID else { return .none }
+            let control = brightnessControl
+            let level = await Task.detached(priority: .userInitiated) { control.brightness(for: cgID) }.value
+            return level.map(AutomationBrightness.Readback.level) ?? .none
+            #else
+            return .none
+            #endif
+        case .hardware?:
+            #if !PUBLIC_API_ONLY
+            guard let controller = await ddcController(for: observation),
+                  let reading = await controller.read(vcp: ExternalDisplayDDC.Feature.brightness.rawValue)
+            else { return .none }
+            return .ddc(current: reading.current, max: reading.max)
+            #else
+            return .none
+            #endif
+        case .software?:
+            // With gamma as the only carrier, a rejected table write changed nothing on screen.
+            if gammaWriteFailures[id] != nil && effectiveDimmingMethod == .gamma { return .none }
+            return brightness[id].map(AutomationBrightness.Readback.level) ?? .none
+        case nil:
+            return .none
+        }
+    }
 }
 
 /// Prefers a primary lifecycle provider and falls back to a public one only when the primary

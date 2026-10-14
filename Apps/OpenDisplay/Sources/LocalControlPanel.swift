@@ -18,6 +18,13 @@ struct LocalControlPanel: View {
 
     var body: some View {
         Form {
+            // SO-18: App Intents are a separate integration from the keyboard shortcuts and the HTTP
+            // control below; say what they cover and open the app that runs them.
+            Section("Shortcuts app") {
+                Text("OpenDisplay’s actions are in the Shortcuts app: get or set a display’s brightness, switch a display to one of its modes, make a display the main display, and reconnect all displays. They act on connected displays while OpenDisplay is running, and say when a display isn’t available. Keyboard shortcuts for OpenDisplay’s own actions are in Settings → Keyboard.")
+                Button("Open Shortcuts") { openShortcutsApp() }
+                    .disabled(Self.shortcutsAppURL == nil)
+            }
             Section("Local HTTP control") {
                 Text("Control on 127.0.0.1 lasts only for the current session. Requests need the secret token. The server stops when you leave this section.")
                 Text(status).textSelection(.enabled)
@@ -47,6 +54,16 @@ struct LocalControlPanel: View {
             }
         }
         .onDisappear { visible = false; stop() }
+    }
+
+    /// Where macOS's Shortcuts app is installed, or nil when it can't be found.
+    private static var shortcutsAppURL: URL? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.shortcuts")
+    }
+
+    private func openShortcutsApp() {
+        guard let url = Self.shortcutsAppURL else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
     }
 
     private func stop() {

@@ -13,8 +13,8 @@ import ExperimentalLifecycleProvider
 
 /// Shortcuts / Siri integration (PRD §1 automation, recovery hierarchy step 3). Intents and URLs act
 /// through the running app's `AppModel` when there is one — it alone holds the live managed-offline
-/// ledger and settings — and fall back to a freshly composed `CommandGateway` only when no model
-/// exists in this process.
+/// ledger and settings. Reconnect All falls back to a freshly composed `CommandGateway` when no
+/// model exists in this process; the display actions (DisplayIntents.swift) need the model.
 enum OpenDisplayAutomation {
     /// The app's model, registered by `AppDelegate` at launch. Weak: automation must never keep a
     /// torn-down model alive. App Intents in this target run inside the app process, so an intent
@@ -118,7 +118,7 @@ struct ReconnectAllIntent: AppIntent {
     // The intent does its own work; no need to bring the app forward.
     static let openAppWhenRun = false
 
-    func perform() async throws -> some IntentResult & ProvidesDialog {
+    func perform() async throws -> some IntentResult & ReturnsValue<ReconnectResultEntity> & ProvidesDialog {
         // The running app's Reconnect All, which works through the managed-offline ledger. The
         // gateway fallback (no model in this process) can only reach a provider's own offline list.
         let envelope: ResultEnvelope
@@ -130,64 +130,25 @@ struct ReconnectAllIntent: AppIntent {
         let restored = envelope.targets.filter { target in
             target.operations.contains { $0.verification == .verified }
         }.count
+        let result = ReconnectResultEntity()
+        result.reconnectedCount = restored
         let message: LocalizedStringResource
         switch envelope.status {
-        case .noOp: message = "No displays needed reconnecting."
-        case .committed: message = "Displays reconnected: \(restored)."
-        case .partial: message = "Displays reconnected: \(restored). Some displays couldn’t be restored."
-        default: message = "Couldn’t confirm that the displays were restored."
+        case .noOp:
+            result.outcome = .nothingToReconnect
+            message = "No displays needed reconnecting."
+        case .committed:
+            result.outcome = .reconnected
+            message = "Displays reconnected: \(restored)."
+        case .partial:
+            result.outcome = .partlyReconnected
+            message = "Displays reconnected: \(restored). Some displays couldn’t be restored."
+        default:
+            result.outcome = .notConfirmed
+            message = "Couldn’t confirm that the displays were restored."
         }
-        return .result(dialog: IntentDialog(message))
+        return .result(value: result, dialog: IntentDialog(message))
     }
-}
-
-/// Sets the built-in display's brightness from Shortcuts / Siri (via the same private DisplayServices
-/// path the menu uses). Excluded from the public-API-only build.
-struct SetBrightnessIntent: AppIntent {
-    static let title: LocalizedStringResource = "Set Display Brightness"
-    static let description = IntentDescription("Sets the built-in display’s brightness (0–100%).")
-    static let openAppWhenRun = false
-
-    @Parameter(title: "Brightness", inclusiveRange: (0, 100))
-    var percent: Int
-
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        let clamped = max(0, min(100, percent))
-        #if !PUBLIC_API_ONLY
-        let observer = CoreGraphicsProvider()
-        let snapshot = await observer.currentSnapshot()
-        guard let builtIn = snapshot.observations.first(where: { $0.displayClass == .builtIn }),
-              let cgID = builtIn.cgDisplayID else {
-            return .result(dialog: "No built-in display found.")
-        }
-        let ok = DisplayServicesBrightnessProvider().setBrightness(Float(clamped) / 100, for: cgID)
-        if ok { await Self.publishEvent(level: Double(clamped) / 100, display: builtIn) }
-        let message: LocalizedStringResource = ok
-            ? "Requested built-in display brightness: \(clamped)%. The hardware result isn’t verified."
-            : "Couldn’t set the brightness."
-        return .result(dialog: IntentDialog(message))
-        #else
-        return .result(dialog: "Brightness control isn’t available in this build.")
-        #endif
-    }
-
-    #if !PUBLIC_API_ONLY
-    /// Publishes the change on the OSD event channel like every other brightness origin (IN-04):
-    /// this intent writes DisplayServices directly, so nothing else would announce it to `listen`
-    /// or an external HUD. Honours the broadcast switch — the live model's, or the saved one when
-    /// no model runs in this process.
-    @MainActor
-    private static func publishEvent(level: Double, display: DisplayObservation) {
-        let model = OpenDisplayAutomation.liveModel
-        let enabled = model?.settings.publishOSDEventsEnabled
-            ?? (try? SettingsStore.defaultDirectory()).map { SettingsStore(directory: $0).load().publishOSDEventsEnabled }
-            ?? false
-        guard enabled else { return }
-        OSDBroadcaster.publish(kind: .brightness, value: level, displayID: display.recordID.rawValue,
-                               displayName: model?.displayName(for: display),
-                               source: OSDBroadcast.Source.appIntent.rawValue)
-    }
-    #endif
 }
 
 struct OpenDisplayShortcuts: AppShortcutsProvider {
@@ -209,6 +170,33 @@ struct OpenDisplayShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Set Brightness",
             systemImageName: "sun.max"
+        )
+        AppShortcut(
+            intent: GetBrightnessIntent(),
+            phrases: [
+                "Get display brightness with \(.applicationName)",
+                "\(.applicationName) get brightness"
+            ],
+            shortTitle: "Get Brightness",
+            systemImageName: "sun.min"
+        )
+        AppShortcut(
+            intent: SetDisplayModeIntent(),
+            phrases: [
+                "Change a display mode with \(.applicationName)",
+                "\(.applicationName) change display mode"
+            ],
+            shortTitle: "Set Display Mode",
+            systemImageName: "rectangle.expand.vertical"
+        )
+        AppShortcut(
+            intent: SetMainDisplayIntent(),
+            phrases: [
+                "Set the main display with \(.applicationName)",
+                "\(.applicationName) set main display"
+            ],
+            shortTitle: "Set Main Display",
+            systemImageName: "menubar.rectangle"
         )
     }
 }

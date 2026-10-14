@@ -40,6 +40,66 @@
           }
         }
       }
+    },
+    "Get display brightness with ${applicationName}" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Узнать яркость дисплея через ${applicationName}"
+          }
+        }
+      }
+    },
+    "${applicationName} get brightness" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${applicationName} узнай яркость"
+          }
+        }
+      }
+    },
+    "Change a display mode with ${applicationName}" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сменить режим дисплея через ${applicationName}"
+          }
+        }
+      }
+    },
+    "${applicationName} change display mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${applicationName} смени режим дисплея"
+          }
+        }
+      }
+    },
+    "Set the main display with ${applicationName}" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрать основной дисплей через ${applicationName}"
+          }
+        }
+      }
+    },
+    "${applicationName} set main display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${applicationName} выбери основной дисплей"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
