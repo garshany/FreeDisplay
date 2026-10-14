@@ -93,7 +93,10 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
     public var rotation: Rotation
     public var isMain: Bool
     public var mirrorSourceID: DisplayRecordID?
-    public var hdrEnabled: Bool
+    /// Whether the output is in HDR mode, or nil when nothing observed it. No current provider
+    /// reads HDR output state, so nil is the normal value — and it must stay distinguishable from a
+    /// confirmed `false`, or an "HDR off" request would count as already satisfied on no evidence.
+    public var hdrEnabled: Bool?
     public var colorProfileName: String?
     public var transport: ConnectionTransport
     public var displayClass: DisplayClass
@@ -112,7 +115,7 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
         rotation: Rotation = .degrees0,
         isMain: Bool = false,
         mirrorSourceID: DisplayRecordID? = nil,
-        hdrEnabled: Bool = false,
+        hdrEnabled: Bool? = nil,
         colorProfileName: String? = nil,
         transport: ConnectionTransport = .unknown,
         displayClass: DisplayClass = .unknown,

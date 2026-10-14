@@ -27,6 +27,50 @@ final class ScenePlannerTests: XCTestCase {
         XCTAssertTrue(plan.operations.allSatisfy { $0.status == .alreadySatisfied })
     }
 
+    // MARK: - HDR state (TR-03)
+
+    private func hdrPlan(desired: Bool, observed: Bool?) -> PlannedOperation? {
+        var display = observation(center, active: true, main: true)
+        display.hdrEnabled = observed
+        let snapshot = TopologySnapshot(generation: .initial, observations: [display])
+        let scene = Scene(id: "hdr", name: "HDR", members: [
+            .init(selector: "alias:Center", required: true, desired: DesiredState(hdr: desired))
+        ])
+        return ScenePlanner().plan(scene: scene, snapshot: snapshot, resolution: ["alias:Center": center])
+            .operations.first { $0.kind == .setHDR }
+    }
+
+    func testUnknownHDRStateNeverSatisfiesAnHDROffRequest() {
+        let op = hdrPlan(desired: false, observed: nil)
+        XCTAssertEqual(op?.status, .willApply)
+        XCTAssertEqual(op?.detail, "Disable HDR (current HDR state unknown)")
+    }
+
+    func testUnknownHDRStateNeverSatisfiesAnHDROnRequest() {
+        XCTAssertEqual(hdrPlan(desired: true, observed: nil)?.status, .willApply)
+    }
+
+    func testAnObservedHDRStateIsComparedAsBefore() {
+        XCTAssertEqual(hdrPlan(desired: false, observed: false)?.status, .alreadySatisfied)
+        XCTAssertEqual(hdrPlan(desired: false, observed: false)?.detail, "Disable HDR")
+        XCTAssertEqual(hdrPlan(desired: true, observed: false)?.status, .willApply)
+        XCTAssertEqual(hdrPlan(desired: true, observed: true)?.status, .alreadySatisfied)
+    }
+
+    func testAnObservationDefaultsToUnknownHDRState() {
+        XCTAssertNil(observation(center, active: true).hdrEnabled)
+    }
+
+    func testAPersistedObservationWithoutAnHDRFieldDecodesAsUnknown() throws {
+        let encoded = try JSONEncoder().encode(observation(center, active: true))
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertNil(object["hdrEnabled"], "unknown is not written as false")
+        object["hdrEnabled"] = false  // what older versions wrote for every display
+        let legacy = try JSONDecoder().decode(DisplayObservation.self,
+                                              from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(legacy.hdrEnabled, false)
+    }
+
     func testDisconnectIsOrderedLastAndReconnectFirst() {
         let snapshot = TopologySnapshot(generation: .initial, observations: [
             observation(center, active: true, main: true),
