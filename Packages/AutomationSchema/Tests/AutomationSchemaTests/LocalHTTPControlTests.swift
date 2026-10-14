@@ -41,6 +41,17 @@ final class LocalHTTPControlTests: XCTestCase {
         let get = Data("GET /v1/displays HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer secret\r\nContent-Length: 0\r\n\r\n".utf8)
         XCTAssertEqual(LocalHTTPControl.parse(get, token: "secret"), .displays)
     }
+    /// curl, browsers and URLSession send a body-less GET without Content-Length (RFC 9110 §8.6).
+    func testBodylessGetWithoutContentLength() {
+        let get = Data("GET /v1/displays HTTP/1.1\r\nHost: 127.0.0.1:8080\r\nUser-Agent: curl/8.7.1\r\nAccept: */*\r\nAuthorization: Bearer secret\r\n\r\n".utf8)
+        XCTAssertEqual(LocalHTTPControl.parse(get, token: "secret"), .displays)
+        var withBody = get; withBody.append(Data("x".utf8))
+        XCTAssertEqual(LocalHTTPControl.parse(withBody, token: "secret"), .rejected(400))
+        let unauthenticated = Data("GET /v1/displays HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".utf8)
+        XCTAssertEqual(LocalHTTPControl.parse(unauthenticated, token: "secret"), .rejected(401))
+        let postWithoutLength = Data("POST /v1/reconnect-all HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer secret\r\nContent-Type: application/json\r\n\r\n{}".utf8)
+        XCTAssertEqual(LocalHTTPControl.parse(postWithoutLength, token: "secret"), .rejected(400))
+    }
     func testResponsesHaveExactByteLengths() {
         let body = Data("{\"name\":\"é\"}".utf8)
         let response = LocalHTTPControl.response(status: 200, body: body)

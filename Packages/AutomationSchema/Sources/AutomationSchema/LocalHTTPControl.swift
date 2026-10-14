@@ -31,9 +31,12 @@ public enum LocalHTTPControl {
                   headers[name] == nil else { return .rejected(400) }
             headers[name] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
         }
+        let isGet = route == "GET /v1/displays HTTP/1.1"
+        // A body-less GET omits Content-Length in curl/browsers/URLSession (RFC 9110 §8.6), so it
+        // means zero there; POST must still declare its length explicitly.
         guard headers["transfer-encoding"] == nil, headers["origin"] == nil,
-              (route == "GET /v1/displays HTTP/1.1" || headers["content-type"] == "application/json"), headers["host"] != nil,
-              let lengthText = headers["content-length"],
+              (isGet || headers["content-type"] == "application/json"), headers["host"] != nil,
+              let lengthText = headers["content-length"] ?? (isGet ? "0" : nil),
               !lengthText.isEmpty, lengthText.allSatisfy({ $0.isASCII && $0.isNumber }),
               let length = Int(lengthText), length <= 256 else { return .rejected(400) }
         guard !token.isEmpty, constantTimeEqual(headers["authorization"] ?? "", "Bearer " + token) else {
@@ -42,7 +45,7 @@ public enum LocalHTTPControl {
         let body = data[separator.upperBound...]
         guard body.count >= length else { return .incomplete }
         guard body.count == length else { return .rejected(400) }
-        if route == "GET /v1/displays HTTP/1.1" {
+        if isGet {
             return length == 0 ? .displays : .rejected(400)
         }
         guard let object = try? JSONSerialization.jsonObject(with: Data(body)),

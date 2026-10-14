@@ -4,7 +4,7 @@ Original GPL-3.0-or-later implementation. Existing CLI, App Intents and URL comm
 
 `LocalControlServer.start(gateway:handler:)` listens only on IPv4 127.0.0.1 at an OS-selected ephemeral port. Every session creates a 256-bit Security-framework random bearer token. The app must display port and token privately after listener readiness; token must not enter logs, URLs, preferences or telemetry. Stop invalidates token, listener, active connections and timeout tasks. Start failures leave the feature stopped. App integration should call stop on termination and expose a clear Stop button.
 
-All requests require `Authorization: Bearer TOKEN`, Host and Content-Length. POST requires application/json. API v1:
+All requests require `Authorization: Bearer TOKEN` and Host. POST requires Content-Length and application/json; a body-less GET may omit Content-Length (treated as 0), as curl and browsers do. API v1:
 
 - `GET /v1/displays`, zero-byte body: injected handler returns current display status JSON.
 - `POST /v1/brightness`, body `{"displayId":"explicit-id","value":0.5}`: value must be a JSON number in 0...1. Handler resolves the exact currently known ID and invokes the normal validated app brightness route, reporting hardware/software/unsupported and verification honestly.
