@@ -160,6 +160,9 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// `DisplayGroupStore` enforces on every mutation. Empty by default; a grouped display is
     /// excluded from Adaptive Display targeting, so the two features never write against each other.
     public var displayGroups: [DisplayGroup]
+    /// How far one brightness/volume step moves, for the native keys and the custom shortcuts alike
+    /// (SO-29). Defaults to macOS's 1/16 and 1/64 steps.
+    public var adjustmentSteps: AdjustmentSteps
 
     public init(
         persistencePolicy: PersistencePolicy = .reconnectOnQuit,
@@ -209,7 +212,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         xdrRestoreOnPower: Bool = true,
         layoutProtectionEnabled: Bool = false,
         protectedLayouts: [String: ProtectedConfig] = [:],
-        displayGroups: [DisplayGroup] = []
+        displayGroups: [DisplayGroup] = [],
+        adjustmentSteps: AdjustmentSteps = .default
     ) {
         self.persistencePolicy = persistencePolicy
         self.confirmationCountdownSeconds = confirmationCountdownSeconds
@@ -259,6 +263,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.layoutProtectionEnabled = layoutProtectionEnabled
         self.protectedLayouts = protectedLayouts
         self.displayGroups = displayGroups
+        self.adjustmentSteps = adjustmentSteps
     }
 
     public static let `default` = OpenDisplaySettings()
@@ -310,6 +315,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case layoutProtectionEnabled
         case protectedLayouts
         case displayGroups
+        case adjustmentSteps
     }
 
     /// Tolerant decoder: every missing OR undecodable key falls back to its default and unknown
@@ -415,6 +421,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             ?? defaults.protectedLayouts
         displayGroups = container.lenient([DisplayGroup].self, forKey: .displayGroups)
             ?? defaults.displayGroups
+        adjustmentSteps = container.lenient(AdjustmentSteps.self, forKey: .adjustmentSteps)
+            ?? defaults.adjustmentSteps
     }
 }
 

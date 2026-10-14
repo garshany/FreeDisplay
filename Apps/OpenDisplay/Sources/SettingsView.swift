@@ -47,6 +47,7 @@ struct SettingsView: View {
                     ContentUnavailableView("Select a connected display first.", systemImage: "display")
                         .navigationTitle("EDID & HiDPI")
                 }
+            case .keyboard: KeyboardSettingsSection()
             case .automation: LocalControlPanel()
             case .virtual:
 #if !PUBLIC_API_ONLY
@@ -83,7 +84,7 @@ struct SettingsView: View {
 }
 
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
-    case displays, arrange, scenes, virtual, capture, advanced, automation, health, about
+    case displays, arrange, scenes, virtual, capture, advanced, keyboard, automation, health, about
     var id: String { rawValue }
 
     /// The section a newly created Settings window starts on (see the launch argument above).
@@ -98,6 +99,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .virtual: return String(localized: "Virtual Displays")
         case .capture: return String(localized: "Screen Capture")
         case .advanced: return String(localized: "EDID & HiDPI")
+        case .keyboard: return String(localized: "Keyboard")
         case .automation: return String(localized: "Automation")
         case .health: return String(localized: "Diagnostics")
         case .about: return String(localized: "About")
@@ -111,6 +113,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .virtual: return "display.2"
         case .capture: return "pip"
         case .advanced: return "slider.horizontal.3"
+        case .keyboard: return "keyboard"
         case .automation: return "terminal"
         case .health: return "stethoscope"
         case .about: return "info.circle"
@@ -485,8 +488,7 @@ private struct HealthSection: View {
 
                 Text("Recovery").font(.title3)
                 LabeledContent("Persistence policy", value: model.settings.persistencePolicy == .reconnectOnQuit ? String(localized: "Reconnect on quit") : model.settings.persistencePolicy == .reconnectOnWake ? String(localized: "Reconnect on wake") : String(localized: "Keep disconnected"))
-                LabeledContent("Global hotkey",
-                               value: model.settings.reconnectAllHotkeyEnabled ? model.reconnectAllHotkey : String(localized: "disabled"))
+                LabeledContent("Global hotkey", value: model.reconnectAllHotkey ?? String(localized: "disabled"))
                 LabeledContent("Checkpoints", value: model.checkpointLocation)
                 Button {
                     Task { await model.reconnectAll() }
@@ -498,10 +500,6 @@ private struct HealthSection: View {
                 Divider()
 
                 DiagnosticsExportSection()
-
-                Divider()
-
-                InputHotkeySection()
 
                 Divider()
 

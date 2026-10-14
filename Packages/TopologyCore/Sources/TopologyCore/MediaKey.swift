@@ -55,6 +55,12 @@ public enum MediaKeyAction: String, Hashable, Sendable, CaseIterable {
     public func signedDelta(fineStep: Bool) -> Float {
         sign * (fineStep ? MediaKeyStep.fine : MediaKeyStep.coarse)
     }
+
+    /// The signed change under the user's adjustment steps (SO-29): `fineStep` (⇧⌥ held) asks for
+    /// whichever step isn't the default one. With default steps this equals `signedDelta(fineStep:)`.
+    public func signedDelta(fineStep: Bool, steps: AdjustmentSteps) -> Float {
+        sign * steps.nativeKeyFraction(modifierRequestsFine: fineStep)
+    }
 }
 
 /// macOS media-key step sizes (fraction of the 0...1 range).
