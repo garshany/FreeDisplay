@@ -124,6 +124,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         statusItem = item
 
+        // Docs/screenshot mode: `-OpenDisplayShowTrayAtLaunch YES` opens the tray panel once launch
+        // settles. Read from the launch-argument domain only; the app never writes this key.
+        if UserDefaults.standard.bool(forKey: "OpenDisplayShowTrayAtLaunch") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                guard let self, let button = self.statusItem?.button else { return }
+                self.tray.show(from: button)
+            }
+        }
+
         // A mode change opens a short keep/revert window. Make sure its countdown is on screen even
         // when the change didn't come from the tray (hotkey, URL, CLI) and Settings isn't open.
         pendingRevertWatch = model.$pendingRevert
@@ -177,7 +186,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             let hosting = NSHostingController(rootView: SettingsView().environmentObject(model))
             let created = NSWindow(contentViewController: hosting)
-            created.title = String(localized: "OpenDisplay Settings")
+            // SwiftUI's navigationTitle only reaches a freshly created window once the section
+            // re-renders, so seed the title with the starting section; switching sections updates it.
+            created.title = SettingsSection.launchSection.title
             created.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             created.isReleasedWhenClosed = false
             created.setContentSize(NSSize(width: 900, height: 660))

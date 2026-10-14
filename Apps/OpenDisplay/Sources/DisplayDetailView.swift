@@ -243,7 +243,8 @@ struct AppearanceCard: View {
                     Text(model.colorTemperature[display.recordID] == nil
                          ? "Native" : "\(Int(temperature)) K")
                         .font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
-                        .frame(width: 48, alignment: .trailing)
+                        .lineLimit(1).fixedSize()  // «Системный» is wider than "6500 K"; never wrap it
+                        .frame(minWidth: 48, alignment: .trailing)
                 }
             }
             ODDivider()

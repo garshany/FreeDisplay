@@ -17,7 +17,9 @@ import VirtualDisplayProvider
 /// See `Docs/InterfaceRedesign.md`.
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var section: SettingsSection? = .displays
+    // `-OpenDisplaySettingsSection <rawValue>` (launch argument) opens a given section — used to
+    // take documentation screenshots without UI scripting. Unknown or absent values mean Displays.
+    @State private var section: SettingsSection? = .launchSection
 #if !PUBLIC_API_ONLY
     @StateObject private var virtualSession = VirtualDisplaySession()
 #endif
@@ -80,6 +82,11 @@ struct SettingsView: View {
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     case displays, arrange, scenes, virtual, capture, advanced, automation, health, about
     var id: String { rawValue }
+
+    /// The section a newly created Settings window starts on (see the launch argument above).
+    static var launchSection: SettingsSection {
+        SettingsSection(rawValue: UserDefaults.standard.string(forKey: "OpenDisplaySettingsSection") ?? "") ?? .displays
+    }
     var title: String {
         switch self {
         case .displays: return String(localized: "Displays")
