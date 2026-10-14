@@ -671,7 +671,8 @@ private struct TrayImageAdjustments: View {
         let id = display.recordID
         let minK = Double(ColorTemperatureCurve.minKelvin), maxK = Double(ColorTemperatureCurve.maxKelvin)
         let kelvin = Double(model.colorTemperature[id] ?? ColorTemperatureCurve.neutralKelvin)
-        let dimFloor = model.settings.dimmingMethod == .gamma ? 0.15 : 0
+        // The method in force: overlay while the custom-profile safeguard pauses gamma.
+        let dimFloor = model.effectiveDimmingMethod == .gamma ? Double(DimmingComposer.gammaFloor) : 0
         let dim = Double(model.softwareDim[id] ?? 1)
         VStack(alignment: .leading, spacing: 8) {
             TrayLabeled(String(localized: "Color temperature"),
@@ -694,6 +695,7 @@ private struct TrayImageAdjustments: View {
                                     (String(localized: "Overlay"), DimmingMethod.overlay),
                                     (String(localized: "Both"), DimmingMethod.combined)],
                           selection: model.settings.dimmingMethod) { model.setDimmingMethod($0) }
+            if let issue = model.gammaIssueText(for: display) { TrayNote(issue, tint: ODColor.caution) }
             TrayNote(String(localized: "The dimming method is shared by all displays. Temperature and dimming stay until you quit OpenDisplay."))
         }
     }
@@ -817,19 +819,30 @@ private struct TrayColorProfileList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             if model.colorProfileControllable[display.recordID] == true {
-                let current = model.colorProfileName[display.recordID] ?? ""
-                // Must match the factory names `ColorProfileService.currentProfileName` reports (same
-                // localized keys), so the check holds in every UI language.
-                TrayChoiceRow(selected: current == String(localized: "Factory default") || current.hasSuffix(String(localized: "(factory)")),
+                // Rows are marked by the assigned FILE: two installed profiles can share a name.
+                // Unknown until the assignment has been read, so nothing is marked before that.
+                let assignment = model.colorProfileAssignment[display.recordID]
+                let profiles = model.availableColorProfilesCache
+                let sharedNames = Set(Dictionary(grouping: profiles, by: \.name).filter { $0.value.count > 1 }.keys)
+                TrayChoiceRow(selected: assignment != nil && assignment?.customURL == nil,
                               action: { Task { await model.resetColorProfile(for: display) } }) {
                     Text("Factory default").font(.system(size: 12))
                 }
-                ForEach(model.availableColorProfilesCache) { profile in
-                    TrayChoiceRow(selected: profile.name == model.colorProfileName[display.recordID],
+                ForEach(profiles) { profile in
+                    TrayChoiceRow(selected: profile.isFile(assignment?.customURL),
                                   action: { Task { await model.setColorProfile(profile, for: display) } }) {
-                        Text(profile.name).font(.system(size: 12)).lineLimit(1)
+                        HStack(spacing: 4) {
+                            Text(profile.name).font(.system(size: 12)).lineLimit(1)
+                            if sharedNames.contains(profile.name) {
+                                // Same description, different file: the file name tells them apart.
+                                Text(profile.url.lastPathComponent).font(.system(size: 10))
+                                    .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                            }
+                        }
                     }
+                    .help(profile.url.path)
                 }
+                if let error = model.colorProfileError[display.recordID] { TrayNote(error, tint: ODColor.caution) }
             } else {
                 TrayNote(String(localized: "macOS doesn't allow changing this display's profile."))
             }

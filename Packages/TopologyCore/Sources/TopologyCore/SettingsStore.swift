@@ -108,6 +108,10 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     public var brightnessMediaKeysRequireShift: Bool
     /// How software dimming darkens a display (gamma table, overlay window, or both).
     public var dimmingMethod: DimmingMethod
+    /// Override for the custom-profile safeguard (`ColorProfileGuard`): allow gamma writes while a
+    /// user/shared custom ICC profile is assigned to a connected display. Default off — such
+    /// profiles plus colour-table writes can leave a screen black or tinted.
+    public var allowGammaWithCustomProfiles: Bool
     /// App Presets (Issue #33): switch a display's brightness/contrast/colour preset when a chosen app
     /// becomes frontmost and restore the prior state when it leaves. Default off.
     public var appPresetsEnabled: Bool
@@ -186,6 +190,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         updateCheckEnabled: Bool = true,
         automaticUpdateDownloadEnabled: Bool = false,
         dimmingMethod: DimmingMethod = .gamma,
+        allowGammaWithCustomProfiles: Bool = false,
         softwareBrightnessDisplayIDs: Set<String> = [],
         brightnessMediaKeysRequireShift: Bool = false,
         appPresetsEnabled: Bool = false,
@@ -233,6 +238,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.updateCheckEnabled = updateCheckEnabled
         self.automaticUpdateDownloadEnabled = automaticUpdateDownloadEnabled
         self.dimmingMethod = dimmingMethod
+        self.allowGammaWithCustomProfiles = allowGammaWithCustomProfiles
         self.softwareBrightnessDisplayIDs = softwareBrightnessDisplayIDs
         self.brightnessMediaKeysRequireShift = brightnessMediaKeysRequireShift
         self.appPresetsEnabled = appPresetsEnabled
@@ -282,6 +288,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case updateCheckEnabled
         case automaticUpdateDownloadEnabled
         case dimmingMethod
+        case allowGammaWithCustomProfiles
         case softwareBrightnessDisplayIDs
         case brightnessMediaKeysRequireShift
         case appPresetsEnabled
@@ -373,6 +380,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         brightnessMediaKeysRequireShift = container.lenient(Bool.self, forKey: .brightnessMediaKeysRequireShift) ?? false
         dimmingMethod = container.lenient(DimmingMethod.self, forKey: .dimmingMethod)
             ?? defaults.dimmingMethod
+        allowGammaWithCustomProfiles = container.lenient(Bool.self, forKey: .allowGammaWithCustomProfiles)
+            ?? defaults.allowGammaWithCustomProfiles
         appPresetsEnabled = container.lenient(Bool.self, forKey: .appPresetsEnabled)
             ?? defaults.appPresetsEnabled
         appPresets = container.lenient([AppPresetPolicy.AppPreset].self, forKey: .appPresets)
