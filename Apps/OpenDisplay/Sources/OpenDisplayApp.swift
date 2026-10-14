@@ -91,6 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsKeyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // App Intents run in this process; they reach the live model (and its ledger) through here.
+        OpenDisplayAutomation.liveModel = model
         // Close the pop-out when an action that re-lays-out the displays is picked (e.g. Set as Main):
         // otherwise the open pop-out, anchored to the status item, gets displaced to a random spot when
         // set-main relocates the menu bar to the new main display.
@@ -251,7 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            Task { await OpenDisplayAutomation.handleURL(url) }
+            Task { [model] in await OpenDisplayAutomation.handleURL(url, model: model) }
         }
     }
 }

@@ -54,6 +54,7 @@ rm -P sparkle-private-key.txt
 ## Cutting a release
 
 ```sh
+export SIGN_IDENTITY="Developer ID Application: Name (TEAMID)"   # the expected signer, exactly
 ./scripts/release-signed.sh                 # build → sign → notarize → staple → zip → appcast
 gh release create v0.9.1 dist/OpenDisplay.zip dist/appcast.xml --title "…" --notes-file …
 ```
@@ -63,6 +64,13 @@ or, against a release that already exists:
 ```sh
 PUBLISH=1 ./scripts/release-signed.sh       # uploads both assets with gh
 ```
+
+The script fails closed: it refuses to run without `SIGN_IDENTITY` (it no longer picks the first
+Developer ID identity in the keychain), checks that the app, the bundled CLI and every embedded
+framework carry exactly that authority and team, and stops — removing the zip — if notarization,
+stapling or the Gatekeeper assessment fails or Gatekeeper doesn't report a notarized Developer ID
+source. `NOTARIZE=0` is a dry run: it skips the appcast by default and cannot be combined with
+`PUBLISH=1`.
 
 The script derives the version from the built app's `CFBundleShortVersionString`, uses `v<version>`
 as the release tag (override with `RELEASE_TAG=`), and lifts that version's section out of

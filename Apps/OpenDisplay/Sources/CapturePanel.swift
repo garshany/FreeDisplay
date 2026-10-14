@@ -6,16 +6,30 @@ import CaptureProvider
 import UniformTypeIdentifiers
 
 /// Explicitly initiated, in-memory SDR capture. No source or pixel persistence.
+///
+/// One process-wide instance (AM-08): the preview window is a PIP the user started and stops by
+/// closing it or pressing Stop, so its lifetime can't be the Settings pane's. Owned by a SwiftUI
+/// `@StateObject`, switching sections or closing Settings deallocated the presentation and its
+/// stream with it — a running PIP silently ended.
 @MainActor
 final class CapturePresentation: NSObject, ObservableObject, SCStreamOutput, SCStreamDelegate, NSWindowDelegate {
+    static let shared = CapturePresentation()
+
     struct Source: Identifiable {
         let id: String
         let title: String
         let display: SCDisplay?
         let window: SCWindow?
     }
+    /// A display a per-device menu entry asked to capture, waiting for the source list.
+    struct RequestedDisplay: Equatable {
+        let displayID: CGDirectDisplayID
+        let name: String
+        var sourceID: String { "d\(displayID)" }
+    }
     @Published var sources: [Source] = []
     @Published var selected = ""
+    @Published private(set) var requestedDisplay: RequestedDisplay?
     @Published var status = String(localized: "Capture stopped. Load sources to request Screen Recording access.")
     @Published var running = false
     @Published var busy = false
@@ -47,9 +61,29 @@ final class CapturePresentation: NSObject, ObservableObject, SCStreamOutput, SCS
             sources += content.windows.filter { $0.owningApplication?.processID != ProcessInfo.processInfo.processIdentifier && $0.frame.width > 1 && $0.frame.height > 1 }.map {
                 Source(id: "w\($0.windowID)", title: "\($0.owningApplication?.applicationName ?? String(localized: "Application")): \($0.title ?? String(localized: "Window"))", display: nil, window: $0)
             }
-            if !sources.contains(where: { $0.id == selected }) { selected = sources.first?.id ?? "" }
+            if !applyRequestedDisplay(), !sources.contains(where: { $0.id == selected }) {
+                selected = sources.first?.id ?? ""
+            }
             status = String(localized: "Choose a source and start capture. Only the selected source is captured.")
         } catch { status = String(localized: "Couldn’t load sources: \(error.localizedDescription). Check Screen Recording access in System Settings; a relaunch may be required.") }
+    }
+
+    /// Remembers which display the user opened capture for from that display's menu, and selects it
+    /// as soon as the source list has it. Never re-targets a running capture, and doesn't load
+    /// sources itself: loading is what asks macOS for Screen Recording access, so it stays a click.
+    func request(displayID: CGDirectDisplayID, name: String) {
+        requestedDisplay = RequestedDisplay(displayID: displayID, name: name)
+        _ = applyRequestedDisplay()
+    }
+
+    /// Selects the requested display if it can, and reports whether it did. Consumed once applied,
+    /// so a later manual choice isn't overridden on the next load.
+    private func applyRequestedDisplay() -> Bool {
+        guard !running, let requested = requestedDisplay,
+              sources.contains(where: { $0.id == requested.sourceID }) else { return false }
+        selected = requested.sourceID
+        requestedDisplay = nil
+        return true
     }
 
     func start() async {
@@ -183,11 +217,16 @@ final class CapturePresentation: NSObject, ObservableObject, SCStreamOutput, SCS
 }
 
 struct CapturePanel: View {
-    @StateObject private var capture = CapturePresentation()
+    // Observed, not owned: the presentation outlives this editor (AM-08).
+    @ObservedObject private var capture = CapturePresentation.shared
     var body: some View {
         Form {
             Section("Experimental capture and picture in picture") {
                 Text("Load sources to begin. macOS may ask for Screen Recording access. The preview stays in memory; protected content may appear blank.").font(.caption)
+                Text("A running preview keeps going when you leave this section or close Settings. Close its window or press Stop to end it.").font(.caption)
+                if let requested = capture.requestedDisplay {
+                    Text("Opened for \(requested.name). Load sources to select it.").font(.caption).foregroundStyle(.secondary)
+                }
                 Button("Load Sources…") { Task { await capture.loadSources() } }.disabled(capture.busy || capture.running)
                 Picker("Source", selection: $capture.selected) {
                     Text("Choose a source").tag("")
@@ -217,6 +256,5 @@ struct CapturePanel: View {
             }
         }
         .formStyle(.grouped)
-        .onDisappear { Task { await capture.stop() } }
     }
 }
