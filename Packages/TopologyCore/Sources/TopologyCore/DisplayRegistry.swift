@@ -311,6 +311,40 @@ public actor DisplayRegistry {
         await persist()
     }
 
+    /// Every persisted record with the observation ids (`cg:<uuid>`) the CG UUID index points at it —
+    /// the inventory Settings lists, connected or not. A record whose display never reported a UUID
+    /// has no observation id here; the live resolution supplies it while that display is present.
+    public func rememberedDisplays() -> [(record: DisplayRecord, observationIDs: [DisplayRecordID])] {
+        var byRecord: [DisplayRecordID: [DisplayRecordID]] = [:]
+        for (cgUUID, recordID) in state.cgUUIDIndex { byRecord[recordID, default: []].append(.forCGUUID(cgUUID)) }
+        return state.records.map { record in
+            (record, (byRecord[record.id] ?? []).sorted { $0.rawValue < $1.rawValue })
+        }
+    }
+
+    /// Removes a remembered record and every CG UUID index entry pointing at it (SD-09). Its display,
+    /// if it is ever seen again, is recognized afresh — matched like any new display or minted.
+    /// Returns false when there was no such persisted record (a provisional one has nothing stored).
+    @discardableResult
+    public func forget(_ id: DisplayRecordID) async -> Bool {
+        guard state.records.contains(where: { $0.id == id }) else { return false }
+        state.records.removeAll { $0.id == id }
+        state.cgUUIDIndex = state.cgUUIDIndex.filter { $0.value != id }
+        await persist()
+        return true
+    }
+
+    /// Clears what the user attached to a record — its name and tags — while keeping the identity
+    /// evidence (fingerprint, pairing, CG UUID routing), so a connected display whose settings are
+    /// reset is still recognized as itself rather than re-matched from scratch.
+    public func clearUserData(for id: DisplayRecordID) async {
+        guard state.records.contains(where: { $0.id == id }) else { return }
+        try? await mutate(id) {
+            $0.alias = nil
+            $0.tags = []
+        }
+    }
+
     // MARK: - Private
 
     private enum RegistryError: Error { case unknownRecord }

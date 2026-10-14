@@ -112,6 +112,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The "Show or Hide the Menu" keyboard shortcut (SO-38) acts like a click on the icon.
         NotificationCenter.default.addObserver(
             self, selector: #selector(toggleMenuFromShortcut), name: .openDisplayToggleMenu, object: nil)
+        // Settings → Menu can open the panel itself: the way in when macOS hides the icon (FA-15).
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(showTrayPanel), name: .openDisplayShowTray, object: nil)
 
         // ⌘, is registered by the placeholder SwiftUI `Settings` scene, whose window is not the real
         // settings UI. Intercept the shortcut before the scene sees it and open OUR Settings window —
@@ -196,6 +199,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleMenuFromShortcut() {
         guard let button = statusItem?.button else { return }
         tray.toggle(from: button)
+    }
+
+    /// Opens the tray without a click on the icon. Anchored under the icon when macOS shows it;
+    /// otherwise the panel controller places it where the icon would be.
+    @objc private func showTrayPanel() {
+        guard !tray.isShown else { return }
+        tray.show(from: statusItem?.button)
     }
 
     /// Opening the app while it is already running (Finder, Spotlight, Launchpad) opens Settings.
