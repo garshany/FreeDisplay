@@ -457,9 +457,12 @@ struct ControlsCard: View {
             // Brightness first, and always: it has a software fallback, so it's usable even on a
             // panel that reports none of the DDC extras below. Same model funnel as the popover.
             ODRow(String(localized: "Brightness"), secondary: model.brightnessCaption(for: display)) {
+                // Shift while dragging changes this display alone (AM-17), as in the menu.
                 sliderWithReadout(level: model.brightness[display.recordID] ?? 1) { value in
-                    model.setBrightness(value, for: display)
+                    model.setBrightness(value, for: display, syncBypass: NSEvent.modifierFlags.contains(.shift))
                 }
+                .help(model.brightnessIsGroupSynced(display)
+                      ? String(localized: "Hold Shift while dragging to change only this display") : "")
             }
             Toggle("Use software brightness for this monitor", isOn: Binding(
                 get: { model.settings.softwareBrightnessDisplayIDs.contains(display.recordID.rawValue) },

@@ -25,6 +25,12 @@ import Foundation
 ///     classify(0.80 on desk, 5 minutes later)             // a fresh interaction, not a fix
 ///     flag: .leader — desk now leads and builtIn follows
 ///
+/// Those are the `.offsets` mode's rules, the original behaviour. A group can instead use plain
+/// `.absolute` (every follower takes the leader's level) or `.delta` (every follower moves by the
+/// leader's change) — TR-15/SO-05 — and neither applies nor teaches offsets. In every mode, a write
+/// marked `bypass` (Shift on a slider) changes only its own display, and a group that doesn't follow
+/// outside changes ignores `.observed` writes.
+///
 /// Precedence: group sync sits BELOW FaceLight and App Presets (a governed display is skipped
 /// exactly like `adaptiveTick` skips one) and is mutually exclusive with Adaptive Display — a
 /// grouped display is excluded from adaptive targeting by the caller.
@@ -109,13 +115,18 @@ public enum GroupSyncPolicy {
         public var governed: [DisplayRecordID]
         /// Members whose panel has no such control (contrast only; always empty for brightness).
         public var unsupported: [DisplayRecordID]
+        /// Delta mode only: members whose current level isn't known yet, so a change can't be added
+        /// to it. Skipped rather than guessed — writing `0 + change` would yank the panel.
+        public var unknownLevel: [DisplayRecordID]
 
         public init(writes: [FollowerWrite] = [], absent: [DisplayRecordID] = [],
-                    governed: [DisplayRecordID] = [], unsupported: [DisplayRecordID] = []) {
+                    governed: [DisplayRecordID] = [], unsupported: [DisplayRecordID] = [],
+                    unknownLevel: [DisplayRecordID] = []) {
             self.writes = writes
             self.absent = absent
             self.governed = governed
             self.unsupported = unsupported
+            self.unknownLevel = unknownLevel
         }
 
         public var isEmpty: Bool { writes.isEmpty }
@@ -129,12 +140,16 @@ public enum GroupSyncPolicy {
         public var governed: Set<DisplayRecordID>
         /// Displays whose DDC probe found a working contrast channel.
         public var contrastCapable: Set<DisplayRecordID>
+        /// Each display's current brightness level as the app applies/reads it — what a delta is
+        /// added to. A display missing here has no known level yet.
+        public var levels: [DisplayRecordID: Float]
 
         public init(present: Set<DisplayRecordID> = [], governed: Set<DisplayRecordID> = [],
-                    contrastCapable: Set<DisplayRecordID> = []) {
+                    contrastCapable: Set<DisplayRecordID> = [], levels: [DisplayRecordID: Float] = [:]) {
             self.present = present
             self.governed = governed
             self.contrastCapable = contrastCapable
+            self.levels = levels
         }
     }
 
@@ -186,11 +201,23 @@ public enum GroupSyncPolicy {
         public var world: World
         public var correctionWindow: TimeInterval
         public var origin: Origin
+        /// The level the leader actually shows after this write, when it differs from `value` (the
+        /// software route floors a request). Absolute and delta modes match what is on screen; the
+        /// offsets mode keeps reading `value`, as it always did.
+        public var appliedValue: Float?
+        /// The leader's level just before this write — what a delta is measured from. Nil when it
+        /// wasn't known, in which case no change can be sent.
+        public var previousValue: Float?
+        /// One-operation bypass (AM-17/TB-14): the user asked for THIS adjustment to change only this
+        /// display — Shift on a slider. Nothing fans out, nothing is learned, the group's policy is
+        /// unchanged.
+        public var bypass: Bool
 
         public init(value: Float, display: DisplayRecordID, token: SyncEcho.Token? = nil,
                     now: Date, world: World,
                     correctionWindow: TimeInterval = GroupSyncPolicy.defaultCorrectionWindow,
-                    origin: Origin = .slider) {
+                    origin: Origin = .slider, appliedValue: Float? = nil, previousValue: Float? = nil,
+                    bypass: Bool = false) {
             self.value = value
             self.display = display
             self.token = token
@@ -198,7 +225,13 @@ public enum GroupSyncPolicy {
             self.world = world
             self.correctionWindow = correctionWindow
             self.origin = origin
+            self.appliedValue = appliedValue
+            self.previousValue = previousValue
+            self.bypass = bypass
         }
+
+        /// The leader's level as absolute and delta modes read it.
+        var shownValue: Float { appliedValue ?? value }
     }
 
     /// What a write meant for the group.
@@ -209,6 +242,10 @@ public enum GroupSyncPolicy {
         case governed
         /// The group exists but isn't syncing brightness.
         case syncDisabled
+        /// The user bypassed sync for this one adjustment — nothing written, nothing learned.
+        case bypassed
+        /// A change made outside OpenDisplay, and this group doesn't follow those.
+        case outsideChangeIgnored
         /// A fresh interaction: this display leads and the rest follow.
         case leader(FanOut)
         /// The user corrected what sync just wrote — the offset is re-learned, nothing is written.
@@ -279,16 +316,44 @@ public enum GroupSyncPolicy {
     }
 
     /// Every member's write when the GROUP ITSELF is the target — the `group:<name>` CLI selector,
-    /// where no display was touched and `value` is simply the group's new base level. Same offset,
-    /// clamp, and skip rules as a leader fan-out; nothing is excluded unless the caller names it.
+    /// where no display was touched and `value` is simply the group's new level. In offsets mode it
+    /// is the base level and each member adds its own offset; absolute and delta modes have no base
+    /// to offset from — and a group target has no leader whose change could be sent — so every
+    /// member takes `value` itself. Same clamp and skip rules as a leader fan-out; nothing is
+    /// excluded unless the caller names it.
     public static func groupWrites(_ value: Float, group: DisplayGroup, world: World,
                                    excluding leader: DisplayRecordID? = nil) -> FanOut {
         var fanOut = FanOut()
         for member in group.memberRecordIDs where member != leader {
             guard world.present.contains(member) else { fanOut.absent.append(member); continue }
             guard !world.governed.contains(member) else { fanOut.governed.append(member); continue }
-            fanOut.writes.append(FollowerWrite(member: member,
-                                               value: clamp01(value + group.offset(for: member))))
+            let offset = group.brightnessMode == .offsets ? group.offset(for: member) : 0
+            fanOut.writes.append(FollowerWrite(member: member, value: clamp01(value + offset)))
+        }
+        return fanOut
+    }
+
+    /// Delta mode's writes: each present, ungoverned follower moves by `change` from its own current
+    /// level, so existing differences survive until a follower reaches a rail — at 1 or 0 it stops,
+    /// and the difference it had shrinks from then on, never loops. A follower already where the
+    /// change would put it (a rail, or no change at all) is not written; one with no known level is
+    /// reported in `unknownLevel`. ::
+    ///
+    ///     levels {desk: 0.40}; builtIn 0.20 → 0.30
+    ///     ok: desk written at 0.50 — the 20-point difference is kept
+    ///
+    ///     levels {desk: 0.95}; builtIn 0.75 → 0.85
+    ///     ok: desk written at 1.00 — clamped; the difference is now 15 points
+    public static func deltaWrites(change: Float, leader: DisplayRecordID, group: DisplayGroup,
+                                   world: World) -> FanOut {
+        var fanOut = FanOut()
+        for member in group.memberRecordIDs where member != leader {
+            guard world.present.contains(member) else { fanOut.absent.append(member); continue }
+            guard !world.governed.contains(member) else { fanOut.governed.append(member); continue }
+            guard let current = world.levels[member] else { fanOut.unknownLevel.append(member); continue }
+            let target = clamp01(current + change)
+            guard target != current else { continue }
+            fanOut.writes.append(FollowerWrite(member: member, value: target))
         }
         return fanOut
     }
@@ -300,11 +365,38 @@ public enum GroupSyncPolicy {
         guard !echo.isEcho(display: write.display, token: write.token) else {
             return ManualWriteResult(outcome: .echo, group: group, state: state)
         }
+        guard !write.bypass else {
+            // The window closes too: the group's base no longer describes this display, so a nudge
+            // that follows must lead rather than teach an offset against a level nobody is at.
+            var closed = state
+            closed.lastFanOutAt = nil
+            return ManualWriteResult(outcome: .bypassed, group: group, state: closed)
+        }
         guard group.syncBrightness else {
             return ManualWriteResult(outcome: .syncDisabled, group: group, state: state)
         }
         guard !write.world.governed.contains(write.display) else {
             return ManualWriteResult(outcome: .governed, group: group, state: state)
+        }
+        guard write.origin != .observed || group.followsOutsideChanges else {
+            return ManualWriteResult(outcome: .outsideChangeIgnored, group: group, state: state)
+        }
+        switch group.brightnessMode {
+        case .offsets:
+            break  // the original learned-offset rules below
+        case .absolute:
+            // Learned offsets are neither applied nor taught: they stay stored for `.offsets`.
+            let fanOut = groupWrites(write.shownValue, group: group, world: write.world,
+                                     excluding: write.display)
+            return ManualWriteResult(outcome: .leader(fanOut), group: group,
+                                     state: led(by: write, value: write.shownValue))
+        case .delta:
+            let change = write.previousValue.map { write.shownValue - $0 } ?? 0
+            let fanOut = change == 0
+                ? FanOut()
+                : deltaWrites(change: change, leader: write.display, group: group, world: write.world)
+            return ManualWriteResult(outcome: .leader(fanOut), group: group,
+                                     state: led(by: write, value: write.shownValue))
         }
         if let correction = correctionOffset(write, group: group, state: state) {
             var corrected = group
@@ -316,9 +408,13 @@ public enum GroupSyncPolicy {
         }
         let fanOut = followerWrites(leader: write.display, value: write.value, group: group,
                                     world: write.world)
-        let led = GroupSyncState(leaderRecordID: write.display, leaderValue: write.value,
-                                 lastFanOutAt: write.now)
-        return ManualWriteResult(outcome: .leader(fanOut), group: group, state: led)
+        return ManualWriteResult(outcome: .leader(fanOut), group: group,
+                                 state: led(by: write, value: write.value))
+    }
+
+    /// The state after `write` led at `value`.
+    private static func led(by write: ManualWrite, value: Float) -> GroupSyncState {
+        GroupSyncState(leaderRecordID: write.display, leaderValue: value, lastFanOutAt: write.now)
     }
 
     /// The offset this write teaches, or nil when it is a leader event instead. A correction is a

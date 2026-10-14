@@ -336,9 +336,16 @@ private struct TrayBrightnessControl: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
+                // Shift while dragging changes this display alone (AM-17): the group neither follows
+                // nor learns from that one adjustment.
                 TraySlider(value: level, icon: "sun.max.fill",
                            valueText: "\(Int((level * 100).rounded()))%",
-                           accessibilityLabel: String(localized: "Brightness")) { model.setBrightness(Float($0), for: display) }
+                           accessibilityLabel: String(localized: "Brightness")) {
+                    model.setBrightness(Float($0), for: display,
+                                        syncBypass: NSEvent.modifierFlags.contains(.shift))
+                }
+                .help(model.brightnessIsGroupSynced(display)
+                      ? String(localized: "Hold Shift while dragging to change only this display") : "")
                 if model.xdrCapable(display) { xdrButton }
             }
             let captions = [model.brightnessCaption(for: display), model.groupSyncCaption(for: display)].compactMap { $0 }

@@ -18,17 +18,65 @@ public struct DisplayGroup: Hashable, Sendable, Codable, Identifiable {
     public var syncBrightness: Bool
     public var syncContrast: Bool
     public var offsetByMember: [String: Float]
+    /// How a leader's brightness reaches the followers (TR-15/SO-05). Groups saved before the choice
+    /// existed decode as `.offsets` — exactly what they did then.
+    public var brightnessMode: BrightnessSyncMode
+    /// Whether a brightness change made outside OpenDisplay (macOS keys, System Settings,
+    /// auto-brightness) that the app only observed leads the group. On for groups saved before the
+    /// switch existed, which always followed such changes.
+    public var followsOutsideChanges: Bool
 
     public init(id: UUID = UUID(), name: String, memberRecordIDs: [DisplayRecordID] = [],
                 syncBrightness: Bool = true, syncContrast: Bool = false,
-                offsetByMember: [String: Float] = [:]) {
+                offsetByMember: [String: Float] = [:],
+                brightnessMode: BrightnessSyncMode = .offsets,
+                followsOutsideChanges: Bool = true) {
         self.id = id
         self.name = name
         self.memberRecordIDs = memberRecordIDs
         self.syncBrightness = syncBrightness
         self.syncContrast = syncContrast
         self.offsetByMember = offsetByMember
+        self.brightnessMode = brightnessMode
+        self.followsOutsideChanges = followsOutsideChanges
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, memberRecordIDs, syncBrightness, syncContrast, offsetByMember
+        case brightnessMode, followsOutsideChanges
+    }
+
+    /// Missing or unreadable new keys take the pre-existing behaviour, so a groups list saved by an
+    /// older build keeps syncing the way it did — and one written by a newer build with a mode this
+    /// build doesn't know still loads instead of losing every group.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        memberRecordIDs = try container.decode([DisplayRecordID].self, forKey: .memberRecordIDs)
+        syncBrightness = try container.decode(Bool.self, forKey: .syncBrightness)
+        syncContrast = try container.decode(Bool.self, forKey: .syncContrast)
+        offsetByMember = try container.decode([String: Float].self, forKey: .offsetByMember)
+        brightnessMode = ((try? container.decodeIfPresent(BrightnessSyncMode.self, forKey: .brightnessMode))
+            ?? nil) ?? .offsets
+        followsOutsideChanges = ((try? container.decodeIfPresent(Bool.self, forKey: .followsOutsideChanges))
+            ?? nil) ?? true
+    }
+
+    /// The fixed identity of the Default group, so its leader state and settings survive relaunches
+    /// without ever colliding with a named group's random UUID.
+    public static let defaultGroupID = UUID(uuidString: "00000000-0000-0000-0000-00000000D0D0")!
+
+    /// The Default group as first configured (SO-05/AM-17): brightness only, OFF until the user turns
+    /// it on, delta mode — so switching it on never makes a display jump; the first move carries each
+    /// display along from wherever it already is. Its members aren't stored: they are every eligible
+    /// connected display no named group claims (`DisplayGroupStore.resolvedDefaultGroup`). The name
+    /// is a placeholder; the UI shows a localized one.
+    public static let defaultGroup = DisplayGroup(
+        id: defaultGroupID, name: "Default", syncBrightness: false, syncContrast: false,
+        brightnessMode: .delta, followsOutsideChanges: true)
+
+    public var isDefaultGroup: Bool { id == Self.defaultGroupID }
 
     /// Widest offset the policy will learn or apply, mirroring `AdaptiveDisplayPolicy`'s own
     /// ±1 clamp on a learned offset. A tighter bound would silently discard part of a correction the
@@ -57,6 +105,21 @@ public struct DisplayGroup: Hashable, Sendable, Codable, Identifiable {
     public static func clampOffset(_ offset: Float) -> Float {
         min(offsetLimit, max(-offsetLimit, offset))
     }
+}
+
+/// The basic brightness synchronization semantics a group can use (TR-15/SO-05/TB-14). Levels are
+/// each display's own control position (0...1 of its brightness range), so percentages are matched,
+/// never luminance: equal percentages on two panels need not look equally bright.
+public enum BrightnessSyncMode: String, Hashable, Sendable, Codable, CaseIterable {
+    /// The original FreeDisplay behaviour: followers sit at the group's base level plus the offset
+    /// each one learned from the user's own corrections (or that was set by hand).
+    case offsets
+    /// Every follower takes the leader's level. Learned offsets are kept but not applied, so
+    /// switching back to `.offsets` finds them unchanged.
+    case absolute
+    /// Every follower moves by the leader's change, keeping the differences that already exist
+    /// until a follower reaches the top or bottom of its range (where it simply stops).
+    case delta
 }
 
 /// Pure store logic for the configured groups (`OpenDisplaySettings.displayGroups`). Every mutation
@@ -130,6 +193,40 @@ public enum DisplayGroupStore {
     /// leave it alone: Adaptive Display and group sync are mutually exclusive per display.
     public static func isGroupGoverned(_ member: DisplayRecordID, in groups: [DisplayGroup]) -> Bool {
         group(containing: member, in: groups)?.syncBrightness ?? false
+    }
+
+    // MARK: - Default group (SO-05/AM-17)
+
+    /// The Default group with its live membership: every `eligible` display (connected, in the
+    /// caller's order) that no named group claims. Named groups always outrank it, so a display a
+    /// named group holds — even one with sync switched off — is never driven by the Default group as
+    /// well. ::
+    ///
+    ///     resolvedDefaultGroup(default, eligible: [builtIn, desk, side], groups: [work(desk)])
+    ///     ok: members [builtIn, side] — desk belongs to `work`
+    public static func resolvedDefaultGroup(_ defaultGroup: DisplayGroup, eligible: [DisplayRecordID],
+                                            groups: [DisplayGroup]) -> DisplayGroup {
+        var resolved = defaultGroup
+        resolved.memberRecordIDs = eligible.filter { group(containing: $0, in: groups) == nil }
+        return resolved
+    }
+
+    /// The group whose brightness rules apply to a display: its named group, or else the Default
+    /// group when the display is one of its live members. Nil for a display neither covers (an
+    /// ineligible one, such as a virtual screen, outside every named group).
+    public static func syncGroup(containing member: DisplayRecordID, in groups: [DisplayGroup],
+                                 defaultGroup: DisplayGroup, eligible: [DisplayRecordID]) -> DisplayGroup? {
+        if let named = group(containing: member, in: groups) { return named }
+        let resolved = resolvedDefaultGroup(defaultGroup, eligible: eligible, groups: groups)
+        return resolved.contains(member) ? resolved : nil
+    }
+
+    /// `isGroupGoverned` counting the Default group too: true when a group — named, or the Default
+    /// group switched on — drives this display's brightness.
+    public static func isGroupGoverned(_ member: DisplayRecordID, in groups: [DisplayGroup],
+                                       defaultGroup: DisplayGroup, eligible: [DisplayRecordID]) -> Bool {
+        syncGroup(containing: member, in: groups, defaultGroup: defaultGroup, eligible: eligible)?
+            .syncBrightness ?? false
     }
 
     private static func withoutMembers(_ members: [DisplayRecordID],
