@@ -43,4 +43,35 @@ final class IdentityScorerTests: XCTestCase {
         XCTAssertLessThanOrEqual(confidence.score, 1.0)
         XCTAssertGreaterThanOrEqual(confidence.score, 0.0)
     }
+
+    /// TR-09: a serial is only an identity inside one vendor's product line. Two vendors' displays
+    /// (or two models) that share a small or placeholder serial must not clear any threshold on it.
+    func testTheSameSerialFromAnotherVendorOrModelIsNotASerialMatch() {
+        let candidate = record(serial: "16843009", vendor: 610, product: 123)
+        let otherVendor = DisplayFingerprint(vendorID: 1234, productID: 123, serialNumber: "16843009")
+        let otherModel = DisplayFingerprint(vendorID: 610, productID: 999, serialNumber: "16843009")
+        for observed in [otherVendor, otherModel] {
+            let confidence = IdentityScorer.score(observed: observed, candidate: candidate)
+            XCTAssertLessThan(confidence.score, 0.5, "\(observed)")
+            XCTAssertFalse(confidence.evidence.contains { $0.signal == .edidSerial && $0.matched })
+        }
+    }
+
+    func testASerialWithoutVendorOrModelCannotBeQualified() {
+        let a = DisplayFingerprint(vendorID: nil, productID: 123, serialNumber: "S1")
+        let b = DisplayFingerprint(vendorID: nil, productID: 123, serialNumber: "S1")
+        XCTAssertFalse(IdentityScorer.serialsMatch(a, b))
+        XCTAssertTrue(IdentityScorer.serialsMatch(
+            DisplayFingerprint(vendorID: 1, productID: 2, serialNumber: "S1"),
+            DisplayFingerprint(vendorID: 1, productID: 2, serialNumber: "S1")))
+    }
+
+    func testIdentitiesConflictOnlyOnPositiveDifferences() {
+        let base = DisplayFingerprint(vendorID: 1, productID: 2, serialNumber: "S1")
+        XCTAssertTrue(IdentityScorer.identitiesConflict(base, DisplayFingerprint(vendorID: 9, productID: 2, serialNumber: "S1")))
+        XCTAssertTrue(IdentityScorer.identitiesConflict(base, DisplayFingerprint(vendorID: 1, productID: 2, serialNumber: "S2")))
+        XCTAssertFalse(IdentityScorer.identitiesConflict(base, DisplayFingerprint(vendorID: 1, productID: 2)))
+        XCTAssertFalse(IdentityScorer.identitiesConflict(base, DisplayFingerprint(vendorID: nil, productID: 2, serialNumber: "S9")))
+        XCTAssertFalse(IdentityScorer.identitiesConflict(base, base))
+    }
 }

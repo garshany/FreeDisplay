@@ -38,15 +38,14 @@ public struct SafetyEngine: Sendable {
         case ambiguousIdentity
     }
 
-    /// Computes a safe surface: an active, non-mirrored display with a stable identity that is not
-    /// in the disconnect target set and is not itself slated to disappear (PRD §9.6).
+    /// Computes a safe surface: an active, non-mirrored, *physical* display with a stable identity
+    /// that is not in the disconnect target set and is not itself slated to disappear (PRD §9.6).
+    /// Physical is `RecoverySurfacePolicy`'s call — a virtual or unverified screen (our own
+    /// endpoints, DisplayLink, Sidecar, other apps' virtual screens) is never the one left on.
     public func safeSurface(in snapshot: TopologySnapshot,
                            excluding targets: Set<DisplayRecordID>) -> DisplayRecordID? {
-        let candidates = snapshot.activeDisplays.filter { observation in
-            !targets.contains(observation.recordID)
-                && !observation.isMirrored
-                && observation.overlayIsRecoverable
-        }
+        let candidates = RecoverySurfacePolicy.safeSurfaceCandidates(in: snapshot.activeDisplays,
+                                                                     excluding: targets)
         // Prefer the built-in panel, then the current main, then any stable candidate. Deterministic
         // ordering keeps preflight reproducible across runs.
         if let builtIn = candidates.first(where: { $0.displayClass == .builtIn }) {
@@ -100,13 +99,5 @@ public struct SafetyEngine: Sendable {
         return confirmations.isEmpty
             ? .allowed(safeSurface: surface)
             : .needsConfirmation(safeSurface: surface, reasons: confirmations)
-    }
-}
-
-private extension DisplayObservation {
-    /// A blacked-out or filtered surface can't be relied on for recovery feedback unless the
-    /// recovery path removes overlays (PRD §9.6). Treated conservatively here.
-    var overlayIsRecoverable: Bool {
-        overlay == .visible || overlay == .dimmed
     }
 }

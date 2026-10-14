@@ -113,6 +113,62 @@ final class KeyboardShortcutRegistryTests: XCTestCase {
         XCTAssertEqual(decoded.inputSwitchBindings.count, 2)
     }
 
+    // MARK: Clearing a shipped shortcut (SO-01)
+
+    private let shiftF2 = KeyBinding(keyCode: 0x78, modifiers: KeyBinding.shift)
+
+    func testClearedDefaultStaysUnboundThroughTheMerge() {
+        var reg = KeyboardShortcutRegistry.defaults
+        reg.setBinding(nil, for: .brightnessUp)
+        XCTAssertNil(reg.mergedWithDefaults().binding(for: .brightnessUp),
+                     "the merge over defaults must not resurrect a shortcut the user cleared")
+        XCTAssertEqual(reg.mergedWithDefaults().binding(for: .reconnectAll), r)  // untouched defaults remain
+    }
+
+    func testClearedDefaultSurvivesSaveAndReload() throws {
+        var reg = KeyboardShortcutRegistry.defaults
+        reg.setBinding(nil, for: .brightnessUp)
+        let decoded = try JSONDecoder().decode(KeyboardShortcutRegistry.self, from: JSONEncoder().encode(reg))
+        XCTAssertEqual(decoded, reg)
+        XCTAssertNil(decoded.mergedWithDefaults().binding(for: .brightnessUp))
+    }
+
+    func testRebindingAClearedActionLiftsTheTombstone() {
+        var reg = KeyboardShortcutRegistry.defaults
+        reg.setBinding(nil, for: .brightnessUp)
+        reg.setBinding(up, for: .brightnessUp)
+        XCTAssertEqual(reg.mergedWithDefaults().binding(for: .brightnessUp), up)
+        XCTAssertFalse(reg.disabledActions.contains(.brightnessUp))
+    }
+
+    func testRestoringDefaultsIsSeparateFromClearing() {
+        var reg = KeyboardShortcutRegistry.defaults
+        reg.setBinding(nil, for: .brightnessUp)
+        reg.setBinding(up, for: .reconnectAll)
+        let entry = InputSwitchBinding(id: "hdmi2", displayID: deskMonitor, inputCode: 0x12, binding: digit1)
+        reg.addInputSwitchBinding(entry)
+
+        var one = reg
+        one.restoreDefault(for: .brightnessUp)
+        XCTAssertEqual(one.mergedWithDefaults().binding(for: .brightnessUp), shiftF2)
+        XCTAssertEqual(one.mergedWithDefaults().binding(for: .reconnectAll), up)  // only that action
+
+        let all = reg.restoringDefaults()
+        XCTAssertEqual(all.mergedWithDefaults().binding(for: .brightnessUp), shiftF2)
+        XCTAssertEqual(all.mergedWithDefaults().binding(for: .reconnectAll), r)
+        XCTAssertTrue(all.disabledActions.isEmpty)
+        XCTAssertEqual(all.inputSwitchBindings, [entry])  // the user's own bindings have no default
+    }
+
+    func testFilesWithoutTheDisabledStateDecodeWithNone() throws {
+        let current = #"{"bindings":{"reconnectAll":{"keyCode":15,"modifiers":6400}},"inputSwitchBindings":[]}"#
+        XCTAssertTrue(try JSONDecoder().decode(KeyboardShortcutRegistry.self, from: Data(current.utf8))
+            .disabledActions.isEmpty)
+        let withUnknown = #"{"bindings":{},"inputSwitchBindings":[],"disabledActions":["brightnessUp","futureAction"]}"#
+        XCTAssertEqual(try JSONDecoder().decode(KeyboardShortcutRegistry.self, from: Data(withUnknown.utf8))
+            .disabledActions, [.brightnessUp])
+    }
+
     func testMergedWithDefaultsCarriesInputSwitchBindingsThrough() {
         var reg = KeyboardShortcutRegistry()
         let entry = InputSwitchBinding(id: "hdmi2", displayID: deskMonitor, inputCode: 0x12, binding: digit1)

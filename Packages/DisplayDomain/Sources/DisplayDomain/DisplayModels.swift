@@ -112,6 +112,10 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
     public var colorProfileName: String?
     public var transport: ConnectionTransport
     public var displayClass: DisplayClass
+    /// Whether the provider found evidence that this is a physical screen (`PhysicalPresence`).
+    /// Nil when nothing assessed it — fixtures, and snapshots decoded from before the field existed;
+    /// `RecoverySurfacePolicy` then falls back to `displayClass`.
+    public var physicalPresence: PhysicalPresence?
     public var generation: TopologyGeneration
     public var observedAt: Date
 
@@ -131,6 +135,7 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
         colorProfileName: String? = nil,
         transport: ConnectionTransport = .unknown,
         displayClass: DisplayClass = .unknown,
+        physicalPresence: PhysicalPresence? = nil,
         generation: TopologyGeneration,
         observedAt: Date = Date()
     ) {
@@ -150,6 +155,7 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
         self.colorProfileName = colorProfileName
         self.transport = transport
         self.displayClass = displayClass
+        self.physicalPresence = physicalPresence
         self.generation = generation
         self.observedAt = observedAt
     }
@@ -157,12 +163,15 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
     /// `true` when this display is mirroring another endpoint.
     public var isMirrored: Bool { mirrorSourceID != nil }
 
+    /// Spelled out only to keep `hdrReported` under its historical "hdrEnabled" key. EVERY stored
+    /// property must be listed: an optional one left out would compile and then silently never
+    /// persist (`testEveryStoredFieldSurvivesCoding` guards it).
     private enum CodingKeys: String, CodingKey {
         case recordID, cgDisplayID, cgUUID, ioServicePath, isActive, overlay, origin, mode, rotation
         case isMain, mirrorSourceID
         case hdrReported = "hdrEnabled"
         case hdrObserved
-        case colorProfileName, transport, displayClass, generation, observedAt
+        case colorProfileName, transport, displayClass, physicalPresence, generation, observedAt
     }
 }
 
@@ -177,6 +186,12 @@ public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
     public var displayClass: DisplayClass
     public var lastSeen: Date?
     public var pairingConfirmed: Bool
+    /// Set only on a *provisional* record: the registry could not tell this live display apart from
+    /// these remembered records (a shared serial, a tied score, or two displays present at once
+    /// claiming one record), so it attached none of their alias, tags or pairing to it. Never
+    /// persisted — the record exists only until the user names, tags or pairs the display, which
+    /// makes it a display of its own (`DisplayRegistry`).
+    public var unresolvedCandidates: [DisplayRecordID]?
 
     public init(
         id: DisplayRecordID,
@@ -185,7 +200,8 @@ public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
         fingerprint: DisplayFingerprint,
         displayClass: DisplayClass = .unknown,
         lastSeen: Date? = nil,
-        pairingConfirmed: Bool = false
+        pairingConfirmed: Bool = false,
+        unresolvedCandidates: [DisplayRecordID]? = nil
     ) {
         self.id = id
         self.alias = alias
@@ -194,7 +210,12 @@ public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
         self.displayClass = displayClass
         self.lastSeen = lastSeen
         self.pairingConfirmed = pairingConfirmed
+        self.unresolvedCandidates = unresolvedCandidates
     }
+
+    /// True when automatic recognition was ambiguous and this record is the registry's explicit
+    /// "can't tell which one" answer rather than a remembered display.
+    public var isProvisional: Bool { unresolvedCandidates != nil }
 
     /// A user-facing name: the explicit alias if set, otherwise the model name, otherwise the ID.
     public var displayName: String {

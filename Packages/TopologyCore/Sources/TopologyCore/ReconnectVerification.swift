@@ -50,6 +50,29 @@ public enum ReconnectVerification {
         }
     }
 
+    /// The ledger to keep after the quit-time "reconnect everything": each entry whose display is
+    /// not observed lit stays, stamped as a failed reconnect.
+    ///
+    /// Quitting used to clear the whole ledger once the reconnect requests had been *sent*, whatever
+    /// they achieved — and the ledger is the only record that a turned-off display exists (it is
+    /// absent from every display list). A display that stayed dark then had nothing left to show it
+    /// in the menu, nothing for the CLI to reconnect, and nothing for the next launch's safety net to
+    /// light. The kept entry is owed ON now, not off: `reconnectFailedAt` makes the off card say so
+    /// and keeps the wake re-assert away from it, and a stale wake stamp is dropped for the same
+    /// reason. An entry kept only because its display was slow to light is dropped by the next
+    /// launch, which forgets entries whose display is already back.
+    public static func ledgerAfterQuitReconnect(_ ledger: [ManagedOfflineDisplay],
+                                                observations: [DisplayObservation],
+                                                at now: Date) -> [ManagedOfflineDisplay] {
+        ledger.compactMap { entry in
+            guard !isLit(entry, in: observations) else { return nil }
+            var kept = entry
+            kept.reconnectFailedAt = now
+            kept.relitDuringWakeAt = nil
+            return kept
+        }
+    }
+
     public static let failureAuditCommand = "reconnectUnverified"
     public static let escalateAuditCommand = "reconnectEscalate"
 

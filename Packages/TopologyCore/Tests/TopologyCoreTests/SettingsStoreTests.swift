@@ -354,6 +354,17 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(SettingsStore(directory: directory).load().hotkeyShortcuts, .defaults)
     }
 
+    func testClearedDefaultHotkeyStaysClearedAfterReload() throws {
+        // SO-01 end to end: clear a shipped chord, save, reload, and register what the app would.
+        var settings = OpenDisplaySettings.default
+        settings.hotkeyShortcuts.setBinding(nil, for: .brightnessDown)
+        let store = SettingsStore(directory: directory)
+        try store.save(settings)
+        let registered = store.load().hotkeyShortcuts.mergedWithDefaults()
+        XCTAssertNil(registered.binding(for: .brightnessDown))
+        XCTAssertNotNil(registered.binding(for: .brightnessUp))
+    }
+
     func testArrangementAutoRevertDefaultsTo10AndRoundTrips() throws {
         XCTAssertEqual(OpenDisplaySettings.default.arrangementAutoRevertSeconds, 10)
         let store = SettingsStore(directory: directory)

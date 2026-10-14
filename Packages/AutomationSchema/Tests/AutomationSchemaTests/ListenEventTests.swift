@@ -24,6 +24,19 @@ final class ListenEventTests: XCTestCase {
         XCTAssertNil(event.source)
     }
 
+    func testBrightnessEventCarriesTheBroadcastScale() throws {
+        let broadcast = OSDBroadcast(kind: .brightness, value: 0.3, maxValue: 1, displayID: "cg:1",
+                                     source: "http", timestamp: 2)
+        let event = ListenEvent.brightness(from: broadcast)
+        XCTAssertEqual(event.maxValue, 1)
+        XCTAssertEqual(event.source, "http")
+        guard let json = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(event)) as? [String: Any] else {
+            return XCTFail("expected a JSON object")
+        }
+        XCTAssertEqual(json["maxValue"] as? Double, 1)
+    }
+
     func testVersionDefaultsToSchemaVersion() {
         let event = ListenEvent.config(at: 0, displays: [])
         XCTAssertEqual(event.version, ListenEvent.schemaVersion)

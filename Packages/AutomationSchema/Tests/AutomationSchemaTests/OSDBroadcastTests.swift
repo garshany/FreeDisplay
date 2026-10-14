@@ -40,4 +40,32 @@ final class OSDBroadcastTests: XCTestCase {
         let broadcast = OSDBroadcast(kind: .volume, value: 0.5, displayID: "d", source: "s", timestamp: 0)
         XCTAssertEqual(broadcast.version, OSDBroadcast.schemaVersion)
     }
+
+    // MARK: Range metadata and sources (FA-06 / IN-04)
+
+    func testMaxValueTravelsThroughUserInfo() {
+        let broadcast = OSDBroadcast(kind: .brightness, value: 0.4, maxValue: 1, displayID: "cg:1",
+                                     source: OSDBroadcast.Source.menu.rawValue, timestamp: 5)
+        XCTAssertEqual(broadcast.userInfo["maxValue"], "1.0")
+        XCTAssertEqual(OSDBroadcast(userInfo: broadcast.userInfo), broadcast)
+    }
+
+    func testMissingOrUnusableMaxValueIsAbsentNotAnError() {
+        var info = OSDBroadcast(kind: .brightness, value: 0.4, displayID: "cg:1",
+                                source: "cli", timestamp: 5).userInfo
+        XCTAssertNil(info["maxValue"])                          // an older sender
+        XCTAssertNil(OSDBroadcast(userInfo: info)?.maxValue)
+        for bad in ["0", "-1", "nan", "inf", "x"] {
+            info["maxValue"] = bad
+            let decoded = OSDBroadcast(userInfo: info)
+            XCTAssertNotNil(decoded, bad)                       // the event survives…
+            XCTAssertNil(decoded?.maxValue, bad)                // …without a bogus scale
+        }
+    }
+
+    func testSourceVocabularyIsStable() {
+        // Receivers and `listen` consumers match these strings; renaming one is a breaking change.
+        XCTAssertEqual(OSDBroadcast.Source.allCases.map(\.rawValue),
+                       ["menu", "mediaKey", "hotkey", "http", "cli", "appIntent", "app"])
+    }
 }

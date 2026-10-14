@@ -108,7 +108,18 @@ final class AppModel: ObservableObject {
     @Published private(set) var managedOffline: [OfflineDisplay] = []
     /// Cached brightness (0...1) for displays we can control — built-in via DisplayServices, externals
     /// via DDC, or software gamma as a universal fallback. A missing key means "not yet read".
-    @Published private(set) var brightness: [DisplayRecordID: Float] = [:]
+    @Published private(set) var brightness: [DisplayRecordID: Float] = [:] {
+        didSet {
+            // Dates each entry by its last change, whether a read-back or a requested write put it
+            // there, so automation can report how old the cached level is (IN-05) without claiming
+            // the device was just read.
+            let now = Date()
+            for (id, value) in brightness where oldValue[id] != value { brightnessCachedSince[id] = now }
+            for id in brightnessCachedSince.keys where brightness[id] == nil { brightnessCachedSince[id] = nil }
+        }
+    }
+    /// When each `brightness` entry last changed value. Not published: it only annotates reads.
+    private(set) var brightnessCachedSince: [DisplayRecordID: Date] = [:]
     /// The route the unified brightness slider drives for each display (resolved on read).
     @Published private(set) var brightnessMethod: [DisplayRecordID: BrightnessMethod] = [:]
     /// The display selected in the Settings → Displays detail pane. The menu bar sets this when it
@@ -215,13 +226,31 @@ final class AppModel: ObservableObject {
     /// you turned off is exactly the one you may need the CLI to bring back.
     typealias OfflineDisplay = ManagedOfflineDisplay
 
-    /// Count of currently-active REAL displays — the UI disables the off-toggle on the last one.
-    /// Excludes macOS's `.virtual` placeholder, which is never a surface the user can see; the
-    /// predicate is `WakeConvergencePolicy`'s so the menu, the safety net, and the ledger can never
-    /// disagree about what counts as a screen.
+    /// Count of currently-lit PHYSICAL displays. Excludes macOS's placeholder and every virtual or
+    /// unverified screen (ours, other apps', DisplayLink, Sidecar), none of which is a surface the
+    /// user can be left on; the predicate is `WakeConvergencePolicy`'s so the menu, the safety net,
+    /// and the ledger can never disagree about what counts as a screen.
     var activeDisplayCount: Int {
-        WakeConvergencePolicy.visibleSurfaces(in: displays).count
+        WakeConvergencePolicy.recoverySurfaces(in: displays).count
     }
+
+    /// Whether turning `display` off would still leave a physical screen to recover from — the
+    /// same candidates `SafetyEngine` will accept, so the switch is never offered for a request the
+    /// coordinator is bound to refuse.
+    func canTurnOff(_ display: DisplayObservation) -> Bool {
+        display.isActive
+            && !RecoverySurfacePolicy.safeSurfaceCandidates(in: displays, excluding: [display.recordID]).isEmpty
+    }
+
+    /// What turning a display off does with the lifecycle provider in use — published from the
+    /// provider probe so the menu never promises power-off for what is really a mirror.
+    @Published private(set) var logicalOffMethod: LogicalOffMethod = {
+        #if PUBLIC_API_ONLY
+        return .mirror
+        #else
+        return .disconnect
+        #endif
+    }()
 
     /// True when any provider isn't fully supported — drives the menu-bar caution banner.
     var isDegraded: Bool { diagnostics.contains { $0.status != "supported" } }
@@ -626,6 +655,10 @@ final class AppModel: ObservableObject {
                               reasons: lifecycleProbe.reasons.map(\.rawValue))
         ]
         if diagnostics != updated { diagnostics = updated }
+        // The router answers with the probe of the provider it would route to, so its id says which
+        // operation "off" is: the Core Graphics fallback mirrors, the SkyLight provider disconnects.
+        let method: LogicalOffMethod = lifecycleProbe.providerID == observer.providerID ? .mirror : .disconnect
+        if logicalOffMethod != method { logicalOffMethod = method }
     }
 
     /// Loads the most recent audit-log entries for Settings → Recent Activity.
@@ -1321,25 +1354,83 @@ final class AppModel: ObservableObject {
         return String(localized: "\(mode.pointWidth) × \(mode.pointHeight) pt · framebuffer \(mode.pixelWidth) × \(mode.pixelHeight) px · \(refresh) · \(density)\(depth)")
     }
 
-    /// Applies a saved scene's positions + modes to the current displays (user-triggered).
-    func applyScene(_ scene: Scene) async {
-        let snapshot = await observer.currentSnapshot()
-        var targets: [CoreGraphicsProvider.ArrangementTarget] = []
-        var rotationSkipped = false
+    /// Applies a saved scene's positions + modes to the current displays (user-triggered), then
+    /// checks the result (TB-04): every field is judged against the topology read after the write,
+    /// so a mode macOS rejected or a field scenes don't execute (rotation, on/off, brightness…) is
+    /// reported instead of an apparently clean apply. A missing required member blocks the apply.
+    @discardableResult
+    func applyScene(_ scene: Scene) async -> SceneApplyReport {
+        let before = await observer.currentSnapshot()
+        var resolution: ScenePlanner.Resolution = [:]
         for member in scene.members {
-            guard let observation = resolveSceneMember(member.selector, in: snapshot),
-                  let cgID = observation.cgDisplayID else { continue }
-            // Rotation writes aren't safely supported — skip the property but still apply the rest,
-            // surfacing a non-fatal note (PRD: scenes apply everything they safely can).
-            if let wanted = member.desired.rotation, wanted != observation.rotation { rotationSkipped = true }
-            targets.append(.init(displayID: cgID, origin: member.desired.position, mode: member.desired.mode))
+            if let observation = resolveSceneMember(member.selector, in: before) {
+                resolution[member.selector] = observation.recordID
+            }
         }
-        _ = observer.applyArrangement(targets)
+        let preparation = SceneApplication.prepare(scene: scene, resolution: resolution, before: before)
+        var warnings: [String] = []
+        if !preparation.isBlocked {
+            let targets = preparation.writes.compactMap { write -> CoreGraphicsProvider.ArrangementTarget? in
+                guard let cgID = before.observation(for: write.target)?.cgDisplayID else { return nil }
+                return .init(displayID: cgID, origin: write.origin, mode: write.mode)
+            }
+            if !targets.isEmpty { warnings = observer.applyArrangement(targets) }
+        }
+        let after = await observer.currentSnapshot()
+        let report = SceneApplication.report(scene: scene, preparation: preparation, resolution: resolution,
+                                             before: before, after: after, providerWarnings: warnings)
         await refresh()
         await noteLayoutSelfChange()
-        sceneWarning = rotationSkipped
-            ? String(localized: "Applied. Rotation in this scene was skipped — not supported on this macOS version.")
-            : nil
+        sceneWarning = sceneApplySummary(report)
+        return report
+    }
+
+    /// The Scenes banner for a report, or nil when everything the scene asks for is in place.
+    /// Field names, not values: the CLI (`scene apply`) prints the per-field detail.
+    private func sceneApplySummary(_ report: SceneApplyReport) -> String? {
+        func names(_ outcome: SceneApplyReport.Outcome) -> String {
+            var fields: [SceneApplyReport.Field] = []
+            for entry in report.entries where entry.outcome == outcome && !fields.contains(entry.field) {
+                fields.append(entry.field)
+            }
+            return fields.map(Self.sceneFieldName).formatted(.list(type: .and))
+        }
+        switch report.status {
+        case .applied, .noChange:
+            return nil
+        case .blocked:
+            let missing = report.missingRequired.formatted(.list(type: .and))
+            return String(localized: "Not applied: required displays aren’t connected (\(missing)). Nothing was changed.")
+        case .failed where report.entries.isEmpty:
+            return String(localized: "Not applied: none of this scene’s displays are connected.")
+        case .partial, .failed:
+            var parts: [String] = []
+            let notApplied = names(.notApplied)
+            if !notApplied.isEmpty {
+                parts.append(String(localized: "macOS didn’t apply: \(notApplied)."))
+            }
+            let skipped = names(.skipped)
+            if !skipped.isEmpty {
+                parts.append(String(localized: "Scenes can’t set yet, so skipped: \(skipped)."))
+            }
+            let lead = report.status == .partial
+                ? String(localized: "Applied in part.") : String(localized: "Not applied.")
+            return ([lead] + parts).joined(separator: " ")
+        }
+    }
+
+    private static func sceneFieldName(_ field: SceneApplyReport.Field) -> String {
+        switch field {
+        case .connected: return String(localized: "on/off state")
+        case .main: return String(localized: "main display")
+        case .position: return String(localized: "position")
+        case .relativePosition: return String(localized: "relative placement")
+        case .mode: return String(localized: "resolution")
+        case .rotation: return String(localized: "rotation")
+        case .brightness: return String(localized: "brightness")
+        case .colorProfile: return String(localized: "color profile")
+        case .hdr: return String(localized: "HDR")
+        }
     }
 
     func deleteScene(_ scene: Scene) async {
@@ -1459,7 +1550,7 @@ final class AppModel: ObservableObject {
         // The start of the current dark spell, stamped here because this is the one place the app
         // looks at the world. The safety net measures its "give up waiting and light something"
         // deadline from it, so it has to survive across the several events a wake emits.
-        displaysDarkSince = WakeConvergencePolicy.visibleSurfaces(in: displays).isEmpty
+        displaysDarkSince = WakeConvergencePolicy.recoverySurfaces(in: displays).isEmpty
             ? (displaysDarkSince ?? Date())
             : nil
         // A ledger display lit during the wake window gets the wake's stamp before anything can
@@ -1641,9 +1732,13 @@ final class AppModel: ObservableObject {
     /// only the slider can teach a group offset, keys always lead. `SetBrightnessIntent` does NOT
     /// come through here (it writes DisplayServices/DDC directly); on a natively controlled display
     /// the group picks that change up by observation instead (`pollGroupBrightness`).
+    ///
+    /// `eventSource` names the origin in the published OSD event when the gesture alone can't (HTTP
+    /// and hotkeys look like a slider and a key press to group sync); nil derives it.
     func setBrightness(_ value: Float, for observation: DisplayObservation,
                        syncToken: GroupSyncPolicy.SyncEcho.Token? = nil,
-                       origin: GroupSyncPolicy.ManualWrite.Origin = .slider) {
+                       origin: GroupSyncPolicy.ManualWrite.Origin = .slider,
+                       eventSource: OSDBroadcast.Source? = nil) {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
         #if PUBLIC_API_ONLY
@@ -1685,9 +1780,15 @@ final class AppModel: ObservableObject {
             // may confirm it; the caption reports the failure instead.
             onScreen = landed || effectiveDimmingMethod != .gamma
         }
-        // Batch-3 #4: the HUD confirms key presses; a slider already shows its own value.
-        if origin != .slider, onScreen {
-            presentOSD(kind: .brightness, value: brightness[id] ?? value, for: observation)
+        // Batch-3 #4: the HUD confirms key presses; a slider already shows its own value. The event
+        // goes out for every change regardless (IN-04) — a slider, HTTP or restore draws no HUD,
+        // but `listen` and external HUD apps still have to hear about it. Both carry the level that
+        // is applied (the software floor included), and neither goes out for a rejected software
+        // write that changed nothing on screen.
+        if onScreen {
+            let source = eventSource ?? (syncToken != nil ? .app : origin == .keys ? .mediaKey : .menu)
+            presentOSD(kind: .brightness, value: brightness[id] ?? value, for: observation, source: source,
+                       showsLocalHUD: origin != .slider)
         }
         syncGroupBrightness(value, from: observation, token: syncToken, origin: origin)  // Issue #39
     }
@@ -2188,7 +2289,7 @@ final class AppModel: ObservableObject {
     /// on a group's behalf, so it doesn't mirror straight back (Issue #39).
     func setHardwareControl(_ control: HardwareControl, _ value: Float,
                             for observation: DisplayObservation, isGroupSync: Bool = false,
-                            showsOSD: Bool = true) {
+                            showsOSD: Bool = true, eventSource: OSDBroadcast.Source = .menu) {
         #if !PUBLIC_API_ONLY
         guard observation.displayClass != .builtIn else { return }
         let id = observation.recordID
@@ -2201,7 +2302,10 @@ final class AppModel: ObservableObject {
         if ddcControlWriter[key] == nil {
             ddcControlWriter[key] = Task { [weak self] in await self?.drainHardwareWrites(key, control, observation) }
         }
-        if control == .volume, showsOSD { presentOSD(kind: .volume, value: value, for: observation) }  // Batch-3 #4
+        // Batch-3 #4 local HUD only when asked; the volume event is published either way (IN-04).
+        if control == .volume {
+            presentOSD(kind: .volume, value: value, for: observation, source: eventSource, showsLocalHUD: showsOSD)
+        }
         if control == .contrast, !isGroupSync { syncGroupContrast(value, from: observation) }  // Issue #39
         #endif
     }
@@ -3876,7 +3980,7 @@ final class AppModel: ObservableObject {
         stampReconnectFailure(Date(), for: offline)
         await appendAudit(ReconnectVerification.failureAudit(of: offline, actor: .ui, at: Date()))
         if settings.displayNotificationsEnabled {
-            NotificationDelivery.post(NotificationDelivery.reconnectFailureNotification(for: offline))
+            NotificationDelivery.post(NotificationDelivery.reconnectFailureNotification(for: offline, method: logicalOffMethod))
         }
     }
 
@@ -3982,6 +4086,11 @@ final class AppModel: ObservableObject {
     /// True when at least one REAL external display is currently present. The `.virtual` exclusion
     /// matters: macOS's placeholder is not a monitor arriving, and treating it as one would make
     /// auto-disconnect turn the built-in off at the exact moment it is the only screen left.
+    ///
+    /// Deliberately class-based, not `physicalPresence`-based: it also drives the keep-awake guard
+    /// (a DisplayLink monitor is an external to keep awake), and an arrival edge raised by a
+    /// virtual or unverified screen is still refused by `SafetyEngine`, which does require a
+    /// physical surface. Presence can flicker while IORegistry settles; an edge detector must not.
     var hasExternalDisplay: Bool {
         displays.contains { $0.displayClass != .builtIn && $0.displayClass != .virtual }
     }
@@ -4153,7 +4262,7 @@ final class AppModel: ObservableObject {
     /// permanent-configuration restore, which is not bound to any one process's transaction.
     private func escalateIfStillStranded() async {
         await refresh()
-        guard WakeConvergencePolicy.visibleSurfaces(in: displays).isEmpty else { return }
+        guard WakeConvergencePolicy.recoverySurfaces(in: displays).isEmpty else { return }
         #if DEBUG
         Self.err("ACTIVE-SURFACE GUARD: still no real display — escalating to permanent-config restore")
         #endif
@@ -4167,15 +4276,33 @@ final class AppModel: ObservableObject {
     /// the provider snapshot's offline list, which CoreGraphicsProvider never fills, so displays this
     /// app turned off (the persisted `managedOffline` ledger) are reconnected the same verified way
     /// as their own off-card button.
-    func reconnectAll() async {
+    ///
+    /// Every in-process surface — buttons, ⌃⌥⌘R, the local HTTP server, `opendisplay://` URLs and the
+    /// Reconnect All intent — comes here, because only this model holds the live ledger: a fresh
+    /// `CommandGateway` sees nothing to reconnect. Returns the shared reconnect-all envelope (a
+    /// display counts only once it was seen lit) and audits it under the calling surface's actor.
+    @discardableResult
+    func reconnectAll(actor: Actor = .ui) async -> ResultEnvelope {
         busy = true
         defer { busy = false }
-        _ = await coordinator.reconnectAll()
+        let requestedAt = Date()
+        var results = await coordinator.reconnectAll()
+            .sorted { $0.key.rawValue < $1.key.rawValue }
+            .map { (displayId: $0.key.rawValue, reconnected: $0.value) }
         for offline in managedOffline {
-            await reconnectOffline(offline, forgettingIntent: true)
+            let lit = await reconnectOffline(offline, forgettingIntent: true)
+            results.append((offline.recordID.rawValue, lit))
             busy = true  // the per-display path clears it on return; the batch is still running
         }
         await refresh()
+        let envelope = ResultEnvelope.reconnectAll(
+            results: results, actor: actor, requestedAt: requestedAt,
+            topologyGeneration: await observer.currentSnapshot().generation.value)
+        await appendAudit(AuditEntry(
+            timestamp: requestedAt, actor: actor, command: "reconnectAll",
+            transactionId: envelope.transactionId, status: envelope.status.rawValue,
+            targets: envelope.targets.map(\.displayId)))
+        return envelope
     }
 
     // MARK: - Wake convergence
@@ -4601,11 +4728,19 @@ final class AppModel: ObservableObject {
         // disabled display drops off the online list. `coordinator.reconnectAll()` only sees the
         // observer snapshot's offline list, which doesn't include this persisted `managedOffline`
         // set, so it would no-op here and leave the display off.
-        for offline in managedOffline {
-            try? await lifecycle.reconnect(offline.reconnectID, deadline: Date().addingTimeInterval(10))
-        }
+        // A request is not a display coming back, so the ledger keeps every entry the live topology
+        // doesn't show lit afterwards, stamped as a failed reconnect: it is the only record of a
+        // display that stayed dark, and the next launch's off card and safety net work from it.
         if !managedOffline.isEmpty {
-            managedOffline.removeAll()
+            for offline in managedOffline {
+                try? await lifecycle.reconnect(offline.reconnectID, deadline: Date().addingTimeInterval(10))
+            }
+            // One look, straight after the requests: quit doesn't wait out a slow link. A display still
+            // training its link is therefore kept too — and dropped by the next launch, which forgets
+            // entries whose display is back — so nothing is audited as failed from here.
+            let observed = await observer.currentSnapshot().observations
+            managedOffline = ReconnectVerification.ledgerAfterQuitReconnect(managedOffline, observations: observed,
+                                                                            at: Date())
             persistManagedOffline()
         }
         CoreGraphicsProvider.restoreGamma()
@@ -4697,7 +4832,10 @@ final class AppModel: ObservableObject {
     /// True if `combo` is already claimed by any registered hotkey (fixed action or input-switch)
     /// other than `excludingInputSwitchID` — the settings UI's pre-save conflict check.
     func inputSwitchHotkeyConflicts(_ combo: KeyBinding, excludingInputSwitchID: String?) -> Bool {
-        settings.hotkeyShortcuts.inputSwitchBindingConflicts(combo, excludingInputSwitchID: excludingInputSwitchID)
+        // Checked against what `registerHotkeys` actually registers: defaults filled in, cleared
+        // shortcuts left out (SO-01) — not the raw persisted map, which may lack either.
+        settings.hotkeyShortcuts.mergedWithDefaults()
+            .inputSwitchBindingConflicts(combo, excludingInputSwitchID: excludingInputSwitchID)
     }
 
     /// Makes the next active display the main display (wraps around).
@@ -4715,25 +4853,26 @@ final class AppModel: ObservableObject {
             mode: settings.mediaKeyTargetMode, volumeCapable: [], audioTarget: nil) else { return }
         if brightnessMethod[main.recordID] == nil { await refreshBrightness(for: main) }
         let current = brightness[main.recordID] ?? 0.5
-        setBrightness(max(0, min(1, current + delta)), for: main, origin: .keys)
+        setBrightness(max(0, min(1, current + delta)), for: main, origin: .keys, eventSource: .hotkey)
     }
 
     // MARK: - OSD HUD + media keys (Batch-3)
 
-    /// Show the OSD HUD for a brightness/volume change and (when enabled) broadcast it for external/
-    /// notch HUDs (Batch-3 #4/#6). The single funnel that `setBrightness` / `setHardwareControl(.volume)`
-    /// call, so the HUD fires for every in-app source (menu slider, media keys).
+    /// Reports one brightness/volume change to its two independent audiences (Batch-3 #4/#6,
+    /// IN-04): OpenDisplay's own HUD, only when `showsLocalHUD` and the HUD settings allow, and —
+    /// when broadcasting is on — the external event for every change, whether or not anything was
+    /// drawn here. The single funnel `setBrightness` / `setHardwareControl(.volume)` call.
     func presentOSD(kind: OSDContent.Kind, value: Float, for observation: DisplayObservation,
-                    source: String = "app") {
-        let content = OSDContent(kind: kind, value: value)
-        if settings.osdEnabled && settings.osdStyle != .external {
-            osdHUD.present(content, cgDisplayID: observation.cgDisplayID,
+                    source: OSDBroadcast.Source, showsLocalHUD: Bool = true) {
+        let route = OSDFeedbackPolicy.route(localHUDWanted: showsLocalHUD, settings: settings)
+        if route.drawsLocalHUD {
+            osdHUD.present(OSDContent(kind: kind, value: value), cgDisplayID: observation.cgDisplayID,
                            style: settings.osdStyle, position: settings.osdPosition)
         }
-        if settings.publishOSDEventsEnabled {
+        if route.publishesEvent {
             OSDBroadcaster.publish(kind: kind, value: Double(value),
                                    displayID: observation.recordID.rawValue,
-                                   displayName: displayName(for: observation), source: source)
+                                   displayName: displayName(for: observation), source: source.rawValue)
         }
     }
 
@@ -4775,14 +4914,14 @@ final class AppModel: ObservableObject {
         case .brightnessUp, .brightnessDown:
             let current = brightness[id] ?? 0.5
             setBrightness(min(1, max(0, current + action.signedDelta(fineStep: fineStep))), for: target,
-                          origin: .keys)
+                          origin: .keys, eventSource: .mediaKey)
         case .volumeUp, .volumeDown:
             // Eligibility guarantees a read-back level; nothing is invented here.
             guard let current = ddcControl(.volume, for: target) else { return false }
             setHardwareControl(.volume, min(1, max(0, current + action.signedDelta(fineStep: fineStep))),
-                               for: target)
+                               for: target, eventSource: .mediaKey)
         case .muteToggle:
-            return toggleMute(for: target)
+            return toggleMute(for: target, eventSource: .mediaKey)
         }
         return true
     }
@@ -4797,16 +4936,16 @@ final class AppModel: ObservableObject {
     /// done, so the key passes to macOS when there is nothing truthful to do (TB-03): no working
     /// audio control, or volume already 0 with no remembered level — an unmute never invents one.
     @discardableResult
-    func toggleMute(for observation: DisplayObservation) -> Bool {
+    func toggleMute(for observation: DisplayObservation, eventSource: OSDBroadcast.Source = .menu) -> Bool {
         let id = observation.recordID
         switch muteAction(for: observation) {
         case .discrete(let mute):
             setDiscreteMute(mute, for: observation)
         case .zeroVolume(let level):
             preMuteVolume[id] = level
-            setHardwareControl(.volume, 0, for: observation)
+            setHardwareControl(.volume, 0, for: observation, eventSource: eventSource)
         case .restore(let level):
-            setHardwareControl(.volume, level, for: observation)  // clears `preMuteVolume`
+            setHardwareControl(.volume, level, for: observation, eventSource: eventSource)  // clears `preMuteVolume`
             preMuteVolume[id] = nil
         case .unavailable:
             return false

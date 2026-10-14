@@ -82,10 +82,16 @@ public struct KeyboardShortcutRegistry: Hashable, Sendable, Codable {
     /// Configured input-switch hotkeys (todo 4). Unlike `bindings`, there is no shipped default and
     /// no upper bound on how many can coexist.
     public private(set) var inputSwitchBindings: [InputSwitchBinding]
+    /// Actions the user explicitly left without a shortcut (SO-01). A missing `bindings` entry means
+    /// "use the default", so clearing a shipped shortcut needs its own record: without it the merge
+    /// over defaults put the default straight back on the next registration or reload.
+    public private(set) var disabledActions: Set<HotkeyAction>
 
-    public init(bindings: [HotkeyAction: KeyBinding] = [:], inputSwitchBindings: [InputSwitchBinding] = []) {
+    public init(bindings: [HotkeyAction: KeyBinding] = [:], inputSwitchBindings: [InputSwitchBinding] = [],
+                disabledActions: Set<HotkeyAction> = []) {
         self.bindings = bindings
         self.inputSwitchBindings = inputSwitchBindings
+        self.disabledActions = disabledActions
     }
 
     /// The shipped defaults (Reconnect-All and Shift-F1/F2 brightness).
@@ -97,9 +103,24 @@ public struct KeyboardShortcutRegistry: Hashable, Sendable, Codable {
 
     public func binding(for action: HotkeyAction) -> KeyBinding? { bindings[action] }
 
-    /// Sets (or clears, with nil) the binding for an action.
+    /// Sets the binding for an action, or — with nil — leaves it explicitly unbound, which survives
+    /// merging over the defaults. Going back to the shipped shortcut is `restoreDefault(for:)`.
     public mutating func setBinding(_ binding: KeyBinding?, for action: HotkeyAction) {
         bindings[action] = binding
+        if binding == nil { disabledActions.insert(action) } else { disabledActions.remove(action) }
+    }
+
+    /// Drops the user's choice for one action (custom chord or explicit "none"), so the shipped
+    /// default — or no shortcut, for actions without one — applies again.
+    public mutating func restoreDefault(for action: HotkeyAction) {
+        bindings[action] = nil
+        disabledActions.remove(action)
+    }
+
+    /// Every fixed action back on its shipped shortcut. Input-switch bindings are the user's own
+    /// data with no defaults to return to, so they are kept.
+    public func restoringDefaults() -> KeyboardShortcutRegistry {
+        KeyboardShortcutRegistry(bindings: Self.defaults.bindings, inputSwitchBindings: inputSwitchBindings)
     }
 
     /// The action bound to a combo, if any (deterministic by action order).
@@ -141,18 +162,22 @@ public struct KeyboardShortcutRegistry: Hashable, Sendable, Codable {
         }
     }
 
-    /// This registry layered over the defaults: persisted bindings win, defaults fill the gaps. There
-    /// is no default input-switch binding, so those pass through unchanged.
+    /// This registry layered over the defaults: persisted bindings win, defaults fill the gaps, and
+    /// an action the user explicitly cleared stays unbound. There is no default input-switch
+    /// binding, so those pass through unchanged.
     public func mergedWithDefaults() -> KeyboardShortcutRegistry {
         var merged = Self.defaults
         for (action, binding) in bindings { merged.bindings[action] = binding }
+        for action in disabledActions { merged.bindings[action] = nil }
         merged.inputSwitchBindings = inputSwitchBindings
+        merged.disabledActions = disabledActions
         return merged
     }
 
     private enum CodingKeys: String, CodingKey {
         case bindings
         case inputSwitchBindings
+        case disabledActions
     }
 
     /// Decodes tolerantly across two shapes: the current `{bindings: {...}, inputSwitchBindings: [...]}`
@@ -164,11 +189,16 @@ public struct KeyboardShortcutRegistry: Hashable, Sendable, Codable {
         if let rawBindings = try container.decodeIfPresent([String: KeyBinding].self, forKey: .bindings) {
             bindings = Self.decodeBindings(rawBindings)
             inputSwitchBindings = try container.decodeIfPresent([InputSwitchBinding].self, forKey: .inputSwitchBindings) ?? []
+            // Files from before the disabled state existed simply have none; an action name this
+            // build doesn't know is dropped like an unknown binding key.
+            let rawDisabled = (try? container.decodeIfPresent([String].self, forKey: .disabledActions)) ?? nil
+            disabledActions = Set((rawDisabled ?? []).compactMap(HotkeyAction.init(rawValue:)))
             return
         }
         let legacyRawBindings = try decoder.singleValueContainer().decode([String: KeyBinding].self)
         bindings = Self.decodeBindings(legacyRawBindings)
         inputSwitchBindings = []
+        disabledActions = []
     }
 
     private static func decodeBindings(_ raw: [String: KeyBinding]) -> [HotkeyAction: KeyBinding] {
@@ -183,5 +213,6 @@ public struct KeyboardShortcutRegistry: Hashable, Sendable, Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(rawBindings, forKey: .bindings)
         try container.encode(inputSwitchBindings, forKey: .inputSwitchBindings)
+        try container.encode(disabledActions.map(\.rawValue).sorted(), forKey: .disabledActions)
     }
 }

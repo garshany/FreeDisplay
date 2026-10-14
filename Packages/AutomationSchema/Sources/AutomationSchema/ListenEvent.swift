@@ -10,8 +10,10 @@ import Foundation
 ///     {"version":1,"event":"config","timestamp":1737482925.0,
 ///      "displays":[{"id":"cg:abc","active":true,"main":true,"mode":"3840x2160@60"}]}
 ///
-/// `brightness` mirrors a live `OSDBroadcast` (menu/media-key/CLI/App-Intent origin, brightness kind
-/// only — volume/mute are a future line kind, not emitted today). `config` fires whenever the display
+/// `brightness` mirrors a live `OSDBroadcast` (brightness kind only — volume/mute are a future line
+/// kind, not emitted today). OpenDisplay publishes every brightness change it makes, whatever drew
+/// or didn't draw a local HUD for it; `source` names the origin (menu slider, media key, hotkey,
+/// HTTP, CLI, App Intent, or the app's own automation). `config` fires whenever the display
 /// topology changes (hotplug, mode, rotation, mirror, main display) and carries a compact snapshot so
 /// most scripts never need a follow-up `list` call.
 public struct ListenEvent: Hashable, Sendable, Codable {
@@ -44,12 +46,16 @@ public struct ListenEvent: Hashable, Sendable, Codable {
     public var displayId: String?
     public var displayName: String?
     public var level: Double?
+    /// The top of `level`'s scale (1 for today's normalized levels); absent when the sender didn't
+    /// say. Additive, so it needed no schema-version bump.
+    public var maxValue: Double?
     public var source: String?
     public var displays: [DisplaySummary]?
 
     public init(
         event: Kind, timestamp: Double, displayId: String? = nil, displayName: String? = nil,
-        level: Double? = nil, source: String? = nil, displays: [DisplaySummary]? = nil
+        level: Double? = nil, maxValue: Double? = nil, source: String? = nil,
+        displays: [DisplaySummary]? = nil
     ) {
         self.version = Self.schemaVersion
         self.event = event
@@ -57,6 +63,7 @@ public struct ListenEvent: Hashable, Sendable, Codable {
         self.displayId = displayId
         self.displayName = displayName
         self.level = level
+        self.maxValue = maxValue
         self.source = source
         self.displays = displays
     }
@@ -65,7 +72,8 @@ public struct ListenEvent: Hashable, Sendable, Codable {
     public static func brightness(from broadcast: OSDBroadcast) -> ListenEvent {
         ListenEvent(
             event: .brightness, timestamp: broadcast.timestamp, displayId: broadcast.displayID,
-            displayName: broadcast.displayName, level: broadcast.value, source: broadcast.source)
+            displayName: broadcast.displayName, level: broadcast.value, maxValue: broadcast.maxValue,
+            source: broadcast.source)
     }
 
     /// A `config` line: the topology changed (hotplug, mode, rotation, mirror, main display).

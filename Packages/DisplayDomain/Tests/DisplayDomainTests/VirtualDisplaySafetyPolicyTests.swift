@@ -30,3 +30,17 @@ final class VirtualDisplaySafetyPolicyTests: XCTestCase {
         XCTAssertFalse(VirtualDisplaySafetyPolicy.canRemove(displayID: 7, activeSurfaces: []))
     }
 }
+
+/// AM-02: when the session can classify its surfaces, the same evidence as lifecycle preflight decides.
+final class VirtualDisplaySafetyPolicyPresenceTests: XCTestCase {
+    func testAnAssessedSurfaceIsJudgedByPresenceNotVendor() {
+        // A third-party virtual screen carries a real-looking vendor; the vendor heuristic accepted it.
+        XCTAssertFalse(VirtualDisplaySafetyPolicy.canCreate(activeSurfaces: [
+            VirtualDisplaySurface(displayID: 2, vendorID: 123, physicalPresence: .unverified)]))
+        XCTAssertFalse(VirtualDisplaySafetyPolicy.canCreate(activeSurfaces: [
+            VirtualDisplaySurface(displayID: 3, vendorID: 0, isBuiltIn: true, physicalPresence: .virtual)]))
+        XCTAssertTrue(VirtualDisplaySafetyPolicy.canCreate(activeSurfaces: [
+            VirtualDisplaySurface(displayID: 2, vendorID: 123, physicalPresence: .unverified),
+            VirtualDisplaySurface(displayID: 4, vendorID: 0x10AC, physicalPresence: .physical)]))
+    }
+}

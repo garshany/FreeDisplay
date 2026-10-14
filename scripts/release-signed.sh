@@ -18,43 +18,78 @@
 #      Apps/OpenDisplay/Resources/Info.plist. See scripts/sparkle-setup.md — every update this script
 #      publishes is signed with it, and an app in the field installs nothing that fails that check.
 #
+# The signer is never guessed: SIGN_IDENTITY must name the exact expected Developer ID identity, and
+# every signature this script makes is checked against it (authority and team) before anything is
+# packaged. Every verification step fails the run — a Gatekeeper rejection is not a warning.
+#
 # Usage:
-#   ./scripts/release-signed.sh                  # build → sign → notarize → staple → zip → appcast
-#   NOTARIZE=0 ./scripts/release-signed.sh        # sign + zip only (skip notarization, for a dry run)
-#   APPCAST=0 ./scripts/release-signed.sh         # skip the appcast (no Sparkle key on this machine)
-#   PUBLISH=1 ./scripts/release-signed.sh         # also upload both assets to the release (needs gh)
-#   RELEASE_TAG=v1.0.0 ./scripts/release-signed.sh  # tag the appcast's download URLs point at
 #   SIGN_IDENTITY="Developer ID Application: Name (TEAMID)" ./scripts/release-signed.sh
-#   NOTARY_PROFILE=my-profile ./scripts/release-signed.sh
+#                                                 # build → sign → notarize → staple → zip → appcast
+#   NOTARIZE=0 SIGN_IDENTITY=… ./scripts/release-signed.sh  # sign + zip only, for a dry run (no appcast)
+#   APPCAST=0 SIGN_IDENTITY=… ./scripts/release-signed.sh   # skip the appcast (no Sparkle key here)
+#   PUBLISH=1 SIGN_IDENTITY=… ./scripts/release-signed.sh   # also upload both assets (needs gh;
+#                                                           # refused unless notarized)
+#   RELEASE_TAG=v1.0.0 …                          # tag the appcast's download URLs point at
+#   NOTARY_PROFILE=my-profile …
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${CONFIG:-Release}"
 NOTARIZE="${NOTARIZE:-1}"
-APPCAST="${APPCAST:-1}"
+# An appcast is a signed instruction to every installed copy to update; one for an unnotarized dry
+# run must never come into being by default.
+APPCAST="${APPCAST:-$NOTARIZE}"
 PUBLISH="${PUBLISH:-0}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-opendisplay-notary}"
 ENTITLEMENTS="Apps/OpenDisplay/Resources/OpenDisplay.entitlements"
 PROJECT_URL="https://github.com/aquitaine/OpenDisplay"
 DIST="dist"
 
-# --- 0. Resolve the signing identity --------------------------------------------------------------
-IDENTITY="${SIGN_IDENTITY:-}"
-if [ -z "$IDENTITY" ]; then
-  IDENTITY=$(security find-identity -v -p codesigning \
-    | awk -F'"' '/Developer ID Application/ { print $2; exit }')
-fi
-if [ -z "$IDENTITY" ]; then
-  cat >&2 <<'EOF'
-error: no "Developer ID Application" signing identity found in the keychain.
-
-Create one (one-time): Xcode → Settings → Accounts → your team → Manage Certificates
-→ + → Developer ID Application. Then re-run this script. Verify with:
-  security find-identity -v -p codesigning | grep "Developer ID Application"
-EOF
+if [ "$PUBLISH" = "1" ] && [ "$NOTARIZE" != "1" ]; then
+  echo "error: PUBLISH=1 requires notarization; an unnotarized build is not a release." >&2
   exit 1
 fi
-echo "Signing identity: $IDENTITY"
+
+# --- 0. Require the expected signing identity -----------------------------------------------------
+# Picking "the first Developer ID identity in the keychain" signs with whichever certificate happens
+# to be there; on a machine holding more than one team's identity that is the wrong signer.
+IDENTITY="${SIGN_IDENTITY:-}"
+if [ -z "$IDENTITY" ]; then
+  cat >&2 <<'EOF'
+error: SIGN_IDENTITY is not set. Name the exact identity this release must be signed with:
+  SIGN_IDENTITY="Developer ID Application: Name (TEAMID)" ./scripts/release-signed.sh
+
+Identities in this keychain:
+EOF
+  security find-identity -v -p codesigning | grep "Developer ID Application" >&2 || echo "  (none)" >&2
+  exit 1
+fi
+case "$IDENTITY" in
+  "Developer ID Application: "*" ("*")") ;;
+  *)
+    echo "error: SIGN_IDENTITY must be a full \"Developer ID Application: Name (TEAMID)\" identity, got: $IDENTITY" >&2
+    exit 1
+    ;;
+esac
+TEAM_ID="${IDENTITY##*(}"
+TEAM_ID="${TEAM_ID%)}"
+if ! security find-identity -v -p codesigning | grep -qF "\"$IDENTITY\""; then
+  echo "error: \"$IDENTITY\" is not a valid code-signing identity in this keychain." >&2
+  exit 1
+fi
+echo "Signing identity: $IDENTITY (team $TEAM_ID)"
+
+# Fails unless $1 is signed by exactly the expected identity and team. `codesign --verify` alone only
+# proves *a* valid signature; this proves it is ours.
+require_signer() {
+  local details
+  details=$(codesign -dvv "$1" 2>&1) || { echo "error: cannot read the signature of $1" >&2; exit 1; }
+  if ! grep -qxF "Authority=$IDENTITY" <<<"$details" || ! grep -qxF "TeamIdentifier=$TEAM_ID" <<<"$details"; then
+    echo "error: $1 is not signed by $IDENTITY:" >&2
+    grep -E '^(Authority|TeamIdentifier)=' <<<"$details" >&2 || true
+    exit 1
+  fi
+}
 
 # --- 1. Build the Release app + bundle the helper -------------------------------------------------
 CONFIG="$CONFIG" ./scripts/bundle-helper.sh "$CONFIG"
@@ -105,6 +140,14 @@ sign --entitlements "$ENTITLEMENTS" "$APP"
 
 echo "Verifying signature…"
 codesign --verify --deep --strict --verbose=2 "$APP"
+require_signer "$APP"
+if [ -x "$APP/Contents/Helpers/opendisplay" ]; then
+  require_signer "$APP/Contents/Helpers/opendisplay"
+fi
+for fw in "$APP"/Contents/Frameworks/*.framework; do
+  [ -e "$fw" ] || continue
+  require_signer "$fw"
+done
 
 # --- 3. Package -----------------------------------------------------------------------------------
 mkdir -p "$DIST"
@@ -117,6 +160,7 @@ echo "Packaged: $ZIP"
 if [ "$NOTARIZE" = "1" ]; then
   echo "Submitting to Apple notary service (profile: $NOTARY_PROFILE)…"
   if ! xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait; then
+    rm -f "$ZIP"  # signed but not notarized: not something to leave looking like a release
     cat >&2 <<EOF
 error: notarization failed. If this is a credentials problem, store them once with:
   xcrun notarytool store-credentials $NOTARY_PROFILE \\
@@ -127,11 +171,26 @@ EOF
   fi
   echo "Stapling the notarization ticket…"
   xcrun stapler staple "$APP"
+  xcrun stapler validate "$APP"
+  # The release gate: Gatekeeper must accept the stapled app as a notarized Developer ID app. A
+  # rejection used to be printed and ignored (`|| true`) before the success line; now it stops the
+  # run and removes the pre-staple zip, so nothing release-shaped is left in dist/.
+  echo "Gatekeeper assessment:"
+  if ! ASSESSMENT=$(spctl -a -t exec -vvv "$APP" 2>&1); then
+    echo "$ASSESSMENT" >&2
+    rm -f "$ZIP"
+    echo "error: Gatekeeper rejected $APP — not a releasable build." >&2
+    exit 1
+  fi
+  echo "$ASSESSMENT"
+  if ! grep -qF "source=Notarized Developer ID" <<<"$ASSESSMENT"; then
+    rm -f "$ZIP"
+    echo "error: Gatekeeper accepted $APP but not as a notarized Developer ID app." >&2
+    exit 1
+  fi
   # Re-zip so the distributed artifact carries the stapled ticket (works fully offline for users).
   rm -f "$ZIP"
   /usr/bin/ditto -c -k --keepParent "$APP" "$ZIP"
-  echo "Gatekeeper assessment:"
-  spctl -a -t exec -vvv "$APP" 2>&1 || true
   echo
   echo "✅ Notarized + stapled: $ZIP"
 else

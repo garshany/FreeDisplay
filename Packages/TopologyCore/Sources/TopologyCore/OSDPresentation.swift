@@ -1,9 +1,11 @@
 import DisplayDomain
 import Foundation
 
-/// Visual style for the OSD HUD (Batch-3 #5 exposes this; the renderer reads it).
+/// Visual style for the OSD HUD (Batch-3 #5 exposes this; the renderer reads it). Every local style
+/// is drawn by OpenDisplay itself; none of them is the macOS system OSD.
 public enum OSDStyle: String, Hashable, Sendable, Codable, CaseIterable {
-    /// macOS-like segmented HUD (default).
+    /// Segmented HUD in the macOS look, app-drawn (default). The raw value predates the label
+    /// "Standard" and stays for settings compatibility — it is not the system OSD.
     case native
     /// Compact pill with glyph + bar.
     case minimal
@@ -51,5 +53,37 @@ public struct OSDPresentationPolicy: Sendable {
     /// Whether a HUD scheduled to hide at `hideAt` should now be hidden.
     public func shouldHide(now: Date, hideAt: Date) -> Bool {
         now >= hideAt
+    }
+}
+
+/// Who hears about one brightness/volume change. The local HUD and the external event are two
+/// independent audiences (IN-04): the HUD is a confirmation for gestures that show no value of their
+/// own (keys), while the event is the published record of every change for `listen` and notch/HUD
+/// apps — so a slider, HTTP, CLI or Intent change is published even though it draws no HUD here.
+public enum OSDFeedbackPolicy {
+    public struct Route: Hashable, Sendable {
+        /// Draw OpenDisplay's own HUD.
+        public var drawsLocalHUD: Bool
+        /// Post the `OSDBroadcast` distributed notification.
+        public var publishesEvent: Bool
+
+        public init(drawsLocalHUD: Bool, publishesEvent: Bool) {
+            self.drawsLocalHUD = drawsLocalHUD
+            self.publishesEvent = publishesEvent
+        }
+    }
+
+    /// - Parameter localHUDWanted: whether this change's origin asks for a local confirmation at
+    ///   all (key presses do; sliders, which already show their value, don't).
+    public static func route(localHUDWanted: Bool, settings: OpenDisplaySettings) -> Route {
+        Route(drawsLocalHUD: localHUDWanted && settings.osdEnabled && settings.osdStyle != .external,
+              publishesEvent: settings.publishOSDEventsEnabled)
+    }
+
+    /// True when the feedback settings promise a presentation that nothing delivers (SO-04):
+    /// "External HUD only" suppresses OpenDisplay's HUD so an external app can draw instead, but
+    /// with broadcasting off no external app receives anything — key presses get no feedback at all.
+    public static func externalOnlyDeliversNothing(_ settings: OpenDisplaySettings) -> Bool {
+        settings.osdEnabled && settings.osdStyle == .external && !settings.publishOSDEventsEnabled
     }
 }

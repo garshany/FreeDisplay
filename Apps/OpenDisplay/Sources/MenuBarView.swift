@@ -227,8 +227,7 @@ private struct TrayDeviceHeader: View {
             TraySwitch(isOn: display.isActive, enabled: canDisconnect) { on in
                 if !on { Task { await model.setDisplayActive(false, for: display) } }
             }
-            .help(canDisconnect ? "Turn off the display (turn it back on with the same switch)"
-                                : "The last active display can't be turned off")
+            .help(switchHelp)
             .accessibilityLabel("Display on")
             .accessibilityIdentifier("tray.header.switch")
         }
@@ -237,10 +236,30 @@ private struct TrayDeviceHeader: View {
         .onHover { hovering = $0 }
     }
 
-    private var canDisconnect: Bool { !model.busy && model.activeDisplayCount > 1 && display.isActive }
+    /// Offered only when the coordinator would accept it: another physical screen stays on.
+    private var canDisconnect: Bool { !model.busy && model.canTurnOff(display) }
+
+    /// Names what the switch really does with the provider in use: neither path powers the monitor
+    /// off, and the public fallback leaves it lit, mirroring the main display.
+    private var switchHelp: String {
+        guard display.isActive else {
+            return String(localized: "It isn’t part of the desktop right now, so there is nothing to switch off")
+        }
+        guard model.canTurnOff(display) else {
+            return String(localized: "Turning this off would leave no physical display on")
+        }
+        switch model.logicalOffMethod {
+        case .disconnect:
+            return String(localized: "Disconnect it from the desktop — the monitor may go to standby but isn’t powered off. Bring it back from its card in this menu.")
+        case .mirror:
+            return String(localized: "Mirror it onto the main display — it stays on, showing the main display’s picture. Undo it from its card in this menu.")
+        }
+    }
 
     private var subtitle: String {
-        guard display.isActive else { return String(localized: "Inactive") }
+        guard display.isActive else {
+            return display.isMirrored ? String(localized: "Mirroring another display") : String(localized: "Inactive")
+        }
         var parts: [String] = []
         if let mode = display.mode {
             parts.append(TrayModeCatalog.sizeText(mode))
@@ -262,17 +281,33 @@ private struct TrayOfflineSection: View {
     @EnvironmentObject private var model: AppModel
     let offline: AppModel.OfflineDisplay
 
+    /// What OpenDisplay did to it, in the provider's own terms — not "turned off": neither path
+    /// powers the monitor down.
+    private var offStatus: String {
+        switch model.logicalOffMethod {
+        case .disconnect: return String(localized: "Disconnected by OpenDisplay")
+        case .mirror: return String(localized: "Mirrored onto the main display by OpenDisplay")
+        }
+    }
+
+    private var failedStatus: String {
+        switch model.logicalOffMethod {
+        case .disconnect: return String(localized: "Didn’t reconnect")
+        case .mirror: return String(localized: "Still mirrored")
+        }
+    }
+
     var body: some View {
         HStack(spacing: 9) {
             TrayGlyph(symbol: trayGlyph(offline.displayClass), highlighted: false).opacity(0.55)
             VStack(alignment: .leading, spacing: 1) {
                 Text(offline.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary).lineLimit(1)
                 if offline.reconnectFailedAt == nil {
-                    Text("Turned off by OpenDisplay").font(.system(size: 11)).foregroundStyle(.tertiary)
+                    Text(offStatus).font(.system(size: 11)).foregroundStyle(.tertiary)
                 } else {
                     // macOS accepted the reconnect but no display appeared — keep the way out visible.
                     HStack(spacing: 4) {
-                        Text("Didn’t come back on").font(.system(size: 11)).foregroundStyle(ODColor.caution)
+                        Text(failedStatus).font(.system(size: 11)).foregroundStyle(ODColor.caution)
                         Button("Recovery steps…") { NSWorkspace.shared.open(ReconnectVerification.recoveryGuideURL) }
                             .buttonStyle(.link).font(.system(size: 11))
                     }
@@ -282,7 +317,8 @@ private struct TrayOfflineSection: View {
             TraySwitch(isOn: false, enabled: !model.busy) { on in
                 if on { Task { await model.reconnectOffline(offline) } }
             }
-            .help("Reconnect the display")
+            .help(model.logicalOffMethod == .mirror ? String(localized: "Stop mirroring the display")
+                                                    : String(localized: "Reconnect the display"))
         }
         .padding(.horizontal, 8).padding(.vertical, 7)
         .background(ODColor.fillQuaternary, in: RoundedRectangle(cornerRadius: 11))
@@ -492,7 +528,7 @@ private struct TrayFeatureList: View {
                 }
             }
             feature("pip", "pip", String(localized: "Picture in Picture and streaming"), nil) {
-                TrayPictureInPicture()
+                TrayPictureInPicture(display: display)
             }
             feature("manage", "info.circle", String(localized: "Manage display"), nil) {
                 TrayManageDisplay(display: display)
@@ -1020,12 +1056,20 @@ private struct TrayMirroring: View {
 }
 
 private struct TrayPictureInPicture: View {
+    @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var ui: TrayUIState
+    /// The display whose menu this sits in — the capture source it opens for (AM-08).
+    let display: DisplayObservation
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             TrayNote(String(localized: "A picture-in-picture window of any display or window, rotation, flipping, and LUTs are set up in the capture window."))
-            TrayPillButton(String(localized: "Open Screen Capture…")) { ui.openSettings(.capture) }
+            TrayPillButton(String(localized: "Open Screen Capture…")) {
+                if let cgID = display.cgDisplayID {
+                    CapturePresentation.shared.request(displayID: cgID, name: model.displayName(for: display))
+                }
+                ui.openSettings(.capture)
+            }
         }
     }
 }
@@ -1150,7 +1194,7 @@ private struct TrayButtonRow: View {
                 withAnimation(TrayMotion.expand) { ui.toolsOpen.toggle() }
             }
             TrayIconButton(symbol: "gearshape", help: String(localized: "Settings (⌥-click the icon)")) { ui.openSettings() }
-            TrayIconButton(symbol: "power", help: String(localized: "Quit OpenDisplay — reconnects any displays it turned off")) {
+            TrayIconButton(symbol: "power", help: String(localized: "Quit OpenDisplay — brings back any displays it disconnected or mirrored")) {
                 NSApp.terminate(nil)
             }
         }

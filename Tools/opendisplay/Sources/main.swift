@@ -14,27 +14,105 @@ import TopologyCore
 // displays across reconnects and stores user aliases/tags, so `alias:`/`tag:` selectors resolve.
 // `disconnect --dry-run` previews the SafetyEngine decision without touching hardware.
 
-// MARK: - Argument parsing
-
-let rawArgs = Array(CommandLine.arguments.dropFirst())
-let flags = Set(rawArgs.filter { $0.hasPrefix("--") })
-let positional = rawArgs.filter { !$0.hasPrefix("--") }
-let command = positional.first ?? "list"
-let selectorArg: String? = positional.count > 1 ? positional[1] : nil
-let valueArg: String? = positional.count > 2 ? positional[2] : nil
-let asJSON = flags.contains("--json")
-let dryRun = flags.contains("--dry-run")
-
 #if arch(arm64)
 let isAppleSilicon = true
 #else
 let isAppleSilicon = false
 #endif
 
-func fail(_ message: String, code: Int32 = 1) -> Never {
+func fail(_ message: String, code: Int32 = CLIExitCode.failure.rawValue) -> Never {
     FileHandle.standardError.write(Data("error: \(message)\n".utf8))
     exit(code)
 }
+
+/// A non-fatal problem worth a line on stderr, so stdout stays the command's result.
+func warn(_ message: String) {
+    FileHandle.standardError.write(Data("warning: \(message)\n".utf8))
+}
+
+/// Ends the run with the exit status a result implies (`CLIExitCode`): returns for success, so a
+/// command can finish normally, and exits non-zero for partial or failed results — whatever was
+/// printed, a script must never read a failure as success from the status alone.
+func exitIfUnsuccessful(_ status: ResultEnvelope.Status) {
+    let code = CLIExitCode(status)
+    if code != .success { exit(code.rawValue) }
+}
+
+let helpText = """
+    opendisplay — OpenDisplay automation CLI
+
+    USAGE:
+      opendisplay list [--json]
+      opendisplay diagnose [--json]
+      opendisplay diagnose --bundle [directory]   # diagnostics zip for a bug report (default: Desktop)
+      opendisplay lux [--json]
+      opendisplay lid [--json]
+      opendisplay listen
+      opendisplay alias <selector> <name>
+      opendisplay tag <selector> <tag>
+      opendisplay disconnect <selector> [--dry-run] [--json]
+      opendisplay reconnect <selector> [--json]
+      opendisplay recover [--json]                # reconnect every display OpenDisplay turned off
+      opendisplay scene <list|save|show|plan|apply|delete> [name] [--json]
+      opendisplay layout <protect|unprotect|status> [--json]
+      opendisplay group <list|create|delete> [name] [--json]
+      opendisplay group <add|remove> <name> <selector>
+      opendisplay brightness <selector> [0..1] [--json]
+      opendisplay ddc <selector> <brightness|contrast|volume|input|colour|sharpness|red|green|blue|mute|power|caps> [value] [--json]
+      opendisplay ddc <selector> reset                # restore the monitor's factory defaults (VCP 0x04)
+      opendisplay ddc <selector> vcp <0xNN> [value]   # any raw MCCS feature code
+      opendisplay edid <selector> [--out <path.bin>]
+      opendisplay favorite <list|set|unset> <selector> [WxH[@Hz][@2x]]
+      opendisplay help | --help | -h
+
+    Options are accepted only by the commands listed with them; any other option is an error, so
+    for example `--dry-run` never silently performs a real write.
+
+    RESULTS: a write is reported as `verified` only when reading the value back shows it; `sent`
+    means the display accepted the write but nothing confirmed it took. Failures go to stderr.
+
+    EXIT STATUS: 0 success (including nothing to do) · 1 failed · 2 usage error (nothing ran) ·
+    3 partly done (some displays/fields applied, others failed or were skipped).
+
+    lux/lid exit non-zero when the sensor/state is unavailable. listen streams line-delimited JSON
+    (one event per line) until Ctrl-C; see Tools/opendisplay/README.md for the event schema.
+
+    SELECTORS: id:<recordID> · alias:<name> · tag:<tag> · group:<name> · main · builtin · state:<active|managedOffline> · <cgDisplayID>
+
+    group:<name> matches every member of a display group. `brightness group:desk 0.6` sets the
+    group's base level and each member follows it at its own learned offset.
+    """
+
+// MARK: - Argument parsing
+
+// Parsed before anything touches a provider or a store: help and usage errors must be answered
+// without probing hardware or reading (let alone writing) state.
+let rawArgs = Array(CommandLine.arguments.dropFirst())
+let invocation: CLIInvocation
+do {
+    switch try CLIGrammar.parse(rawArgs) {
+    case .help:
+        print(helpText)
+        exit(CLIExitCode.success.rawValue)
+    case .run(let parsed):
+        invocation = parsed
+    }
+} catch {
+    fail("\(error)", code: CLIExitCode.usage.rawValue)
+}
+let command = invocation.command
+guard CLIGrammar.commands.contains(command) else {
+    fail("unknown command '\(command)' (try: list, diagnose, lux, lid, listen, alias, tag, disconnect, reconnect, recover, scene, layout, group, brightness, ddc, edid, favorite, help)",
+         code: CLIExitCode.usage.rawValue)
+}
+let flags = invocation.flags
+/// The verb followed by its positional arguments — the indexing every command below was written
+/// against (`positional[1]` is the first argument after the verb).
+let positional = [command] + invocation.positional
+let selectorArg: String? = invocation.argument1
+let valueArg: String? = invocation.argument2
+let asJSON = flags.contains("--json")
+let dryRun = flags.contains("--dry-run")
 
 func emit<T: Encodable>(_ value: T) {
     let encoder = JSONEncoder()
@@ -247,15 +325,20 @@ func modeString(_ observation: DisplayObservation) -> String? {
     observation.mode.map { "\($0.pixelWidth)x\($0.pixelHeight)@\(Int($0.refreshHz.rounded()))" }
 }
 
+/// Prints an envelope (JSON, or one line per target) and then exits with the status it implies.
 func emitEnvelope(_ envelope: ResultEnvelope) {
+    defer { exitIfUnsuccessful(envelope.status) }
     if asJSON { emit(envelope); return }
     print("\(envelope.status.rawValue) [\(envelope.transactionId)]")
     for target in envelope.targets {
-        let ops = target.operations.map { "\($0.field)=\($0.verification.rawValue)" }.joined(separator: ", ")
+        // The outcome, when a surface records one, is the honest word (sent vs verified vs failed);
+        // older producers only fill `verification`.
+        let ops = target.operations.map { "\($0.field)=\($0.outcome?.rawValue ?? $0.verification.rawValue)" }
+            .joined(separator: ", ")
         print("  \(target.displayId): \(ops)")
     }
     for error in envelope.errors {
-        print("  ! \(error.code): \(error.message)")
+        FileHandle.standardError.write(Data("  ! \(error.code): \(error.message)\n".utf8))
     }
 }
 
@@ -392,13 +475,78 @@ func runTag() async {
     print("tagged \(name(for: target)) #\(valueArg)")
 }
 
+/// Reconnects every display in the shared managed-offline ledger, each the same verified way
+/// `reconnect` does it.
+///
+/// This used to ask `CommandGateway.reconnectAll`, whose coordinator only sees the provider
+/// snapshot's offline list — which `CoreGraphicsProvider` never fills — so `recover` printed
+/// "nothing to reconnect" while the ledger still held every display the app or CLI had turned off.
+/// The ledger is re-saved after each display, so an interrupted run never loses a record.
 func runRecover() async {
-    let envelope = await gateway.reconnectAll(actor: .cli)
+    let requestedAt = Date()
+    var ledger = managedOfflineDisplays
+    var results: [(displayId: String, reconnected: Bool)] = []
+    for offline in managedOfflineDisplays {
+        let attempt = await attemptVerifiedReconnect(offline, reconnectID: offline.reconnectID)
+        switch attempt {
+        case .lit:
+            ledger.removeAll { $0.recordID == offline.recordID }
+            await logDisplayEvent("reconnect:lit \(offline.name)")
+        case .notLit:
+            ledger = ledger.map { $0.recordID == offline.recordID ? stampedReconnectFailure(offline) : $0 }
+            await logDisplayEvent("reconnect:notLit \(offline.name)")
+        case .rejected(let reason):
+            warn("\(offline.name): macOS rejected the reconnect: \(reason)")
+            await logDisplayEvent("reconnect:rejected \(offline.name)")
+        }
+        do { try managedOfflineStore?.save(ledger) } catch {
+            warn("could not update the turned-off list: \(error)")
+        }
+        results.append((offline.recordID.rawValue, attempt == .lit))
+    }
+    let envelope = ResultEnvelope.reconnectAll(
+        results: results, actor: .cli, requestedAt: requestedAt,
+        topologyGeneration: await observer.currentSnapshot().generation.value)
+    await auditLog?.append(AuditEntry(
+        timestamp: requestedAt, actor: .cli, command: "reconnectAll",
+        transactionId: envelope.transactionId, status: envelope.status.rawValue,
+        targets: envelope.targets.map(\.displayId)))
     if !asJSON && envelope.targets.isEmpty {
         print("recover: nothing to reconnect")
         return
     }
     emitEnvelope(envelope)
+}
+
+/// How one verified reconnect ended.
+enum ReconnectAttempt: Equatable {
+    /// The display was observed lit again.
+    case lit
+    /// macOS accepted the request but the display never came back.
+    case notLit
+    /// macOS refused the request.
+    case rejected(String)
+}
+
+/// One reconnect, checked: accepted is not back (issue #40), so only a display observed lit counts.
+/// The caller owns the ledger — it forgets the entry on `.lit` and keeps it otherwise, since the
+/// entry is the only thing that still knows a dark display exists.
+func attemptVerifiedReconnect(_ offline: ManagedOfflineDisplay,
+                              reconnectID: DisplayRecordID) async -> ReconnectAttempt {
+    do {
+        try await lifecycle.reconnect(reconnectID, deadline: Date().addingTimeInterval(15))
+    } catch {
+        return .rejected("\(error)")
+    }
+    return await verifyReconnect(of: offline) ? .lit : .notLit
+}
+
+/// The ledger entry for a display that didn't come back, stamped so the app's off card can say so.
+func stampedReconnectFailure(_ offline: ManagedOfflineDisplay) -> ManagedOfflineDisplay {
+    ManagedOfflineDisplay(
+        recordID: offline.recordID, cgID: offline.cgID, name: offline.name,
+        displayClass: offline.displayClass, relitDuringWakeAt: offline.relitDuringWakeAt,
+        reconnectFailedAt: Date())
 }
 
 func runDisconnect() async {
@@ -409,6 +557,16 @@ func runDisconnect() async {
     if dryRun {
         let outcome = await gateway.preflightDisconnect(target.observation.recordID, identityConfidence: 1.0)
         let surface = outcome.safeSurface?.rawValue ?? "none"
+        if asJSON {
+            // A preview, not a result envelope: nothing was attempted, so there is no transaction.
+            struct DryRun: Encodable {
+                var dryRun = true; var displayId: String; var decision: String
+                var safeSurface: String?; var reasons: [String]
+            }
+            emit(DryRun(displayId: target.observation.recordID.rawValue, decision: outcome.decision.rawValue,
+                        safeSurface: outcome.safeSurface?.rawValue, reasons: outcome.reasons))
+            return
+        }
         switch outcome.decision {
         case .allowed:
             print("dry-run: ALLOWED — would disconnect \(name(for: target)); safe surface = \(surface)")
@@ -456,22 +614,19 @@ func runReconnect() async {
     let offline = managedOfflineDisplays.first { $0.recordID == recordID }
         ?? ManagedOfflineDisplay(recordID: recordID, cgID: target.observation.cgDisplayID ?? 0,
                                  name: name(for: target), displayClass: target.observation.displayClass)
-    do {
-        try await lifecycle.reconnect(reconnectID, deadline: Date().addingTimeInterval(15))
-    } catch {
-        fail("reconnect failed: \(error)")
-    }
     // Accepted is not back (issue #40): only forget the display once it is observed lit. If it
     // never appears, the record stays — it is the only thing that still knows the display exists.
-    guard await verifyReconnect(of: offline) else {
+    switch await attemptVerifiedReconnect(offline, reconnectID: reconnectID) {
+    case .rejected(let reason):
+        fail("reconnect failed: \(reason)")
+    case .notLit:
         await logDisplayEvent("reconnect:notLit \(offline.name)")
-        rememberManagedOffline(ManagedOfflineDisplay(
-            recordID: offline.recordID, cgID: offline.cgID, name: offline.name,
-            displayClass: offline.displayClass, relitDuringWakeAt: offline.relitDuringWakeAt,
-            reconnectFailedAt: Date()))
+        rememberManagedOffline(stampedReconnectFailure(offline))
         fail("macOS accepted the reconnect but \(offline.name) did not come back. It is still "
             + "recorded as turned off. If it is plugged in and powered, see "
             + ReconnectVerification.recoveryGuideURL.absoluteString)
+    case .lit:
+        break
     }
     forgetManagedOffline(recordID)
     await logDisplayEvent("reconnect:lit \(offline.name)")
@@ -601,28 +756,7 @@ func runScene() async {
         guard let nameArg, let scene = await sceneLibrary.scene(named: nameArg) else {
             fail("no scene named '\(nameArg ?? "")'")
         }
-        let pairs = await resolveCurrentDisplays()
-        let snapshot = await observer.currentSnapshot()
-        var targets: [CoreGraphicsProvider.ArrangementTarget] = []
-        var skipped: [String] = []
-        for member in scene.members {
-            guard let recordID = resolveMember(member.selector, in: pairs),
-                  let observation = snapshot.observation(for: recordID),
-                  let cgID = observation.cgDisplayID else {
-                skipped.append("\(member.selector): not present")
-                continue
-            }
-            if let rotation = member.desired.rotation, rotation != .degrees0 {
-                skipped.append("\(member.selector): rotation not applied (needs private API)")
-            }
-            if member.desired.brightness != nil { skipped.append("\(member.selector): brightness not applied (no control provider yet)") }
-            if member.desired.connected == false { skipped.append("\(member.selector): disconnect not applied by scene apply") }
-            targets.append(.init(displayID: cgID, origin: member.desired.position, mode: member.desired.mode))
-        }
-        guard !targets.isEmpty else { fail("scene \"\(scene.name)\" resolved to no present displays") }
-        let warnings = observer.applyArrangement(targets)
-        print("applied scene \"\(scene.name)\" to \(targets.count) display(s)")
-        for note in warnings + skipped { print("  · \(note)") }
+        await runSceneApply(scene)
 
     case "delete":
         guard let nameArg, let scene = await sceneLibrary.scene(named: nameArg) else {
@@ -634,6 +768,126 @@ func runScene() async {
     default:
         fail("unknown scene subcommand '\(sub)' (try: list, save, show, plan, apply, delete)", code: 2)
     }
+}
+
+/// `scene apply`: writes the scene's positions and modes in one arrangement transaction, then judges
+/// every field against the topology read afterwards (TB-04) — what took, what was already so, what
+/// macOS didn't apply, and which fields scene apply doesn't execute at all. It used to print
+/// "applied" and exit 0 whatever the provider reported, and ignored a missing required member.
+func runSceneApply(_ scene: Scene) async {
+    let pairs = await resolveCurrentDisplays()
+    let before = await observer.currentSnapshot()
+    var resolution: ScenePlanner.Resolution = [:]
+    for member in scene.members {
+        if let recordID = resolveMember(member.selector, in: pairs) { resolution[member.selector] = recordID }
+    }
+    let preparation = SceneApplication.prepare(scene: scene, resolution: resolution, before: before)
+    var warnings: [String] = []
+    if !preparation.isBlocked {
+        let targets = preparation.writes.compactMap { write -> CoreGraphicsProvider.ArrangementTarget? in
+            guard let cgID = before.observation(for: write.target)?.cgDisplayID else { return nil }
+            return .init(displayID: cgID, origin: write.origin, mode: write.mode)
+        }
+        if !targets.isEmpty { warnings = observer.applyArrangement(targets) }
+    }
+    let after = await observer.currentSnapshot()
+    let report = SceneApplication.report(scene: scene, preparation: preparation, resolution: resolution,
+                                         before: before, after: after, providerWarnings: warnings)
+    let envelope = sceneEnvelope(report, generation: after.generation.value)
+    if asJSON {
+        emit(envelope)
+    } else {
+        printSceneReport(report)
+    }
+    exitIfUnsuccessful(envelope.status)
+}
+
+/// Why scene apply leaves a field alone — it is in the scene schema, but no executor writes it.
+func sceneSkipReason(_ field: SceneApplyReport.Field) -> String {
+    switch field {
+    case .connected: return "scene apply doesn't connect or disconnect displays"
+    case .main: return "the main display is set only through positions"
+    case .rotation: return "scene apply doesn't rotate displays"
+    case .brightness: return "scene apply doesn't set brightness"
+    case .colorProfile: return "scene apply doesn't set colour profiles"
+    case .hdr: return "scene apply doesn't switch HDR"
+    case .relativePosition: return "scene apply doesn't resolve relative placement"
+    case .position, .mode: return "not applied"
+    }
+}
+
+func printSceneReport(_ report: SceneApplyReport) {
+    switch report.status {
+    case .blocked:
+        FileHandle.standardError.write(Data(
+            "scene \"\(report.sceneName)\": BLOCKED — missing required: \(report.missingRequired.joined(separator: ", ")). Nothing was changed.\n".utf8))
+        return
+    case .failed where report.entries.isEmpty:
+        FileHandle.standardError.write(Data("scene \"\(report.sceneName)\" resolved to no present displays\n".utf8))
+        return
+    default:
+        break
+    }
+    let counts = Dictionary(grouping: report.entries, by: \.outcome).mapValues(\.count)
+    let summary = [("applied", SceneApplyReport.Outcome.applied), ("already set", .alreadySatisfied),
+                   ("not applied", .notApplied), ("skipped", .skipped)]
+        .compactMap { label, outcome in counts[outcome].map { "\($0) \(label)" } }
+        .joined(separator: ", ")
+    print("scene \"\(report.sceneName)\": \(report.status.rawValue) (\(summary))")
+    for entry in report.entries {
+        let what = "\(entry.selector) \(entry.field.rawValue) \(entry.requested)"
+        let now = entry.observed.map { " (now \($0))" } ?? ""
+        switch entry.outcome {
+        case .applied: print("  ✓ \(what)")
+        case .alreadySatisfied: continue  // counted in the summary; listing them buries the news
+        case .notApplied: print("  ! \(what): not applied\(now)")
+        case .skipped: print("  · \(what): skipped — \(sceneSkipReason(entry.field))\(now)")
+        }
+    }
+    for selector in report.missingOptional { print("  · skipped (absent): \(selector)") }
+    for warning in report.providerWarnings { warn("macOS: \(warning)") }
+}
+
+/// The scene report as the shared result envelope: one target per display, one operation per field.
+func sceneEnvelope(_ report: SceneApplyReport, generation: UInt64) -> ResultEnvelope {
+    let status: ResultEnvelope.Status
+    switch report.status {
+    case .applied: status = .committed
+    case .noChange: status = .noOp
+    case .partial: status = .partial
+    case .failed, .blocked: status = .failed
+    }
+    var order: [DisplayRecordID] = []
+    var operations: [DisplayRecordID: [ResultEnvelope.OperationResult]] = [:]
+    for entry in report.entries {
+        if operations[entry.target] == nil { order.append(entry.target) }
+        let outcome: OperationOutcome
+        switch entry.outcome {
+        case .applied: outcome = .verified
+        case .alreadySatisfied: outcome = .alreadySatisfied
+        case .notApplied: outcome = .failed
+        case .skipped: outcome = .skipped
+        }
+        operations[entry.target, default: []].append(.init(
+            field: "scene.\(entry.field.rawValue)", requested: .string(entry.requested),
+            observed: entry.observed.map(AnyCodableValue.string),
+            verification: entry.outcome == .applied ? .verified : .notApplicable,
+            warnings: entry.outcome == .skipped ? [sceneSkipReason(entry.field)] : [],
+            outcome: outcome))
+    }
+    var errors = report.missingRequired.map {
+        ResultEnvelope.ErrorInfo(code: "missingRequired", message: "required member \($0) is not present")
+    }
+    errors += report.missingOptional.map {
+        ResultEnvelope.ErrorInfo(code: "memberAbsent", message: "\($0) is not present; skipped")
+    }
+    errors += report.providerWarnings.map { ResultEnvelope.ErrorInfo(code: "providerWarning", message: $0) }
+    return ResultEnvelope(
+        transactionId: "txn_sceneApply", status: status, actor: .cli, requestedAt: Date(),
+        topologyGeneration: generation,
+        targets: order.map { .init(displayId: $0.rawValue, alias: nil, identityConfidence: 1.0,
+                                   operations: operations[$0] ?? []) },
+        errors: errors)
 }
 
 // MARK: - Control commands
@@ -660,22 +914,128 @@ func ddcRefusalText(_ reason: DDCBindingRefusal) -> String {
     }
 }
 
-/// Writes one display's brightness through whichever route it has, returning the line to print.
-func applyBrightness(_ level: Float, to target: ResolvedDisplay) async -> String {
-    let label = name(for: target)
-    guard let cgID = target.observation.cgDisplayID else { return "\(label): no Core Graphics id" }
+/// One display's brightness write, as it really went.
+struct BrightnessWrite {
+    var target: ResolvedDisplay
+    var requested: Float
+    var outcome: OperationOutcome
+    /// The level read back after the write, when a read answered.
+    var observed: Float?
+    var provider: String?
+    /// Why it failed, or what an unconfirming read-back said.
+    var note: String?
+
+    var operation: ResultEnvelope.OperationResult {
+        .init(field: "brightness", requested: .double(Double(requested)),
+              observed: observed.map { .double(Double($0)) },
+              verification: outcome == .verified ? .verified
+                  : outcome == .sent ? .readBackUnavailable : .notApplicable,
+              provider: provider, warnings: note.map { [$0] } ?? [], outcome: outcome)
+    }
+
+    var line: String {
+        let label = name(for: target)
+        let via = provider == "ddc" ? " (DDC)" : ""
+        switch outcome {
+        case .verified: return "\(label): brightness \(percentLabel(requested))\(via) — verified"
+        case .sent: return "\(label): brightness \(percentLabel(requested)) sent\(via) — not verified: \(note ?? "no read-back")"
+        case .unsupported: return "\(label): \(note ?? "no brightness control for this display")"
+        default: return "\(label): brightness \(percentLabel(requested)) failed — \(note ?? "write failed")"
+        }
+    }
+}
+
+/// Writes one display's brightness through whichever route it has, then reads it back. Only a
+/// read-back of exactly the written value counts as `verified` — no tolerance is assumed — so a
+/// panel that quantizes, is still applying, or ignored the write reports `sent` with what it said.
+func applyBrightness(_ level: Float, to target: ResolvedDisplay) async -> BrightnessWrite {
+    var write = BrightnessWrite(target: target, requested: level, outcome: .failed)
+    guard let cgID = target.observation.cgDisplayID else {
+        write.note = "no Core Graphics id"
+        return write
+    }
     if target.observation.displayClass == .builtIn {
-        let ok = DisplayServicesBrightnessProvider().setBrightness(level, for: cgID)
-        return ok ? "\(label): brightness = \(percentLabel(level))"
-                  : "\(label): failed (DisplayServices unavailable)"
+        let provider = DisplayServicesBrightnessProvider()
+        write.provider = "displayServices"
+        guard provider.setBrightness(level, for: cgID) else {
+            write.note = "DisplayServices unavailable"
+            return write
+        }
+        write.observed = provider.brightness(for: cgID)
+        if write.observed == level {
+            write.outcome = .verified
+        } else {
+            write.outcome = .sent
+            write.note = write.observed.map { String(format: "read back %.4f", $0) } ?? "no read-back"
+        }
+        return write
     }
     let binding = bindDDC(target)
     guard let ddc = binding.controller else {
-        return "\(label): " + (binding.refusal.map(ddcRefusalText) ?? "no brightness control for this display")
+        write.outcome = .unsupported
+        write.note = binding.refusal.map(ddcRefusalText) ?? "no brightness control for this display"
+        return write
     }
+    write.provider = "ddc"
     let maxValue = await ddc.read(.brightness)?.max ?? 100
-    let ok = await ddc.write(.brightness, Int((level * Float(maxValue)).rounded()))
-    return ok ? "\(label): brightness = \(percentLabel(level)) (DDC)" : "\(label): DDC write failed"
+    let raw = Int((level * Float(maxValue)).rounded())
+    guard await ddc.write(.brightness, raw) else {
+        write.note = "DDC write failed"
+        return write
+    }
+    let reading = await ddc.read(.brightness)
+    if let reading, reading.max > 0 { write.observed = Float(reading.current) / Float(reading.max) }
+    switch DDCWriteVerification.outcome(target: raw, readback: reading?.current) {
+    case .applied:
+        write.outcome = .verified
+    case .ignored(let actual):
+        write.outcome = .sent
+        write.note = "the panel reports \(actual)/\(reading?.max ?? maxValue) instead of \(raw)"
+    case .unknown:
+        write.outcome = .sent
+        write.note = "no read-back"
+    }
+    return write
+}
+
+/// Publishes a CLI brightness change on the OSD event channel, as the app does for its own
+/// changes (IN-04): `listen` and external HUD apps otherwise never hear about CLI writes. The
+/// setting is re-read at publish time because the app owns the file.
+func publishBrightnessEvent(_ write: BrightnessWrite) {
+    guard write.outcome.isSuccess, settingsStore?.load().publishOSDEventsEnabled == true else { return }
+    let broadcast = OSDBroadcast(
+        kind: .brightness, value: Double(write.requested), maxValue: 1,
+        displayID: write.target.observation.recordID.rawValue, displayName: name(for: write.target),
+        source: OSDBroadcast.Source.cli.rawValue, timestamp: Date().timeIntervalSince1970)
+    DistributedNotificationCenter.default().postNotificationName(
+        Notification.Name(OSDBroadcast.notificationName), object: nil, userInfo: broadcast.userInfo,
+        deliverImmediately: true)
+}
+
+/// Reports brightness writes — successes on stdout, failures on stderr — and exits with the status
+/// they add up to. `skipped` targets (absent or held group members) are listed but, being the
+/// group policy working as designed, don't count against the result.
+func finishBrightness(_ writes: [BrightnessWrite], skipped: [ResultEnvelope.TargetResult] = []) async {
+    let status = ResultEnvelope.Status.aggregate(writes.map(\.outcome))
+    if asJSON {
+        emit(ResultEnvelope(
+            transactionId: "txn_brightness", status: status, actor: .cli, requestedAt: Date(),
+            topologyGeneration: await observer.currentSnapshot().generation.value,
+            targets: writes.map {
+                .init(displayId: $0.target.observation.recordID.rawValue, alias: $0.target.record.alias,
+                      identityConfidence: 1.0, operations: [$0.operation])
+            } + skipped,
+            errors: writes.filter { !$0.outcome.isSuccess }.map {
+                .init(code: $0.outcome == .unsupported ? "unsupported" : "writeFailed",
+                      message: "\(name(for: $0.target)): \($0.note ?? "failed")")
+            }))
+    } else {
+        for write in writes {
+            if write.outcome.isSuccess { print(write.line) }
+            else { FileHandle.standardError.write(Data((write.line + "\n").utf8)) }
+        }
+    }
+    exitIfUnsuccessful(status)
 }
 
 /// `opendisplay brightness group:<name> <0..1>` — the group itself is the target, so `level` is the
@@ -690,22 +1050,30 @@ func applyBrightness(_ level: Float, to target: ResolvedDisplay) async -> String
 /// since launch.
 func runGroupBrightness(_ group: DisplayGroup, in pairs: [ResolvedDisplay]) async {
     guard let raw = valueArg, let level = Float(raw), (0...1).contains(level) else {
-        fail("usage: opendisplay brightness group:\(group.name) <0..1>")
+        fail("usage: opendisplay brightness group:\(group.name) <0..1>", code: CLIExitCode.usage.rawValue)
     }
     let present = pairs.filter { $0.observation.isActive }.map(\.observation.recordID)
     let governed = GroupSyncPolicy.governedDisplays(in: settingsStore?.load() ?? OpenDisplaySettings())
     let world = GroupSyncPolicy.World(present: Set(present), governed: governed)
     let fanOut = GroupSyncPolicy.groupWrites(level, group: group, world: world)
     // Skips first, so a group where every member was skipped explains itself before the failure.
-    for member in fanOut.absent { print("  · skipped (absent): \(await memberLabel(member, in: pairs))") }
-    for member in fanOut.governed {
-        print("  · skipped (FaceLight or an app preset owns it): \(await memberLabel(member, in: pairs))")
+    var skipped: [ResultEnvelope.TargetResult] = []
+    func skip(_ member: DisplayRecordID, _ reason: String) async {
+        if !asJSON { print("  · skipped (\(reason)): \(await memberLabel(member, in: pairs))") }
+        skipped.append(.init(displayId: member.rawValue, alias: nil, identityConfidence: 1.0, operations: [
+            .init(field: "brightness", verification: .notApplicable, warnings: [reason], outcome: .skipped)]))
     }
+    for member in fanOut.absent { await skip(member, "absent") }
+    for member in fanOut.governed { await skip(member, "FaceLight or an app preset owns it") }
     guard !fanOut.isEmpty else { fail("no writable displays in group '\(group.name)'") }
+    var writes: [BrightnessWrite] = []
     for write in fanOut.writes {
         guard let target = pairs.first(where: { $0.observation.recordID == write.member }) else { continue }
-        print(await applyBrightness(write.value, to: target))
+        let result = await applyBrightness(write.value, to: target)
+        publishBrightnessEvent(result)
+        writes.append(result)
     }
+    await finishBrightness(writes, skipped: skipped)
 }
 
 /// Get or set a display's brightness (0..1). Built-in via DisplayServices, external via DDC.
@@ -720,15 +1088,31 @@ func runBrightness() async {
     guard let cgID = target.observation.cgDisplayID else { fail("display has no Core Graphics id") }
     let builtIn = target.observation.displayClass == .builtIn
     if let raw = valueArg {
-        guard let level = Float(raw), (0...1).contains(level) else { fail("brightness value must be 0..1") }
-        print(await applyBrightness(level, to: target))
-    } else if builtIn, let value = DisplayServicesBrightnessProvider().brightness(for: cgID) {
-        print("\(Int((value * 100).rounded()))%")
+        guard let level = Float(raw), (0...1).contains(level) else {
+            fail("brightness value must be 0..1", code: CLIExitCode.usage.rawValue)
+        }
+        let write = await applyBrightness(level, to: target)
+        publishBrightnessEvent(write)
+        await finishBrightness([write])
+        return
+    }
+    struct Reading: Encodable {
+        var displayId: String; var level: Double; var provider: String; var raw: Int?; var max: Int?
+    }
+    let id = target.observation.recordID.rawValue
+    if builtIn, let value = DisplayServicesBrightnessProvider().brightness(for: cgID) {
+        if asJSON { emit(Reading(displayId: id, level: Double(value), provider: "displayServices")) }
+        else { print("\(Int((value * 100).rounded()))%") }
     } else if !builtIn, let ddc = bindDDC(target).controller,
               let reading = await ddc.read(.brightness), reading.max > 0 {
-        print("\(Int((Float(reading.current) / Float(reading.max) * 100).rounded()))% (\(reading.current)/\(reading.max), DDC)")
+        let level = Float(reading.current) / Float(reading.max)
+        if asJSON {
+            emit(Reading(displayId: id, level: Double(level), provider: "ddc", raw: reading.current, max: reading.max))
+        } else {
+            print("\(Int((level * 100).rounded()))% (\(reading.current)/\(reading.max), DDC)")
+        }
     } else {
-        print("unsupported")
+        fail("brightness can't be read on \(name(for: target)) (no DisplayServices or DDC answer)")
     }
 }
 
@@ -741,12 +1125,12 @@ func runDDC() async {
         "mute": .audioMute,
     ]
     let usage = "usage: opendisplay ddc <selector> <brightness|contrast|volume|input|colour|sharpness|red|green|blue|mute|power|caps|reset|vcp <0xNN>> [value]"
-    guard let sel = selectorArg, let featureArg = valueArg else { fail(usage) }
+    guard let sel = selectorArg, let featureArg = valueArg else { fail(usage, code: CLIExitCode.usage.rawValue) }
     let featureKey = featureArg.lowercased()
     let isCaps = featureKey == "caps" || featureKey == "capabilities"
     let isReset = featureKey == "reset"
     guard isCaps || isReset || featureKey == "power" || featureKey == "vcp" || featureNames[featureKey] != nil else {
-        fail("unknown feature '\(featureArg)' — \(usage)")
+        fail("unknown feature '\(featureArg)' — \(usage)", code: CLIExitCode.usage.rawValue)
     }
     let pairs = await resolveCurrentDisplays()
     let target = uniqueDisplay(sel, in: pairs, managedOffline: managedOfflineIDs)
@@ -756,15 +1140,17 @@ func runDDC() async {
     }
     // Capabilities (VCP 0xF3): read the display's advertised feature set, read-only.
     if isCaps {
-        if let raw = await ddc.readCapabilitiesString() {
-            print("capabilities: \(raw)")
-            if let caps = DDCCapabilities.parse(raw) {
-                let codes = caps.supportedVCPCodes.sorted().map { String(format: "0x%02X", $0) }.joined(separator: " ")
-                print("supported VCP codes: \(codes)")
-            }
-        } else {
-            print("capabilities: unavailable")
+        guard let raw = await ddc.readCapabilitiesString() else {
+            fail("capabilities unavailable for \(name(for: target)) (the monitor didn't answer VCP 0xF3)")
         }
+        let codes = DDCCapabilities.parse(raw)?.supportedVCPCodes.sorted().map { String(format: "0x%02X", $0) }
+        if asJSON {
+            struct Capabilities: Encodable { var capabilities: String; var supportedVCPCodes: [String]? }
+            emit(Capabilities(capabilities: raw, supportedVCPCodes: codes))
+            return
+        }
+        print("capabilities: \(raw)")
+        if let codes { print("supported VCP codes: \(codes.joined(separator: " "))") }
         return
     }
     // Restore Factory Defaults (VCP 0x04, MCCS): the monitor resets brightness, contrast, colour
@@ -773,7 +1159,7 @@ func runDDC() async {
     // the CLI can honestly claim; read the features back to see what changed.
     if isReset {
         let ok = await ddc.write(.restoreFactoryDefaults, 1)
-        print(ok ? "factory reset sent (VCP 0x04)" : "DDC write failed")
+        await finishDDCWrite(target, field: "ddc.reset", subject: "factory reset (VCP 0x04)", value: 1, ok: ok)
         return
     }
     let setValue = positional.count > 3 ? positional[3] : nil
@@ -791,14 +1177,14 @@ func runDDC() async {
             // DDC values are 16-bit on the wire; an unchecked Int would be silently truncated and
             // the success message would then lie about what was written.
             guard let value = Int(positional[4]), (0...0xFFFF).contains(value) else {
-                fail("value must be an integer 0-65535")
+                fail("value must be an integer 0-65535", code: CLIExitCode.usage.rawValue)
             }
             let ok = await ddc.write(vcp: code, value)
-            print(ok ? "\(label) = \(value)" : "DDC write failed")
-        } else if let reading = await ddc.read(vcp: code) {
-            print("\(label): \(reading.current)/\(reading.max)")
+            await finishDDCWrite(target, field: String(format: "ddc.vcp.0x%02X", code),
+                                 subject: "\(label) = \(value)", value: value, ok: ok,
+                                 readBack: { await ddc.read(vcp: code) })
         } else {
-            print("\(label): unsupported")
+            await printDDCReading(await ddc.read(vcp: code), feature: label, code: code, target: target)
         }
         return
     }
@@ -812,11 +1198,13 @@ func runDDC() async {
             fail("unknown power mode '\(raw)' (\(DDCPowerMode.acceptedTokens))")
         }
         let ok = await ddc.write(.power, mode.vcpValue)
-        print(ok ? "power = \(mode.label)" : "DDC write failed")
+        // No read-back: a panel going to standby stops answering, so "sent" is the honest ceiling.
+        await finishDDCWrite(target, field: "ddc.power", subject: "power = \(mode.label)",
+                             value: mode.vcpValue, ok: ok)
         return
     }
     guard let feature = featureNames[featureKey] else {
-        fail("unknown feature '\(featureArg)' — \(usage)")
+        fail("unknown feature '\(featureArg)' — \(usage)", code: CLIExitCode.usage.rawValue)
     }
     if var raw = setValue {
         // VCP 0x8D (mute) is discrete — 1 = mute, 2 = unmute — which nobody guesses from numbers;
@@ -830,14 +1218,73 @@ func runDDC() async {
         }
         guard let value = Int(raw), (0...0xFFFF).contains(value) else {
             fail(feature == .audioMute ? "mute value must be on|off (or 1=mute, 2=unmute)"
-                                       : "value must be an integer 0-65535")
+                                       : "value must be an integer 0-65535", code: CLIExitCode.usage.rawValue)
         }
         let ok = await ddc.write(feature, value)
-        print(ok ? "\(featureArg) = \(value)" : "DDC write failed")
-    } else if let reading = await ddc.read(feature) {
-        print("\(featureArg): \(reading.current)/\(reading.max)")
+        await finishDDCWrite(target, field: "ddc.\(featureKey)", subject: "\(featureArg) = \(value)",
+                             value: value, ok: ok, readBack: { await ddc.read(feature) })
     } else {
-        print("\(featureArg): unsupported")
+        await printDDCReading(await ddc.read(feature), feature: featureArg, code: feature.rawValue, target: target)
+    }
+}
+
+/// Reports one DDC write and exits with its status. `sent` once the panel ACKs the write;
+/// `verified` only when `readBack` — for features that can be read at all — returns exactly the
+/// written value. A different answer is reported, not called a failure: the panel may still be
+/// applying the value, or may have ignored it (they ACK writes they then drop).
+func finishDDCWrite(_ target: ResolvedDisplay, field: String, subject: String, value: Int, ok: Bool,
+                    readBack: (() async -> (current: Int, max: Int)?)? = nil) async {
+    var operation = ResultEnvelope.OperationResult(
+        field: field, requested: .int(value), verification: .notApplicable, provider: "ddc", outcome: .failed)
+    var detail = "not verified (no read-back)"
+    if ok {
+        operation.outcome = .sent
+        operation.verification = .readBackUnavailable
+        if let readBack {
+            let reading = await readBack()
+            operation.observed = reading.map { .int($0.current) }
+            switch DDCWriteVerification.outcome(target: value, readback: reading?.current) {
+            case .applied:
+                operation.outcome = .verified
+                operation.verification = .verified
+                detail = "verified"
+            case .ignored(let actual):
+                detail = "not verified: the panel reports \(actual)"
+                operation.warnings = [detail]
+            case .unknown:
+                break
+            }
+        }
+    }
+    let outcome = operation.outcome ?? .failed
+    let status = ResultEnvelope.Status.aggregate([outcome])
+    if asJSON {
+        emit(ResultEnvelope(
+            transactionId: "txn_ddc", status: status, actor: .cli, requestedAt: Date(),
+            topologyGeneration: await observer.currentSnapshot().generation.value,
+            targets: [.init(displayId: target.observation.recordID.rawValue, alias: target.record.alias,
+                            identityConfidence: 1.0, operations: [operation])],
+            errors: ok ? [] : [.init(code: "writeFailed", message: "DDC write failed")]))
+    } else if ok {
+        print("\(subject) — \(outcome == .verified ? "verified" : "sent, \(detail)")")
+    } else {
+        FileHandle.standardError.write(Data("\(name(for: target)): \(subject) — DDC write failed\n".utf8))
+    }
+    exitIfUnsuccessful(status)
+}
+
+/// Prints a DDC read, or fails when the panel didn't answer — an unanswered read is not a value.
+func printDDCReading(_ reading: (current: Int, max: Int)?, feature: String, code: UInt8,
+                     target: ResolvedDisplay) async {
+    guard let reading else {
+        fail("\(feature) unsupported or unanswered on \(name(for: target))")
+    }
+    if asJSON {
+        struct Reading: Encodable { var displayId: String; var feature: String; var vcp: String; var current: Int; var max: Int }
+        emit(Reading(displayId: target.observation.recordID.rawValue, feature: feature,
+                     vcp: String(format: "0x%02X", code), current: reading.current, max: reading.max))
+    } else {
+        print("\(feature): \(reading.current)/\(reading.max)")
     }
 }
 
@@ -846,11 +1293,22 @@ func runEDID() async {
     let pairs = await resolveCurrentDisplays()
     let target = uniqueDisplay(sel, in: pairs, managedOffline: managedOfflineIDs)
     guard let cgID = target.observation.cgDisplayID else { fail("no display for selector '\(sel)'") }
-    guard let bytes = EDIDReader.rawEDID(for: cgID) else {
-        print("edid: unavailable for this display")
-        return
+    // Only bytes that are provably this display's are printed or written; a guess between
+    // identical monitors would export another monitor's identity under this one's name.
+    let bytes: [UInt8]
+    switch EDIDReader.lookup(for: cgID) {
+    case .matched(let found):
+        bytes = found
+    case .ambiguous(let count):
+        fail("edid: \(count) different EDIDs carry this display's vendor, product code and serial — "
+            + "can't tell which one is this display's, so none is shown")
+    case .notFound:
+        fail("edid: unavailable for this display (no exposed EDID carries its vendor, product code and serial)")
+    case .unidentifiedTarget:
+        fail("edid: unavailable for this display (macOS reports no vendor/product code to match an EDID against)")
     }
-    if let edid = EDID.parse(bytes) {
+    let parsed = EDID.parse(bytes)
+    if let edid = parsed {
         print("manufacturer:     \(edid.manufacturerID)")
         print("product code:     \(edid.productCode)")
         if let n = edid.monitorName { print("model:            \(n)") }
@@ -866,17 +1324,20 @@ func runEDID() async {
         print("extensions:       \(edid.extensionCount)")
         print("hash:             \(EDID.stableHash(bytes))")
     } else {
-        print("edid: \(bytes.count) bytes read, but the base block failed to parse")
+        warn("edid: \(bytes.count) bytes read, but the base block failed to parse")
     }
-    if let i = rawArgs.firstIndex(of: "--out"), i + 1 < rawArgs.count {
-        let path = rawArgs[i + 1]
+    if let path = invocation.values["--out"] {
         do {
             try Data(bytes).write(to: URL(fileURLWithPath: path))
             print("wrote \(bytes.count) bytes → \(path)")
         } catch {
-            print("write failed: \(error)")
+            fail("could not write \(path): \(error)")
         }
+        // The raw dump is the salvage for an EDID this parser can't read, so with --out a parse
+        // failure is only a warning.
+        return
     }
+    if parsed == nil { exit(CLIExitCode.failure.rawValue) }
 }
 
 /// Parses a mode argument like `1920x1080`, `1920x1080@60`, or `1512x982@60@2x` into a `DisplayMode`
@@ -916,26 +1377,25 @@ func runFavorite() async {
             $0.pointWidth == spec.pointWidth && $0.pointHeight == spec.pointHeight
                 && $0.isHiDPI == spec.isHiDPI && abs($0.refreshHz - spec.refreshHz) < 0.01
         }
+        let changedKeys: [String]
         if modes.isEmpty, sub.lowercased() == "unset" {
             // A favourite the display no longer offers must stay removable: match the stored keys
             // on what the argument does say (logical size, density, refresh).
-            let removed = favorites.removeKeys(matchingLogical: spec, for: recordID)
-            guard !removed.isEmpty else { fail("no favourite matches \(positional[3]) for \(name(for: target))") }
-            try? store?.save(favorites)
-            for key in removed { print("unset \(key) for \(name(for: target))") }
-            return
+            changedKeys = favorites.removeKeys(matchingLogical: spec, for: recordID)
+            guard !changedKeys.isEmpty else { fail("no favourite matches \(positional[3]) for \(name(for: target))") }
+        } else {
+            guard !modes.isEmpty else {
+                fail("\(name(for: target)) doesn't offer \(positional[3]) right now — it must be connected and the refresh rate exact (e.g. @59.94)")
+            }
+            for mode in modes {
+                if sub.lowercased() == "set" { favorites.add(mode, for: recordID) }
+                else { favorites.remove(mode, among: available, for: recordID) }
+            }
+            changedKeys = modes.map(FavoriteResolutions.key(for:))
         }
-        guard !modes.isEmpty else {
-            fail("\(name(for: target)) doesn't offer \(positional[3]) right now — it must be connected and the refresh rate exact (e.g. @59.94)")
-        }
-        for mode in modes {
-            if sub.lowercased() == "set" { favorites.add(mode, for: recordID) }
-            else { favorites.remove(mode, among: available, for: recordID) }
-        }
-        try? store?.save(favorites)
-        for mode in modes {
-            print("\(sub.lowercased()) \(FavoriteResolutions.key(for: mode)) for \(name(for: target))")
-        }
+        guard let store else { fail("settings directory unavailable; nothing was saved") }
+        do { try store.save(favorites) } catch { fail("could not save favourites: \(error)") }
+        for key in changedKeys { print("\(sub.lowercased()) \(key) for \(name(for: target))") }
     default:
         fail("unknown favorite subcommand '\(sub)' (list|set|unset)")
     }
@@ -957,7 +1417,7 @@ func runLayout() async {
         let change: LayoutProtectionChange = sub == "protect" ? .protect : .unprotect
         let envelope = await gateway.applyLayoutProtection(
             change, store: store, managedOffline: managedOfflineDisplays, actor: .cli)
-        if asJSON { emit(envelope); return }
+        if asJSON { emit(envelope); exitIfUnsuccessful(envelope.status); return }
         switch envelope.status {
         case .committed:
             let count = envelope.targets.count
@@ -1279,41 +1739,8 @@ case "ddc": await runDDC()
 case "edid": await runEDID()
 case "favorite", "favourite": await runFavorite()
 case "_rotate-exp": await runRotateExperimental()
-case "help", "--help", "-h":
-    print("""
-    opendisplay — OpenDisplay automation CLI
-
-    USAGE:
-      opendisplay list [--json]
-      opendisplay diagnose [--json]
-      opendisplay diagnose --bundle [directory]   # diagnostics zip for a bug report (default: Desktop)
-      opendisplay lux [--json]
-      opendisplay lid [--json]
-      opendisplay listen
-      opendisplay alias <selector> <name>
-      opendisplay tag <selector> <tag>
-      opendisplay disconnect <selector> [--dry-run] [--json]
-      opendisplay reconnect <selector> [--json]
-      opendisplay recover [--json]
-      opendisplay scene <list|save|show|plan|apply|delete> [name] [--json]
-      opendisplay layout <protect|unprotect|status> [--json]
-      opendisplay group <list|create|delete> [name] [--json]
-      opendisplay group <add|remove> <name> <selector>
-      opendisplay brightness <selector> [0..1]
-      opendisplay ddc <selector> <brightness|contrast|volume|input|colour|sharpness|red|green|blue|mute|power|caps> [value]
-      opendisplay ddc <selector> reset                # restore the monitor's factory defaults (VCP 0x04)
-      opendisplay ddc <selector> vcp <0xNN> [value]   # any raw MCCS feature code
-      opendisplay edid <selector> [--out <path.bin>]
-      opendisplay favorite <list|set|unset> <selector> [WxH[@Hz][@2x]]
-
-    lux/lid exit non-zero when the sensor/state is unavailable. listen streams line-delimited JSON
-    (one event per line) until Ctrl-C; see Tools/opendisplay/README.md for the event schema.
-
-    SELECTORS: id:<recordID> · alias:<name> · tag:<tag> · group:<name> · main · builtin · state:<active|managedOffline> · <cgDisplayID>
-
-    group:<name> matches every member of a display group. `brightness group:desk 0.6` sets the
-    group's base level and each member follows it at its own learned offset.
-    """)
 default:
-    fail("unknown command '\(command)' (try: list, diagnose, lux, lid, listen, alias, tag, disconnect, reconnect, recover, scene, layout, group, brightness, ddc, help)", code: 2)
+    // Unknown verbs and `help` are answered before the composition root; reaching here means the
+    // grammar's command list and this switch disagree.
+    fail("command '\(command)' is not dispatched", code: CLIExitCode.usage.rawValue)
 }
