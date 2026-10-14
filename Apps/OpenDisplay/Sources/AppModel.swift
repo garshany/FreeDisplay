@@ -1701,6 +1701,9 @@ final class AppModel: ObservableObject {
         ddcBuilders[id] = builder
         let binding = await builder.value
         ddcBuilders[id] = nil
+        // Built under an Apple-display override the user has since flipped: the result answers the
+        // old question, so neither cache nor use it (FB-08 — turning the override off must stick).
+        guard settings.ddcAppleDisplayOverrideIDs.contains(id.rawValue) == allowApple else { return nil }
         let refusal = binding.refusal
         if ddcBindingRefusal[id] != refusal { ddcBindingRefusal[id] = refusal }
         if let controller = binding.controller { ddc[id] = controller }
