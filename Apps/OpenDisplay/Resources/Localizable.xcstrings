@@ -32,12 +32,12 @@
         }
       }
     },
-    "%@ didn’t come back on" : {
+    "%@ didn’t reconnect" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ не включился"
+            "value" : "%@ не подключился"
           }
         }
       }
@@ -62,12 +62,32 @@
         }
       }
     },
+    "%@ instead of %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ вместо %@"
+          }
+        }
+      }
+    },
     "%@ is offline." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ отключён."
+          }
+        }
+      }
+    },
+    "%@ is still mirrored" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На %@ не снят повтор"
           }
         }
       }
@@ -216,16 +236,6 @@
     },
     "%lld°" : {},
     "%u × %u" : {},
-    "(factory)" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(заводской)"
-          }
-        }
-      }
-    },
     "(unavailable)" : {
       "localizations" : {
         "ru" : {
@@ -296,12 +306,12 @@
         }
       }
     },
-    "A brightness change returns the request status; the hardware result is not verified. TV and AV-receiver protocols and HDMI-CEC are not implemented in this build." : {
+    "A brightness change returns the request status; the hardware result is not verified. Display brightness in the list is OpenDisplay’s last requested or read value, with its age; it is empty until a value is known. Reconnect All starts in the background and answers with the displays it is reconnecting. TV and AV-receiver protocols and HDMI-CEC are not implemented in this build." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Изменение яркости возвращает статус запроса; аппаратный результат не подтверждён. Протоколы телевизоров и AV-ресиверов, а также HDMI-CEC в этой сборке не реализованы."
+            "value" : "Изменение яркости возвращает статус запроса; аппаратный результат не подтверждён. Яркость в списке мониторов — последнее запрошенное или прочитанное OpenDisplay значение с указанием его возраста; пока значение неизвестно, поле пустое. «Подключить все» запускается в фоне и отвечает списком подключаемых мониторов. Протоколы телевизоров и AV-ресиверов, а также HDMI-CEC в этой сборке не реализованы."
           }
         }
       }
@@ -312,6 +322,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Дисплей"
+          }
+        }
+      }
+    },
+    "A link asked OpenDisplay to disconnect a display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ссылка попросила OpenDisplay отключить экран"
           }
         }
       }
@@ -332,6 +352,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Окно «картинка в картинке» с любого экрана или окна, поворот, отражение и LUT настраиваются в окне захвата."
+          }
+        }
+      }
+    },
+    "A running preview keeps going when you leave this section or close Settings. Close its window or press Stop to end it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запущенный предпросмотр продолжает работать, когда вы уходите из этого раздела или закрываете настройки. Чтобы завершить его, закройте его окно или нажмите «Остановить»."
           }
         }
       }
@@ -538,6 +568,56 @@
         }
       }
     },
+    "Allow DDC on this Apple display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешить DDC для этого монитора Apple"
+          }
+        }
+      }
+    },
+    "Allow gamma with custom colour profiles" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешить гамму с пользовательскими цветовыми профилями"
+          }
+        }
+      }
+    },
+    "also on %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "также на %@"
+          }
+        }
+      }
+    },
+    "Also reset OpenDisplay's dimming and temperature" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбросить и затемнение с температурой OpenDisplay"
+          }
+        }
+      }
+    },
+    "Also Reset OpenDisplay’s Dimming and Colour Temperature" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбросить и затемнение с цветовой температурой OpenDisplay"
+          }
+        }
+      }
+    },
     "Another operation is still running, or the limit of four virtual screens has been reached." : {
       "localizations" : {
         "ru" : {
@@ -578,12 +658,22 @@
         }
       }
     },
-    "Applied. Rotation in this scene was skipped — not supported on this macOS version." : {
+    "Applied in part." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Применено. Поворот из сцены пропущен: эта версия macOS его не поддерживает."
+            "value" : "Применено частично."
+          }
+        }
+      }
+    },
+    "Applies to all displays. Custom ICC profiles combined with gamma changes can leave a screen black or tinted; if that happens, turn this off or choose a factory profile." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Действует для всех экранов. Пользовательские ICC-профили вместе с изменением гаммы могут сделать экран чёрным или окрашенным; в этом случае выключите параметр или выберите заводской профиль."
           }
         }
       }
@@ -628,12 +718,12 @@
         }
       }
     },
-    "Ask the monitor which colour modes it supports" : {
+    "Ask the monitor which colour presets it supports" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Запросить поддерживаемые цветовые режимы"
+            "value" : "Запросить поддерживаемые цветовые пресеты"
           }
         }
       }
@@ -698,6 +788,16 @@
         }
       }
     },
+    "black except the menu bar" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "чёрный экран, кроме строки меню"
+          }
+        }
+      }
+    },
     "Black Out" : {
       "localizations" : {
         "ru" : {
@@ -754,6 +854,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Яркость"
+          }
+        }
+      }
+    },
+    "brightness" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "яркость"
           }
         }
       }
@@ -858,22 +968,22 @@
         }
       }
     },
-    "Built-in Display" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Встроенный экран"
-          }
-        }
-      }
-    },
     "Built-in display" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Встроенным экраном"
+          }
+        }
+      }
+    },
+    "Built-in Display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встроенный экран"
           }
         }
       }
@@ -1160,6 +1270,16 @@
         }
       }
     },
+    "color profile" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "цветовой профиль"
+          }
+        }
+      }
+    },
     "Color profile" : {
       "localizations" : {
         "ru" : {
@@ -1176,16 +1296,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Цветовая температура"
-          }
-        }
-      }
-    },
-    "Colour mode" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Цветовой режим"
           }
         }
       }
@@ -1550,22 +1660,22 @@
         }
       }
     },
-    "Detect supported modes" : {
+    "Detect supported presets" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Определить поддерживаемые режимы"
+            "value" : "Определить поддерживаемые пресеты"
           }
         }
       }
     },
-    "Detecting asks the monitor which modes it supports. A few monitors stop answering DDC afterwards until power-cycled." : {
+    "Detecting asks the monitor which presets it supports. A few monitors stop answering DDC afterwards until power-cycled." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Запрашивает поддерживаемые режимы. Некоторые мониторы после запроса перестают отвечать по DDC до выключения и включения питания."
+            "value" : "Запрашивает поддерживаемые пресеты. Некоторые мониторы после запроса перестают отвечать по DDC до выключения и включения питания."
           }
         }
       }
@@ -1610,12 +1720,12 @@
         }
       }
     },
-    "Didn’t come back on" : {
+    "Didn’t reconnect" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Экран не включился"
+            "value" : "Не подключился"
           }
         }
       }
@@ -1657,6 +1767,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "отключено политикой"
+          }
+        }
+      }
+    },
+    "Disconnect" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключить"
+          }
+        }
+      }
+    },
+    "Disconnect display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключить экран"
+          }
+        }
+      }
+    },
+    "Disconnect it from the desktop — the monitor may go to standby but isn’t powered off. Bring it back from its card in this menu." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключить от рабочего стола — монитор может перейти в режим ожидания, но питание не выключается. Вернуть — с его карточки в этом меню."
+          }
+        }
+      }
+    },
+    "Disconnected by OpenDisplay" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключён OpenDisplay"
           }
         }
       }
@@ -2164,6 +2314,16 @@
         }
       }
     },
+    "Factory default" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заводской профиль"
+          }
+        }
+      }
+    },
     "Factory Default" : {
       "localizations" : {
         "ru" : {
@@ -2174,12 +2334,12 @@
         }
       }
     },
-    "Factory default" : {
+    "Factory reset sent — the monitor accepted the command, and its controls were read again." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Заводской профиль"
+            "value" : "Сброс к заводским настройкам отправлен — монитор принял команду, его параметры прочитаны заново."
           }
         }
       }
@@ -2200,6 +2360,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Избранные"
+          }
+        }
+      }
+    },
+    "Favorites not offered now" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Избранные, недоступные сейчас"
           }
         }
       }
@@ -2284,6 +2454,16 @@
         }
       }
     },
+    "For experts. Some older Apple displays can end up with a screen that stays black after receiving DDC commands, and the fault may persist. Turn this on only if you know this model handles DDC." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для опытных пользователей. Некоторые старые мониторы Apple после команд DDC могут остаться с чёрным экраном, и неисправность может сохраниться. Включайте, только если знаете, что эта модель нормально работает с DDC."
+          }
+        }
+      }
+    },
     "For HiDPI, the pixel width and height must be even." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2335,12 +2515,42 @@
         }
       }
     },
+    "gamma change rejected" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "изменение гаммы отклонено"
+          }
+        }
+      }
+    },
     "Gamma dimming plus a black overlay on top — darker than either method alone, and still never fully black." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сочетает затемнение гаммой и чёрный слой. Темнее каждого способа по отдельности, но не делает экран полностью чёрным."
+          }
+        }
+      }
+    },
+    "Gamma is paused because %@ uses a custom colour profile, which can turn a screen black or tinted. Dimming uses the overlay instead; colour temperature and XDR boost are off. Choose a factory profile, or allow gamma with custom profiles in Settings › Displays › Dimming." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Гамма приостановлена: на %@ назначен пользовательский цветовой профиль, из-за которого экран может стать чёрным или получить оттенок. Затемнение выполняется чёрным слоем; цветовая температура и усиление XDR выключены. Выберите заводской профиль или разрешите гамму с пользовательскими профилями в «Настройки › Мониторы › Затемнение»."
+          }
+        }
+      }
+    },
+    "gamma paused: custom colour profile" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "гамма приостановлена: пользовательский профиль"
           }
         }
       }
@@ -2411,6 +2621,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "зависит от оборудования"
+          }
+        }
+      }
+    },
+    "HDR" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR"
           }
         }
       }
@@ -2657,6 +2877,16 @@
         }
       }
     },
+    "Input switching, monitor colour presets, monitor power and factory reset aren’t available in this build: they work over DDC, which needs private macOS interfaces." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переключение источника сигнала, цветовые пресеты монитора, питание монитора и сброс к заводским настройкам недоступны в этой сборке: они работают по DDC, которому нужны закрытые интерфейсы macOS."
+          }
+        }
+      }
+    },
     "Installing update…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2736,6 +2966,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Недопустимый план HiDPI: %@"
+          }
+        }
+      }
+    },
+    "It isn’t part of the desktop right now, so there is nothing to switch off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сейчас этот экран не входит в рабочий стол — отключать нечего"
           }
         }
       }
@@ -2870,6 +3110,16 @@
         }
       }
     },
+    "Leaves the desktop; the monitor may go to standby. Reconnect from the menu." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экран уйдёт с рабочего стола; монитор может перейти в режим ожидания. Подключить снова — из меню."
+          }
+        }
+      }
+    },
     "License (GPL-3.0)" : {
       "localizations" : {
         "ru" : {
@@ -2967,16 +3217,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Логические размеры не должны превышать 8192 пикселя."
-          }
-        }
-      }
-    },
-    "Logical disconnect — reconnectable" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Логическое отключение с возможностью подключения"
           }
         }
       }
@@ -3101,6 +3341,36 @@
         }
       }
     },
+    "macOS didn’t accept the new position. The canvas shows the arrangement in effect." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS не приняла новое положение. На схеме показано действующее расположение."
+          }
+        }
+      }
+    },
+    "macOS didn’t apply “%@”. The profile shown is the one in effect." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS не применила «%@». Показан действующий профиль."
+          }
+        }
+      }
+    },
+    "macOS didn’t apply: %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS не применила: %@."
+          }
+        }
+      }
+    },
     "macOS didn’t confirm the screen was created in time." : {
       "localizations" : {
         "ru" : {
@@ -3117,6 +3387,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "macOS не сообщила текущий режим"
+          }
+        }
+      }
+    },
+    "macOS didn’t switch back to the factory profile. The profile shown is the one in effect." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS не вернула заводской профиль. Показан действующий профиль."
           }
         }
       }
@@ -3147,6 +3427,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "macOS сохранила прежнее расположение. Чтобы принять его, снова защитите текущее расположение."
+          }
+        }
+      }
+    },
+    "macOS rejected the gamma change (error %d), so it isn’t on screen." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS отклонила изменение гаммы (ошибка %d), поэтому на экране его нет."
           }
         }
       }
@@ -3323,6 +3613,26 @@
         }
       }
     },
+    "Mirror it onto the main display — it stays on, showing the main display’s picture. Undo it from its card in this menu." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включить на нём повтор основного экрана — он остаётся включённым и показывает изображение основного экрана. Отменить — с его карточки в этом меню."
+          }
+        }
+      }
+    },
+    "Mirror onto Main" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повторить основной"
+          }
+        }
+      }
+    },
     "Mirror the main display" : {
       "localizations" : {
         "ru" : {
@@ -3353,12 +3663,12 @@
         }
       }
     },
-    "Mirroring" : {
+    "Mirrored onto the main display by OpenDisplay" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Зеркалирование"
+            "value" : "OpenDisplay включил повтор основного экрана"
           }
         }
       }
@@ -3373,12 +3683,42 @@
         }
       }
     },
+    "Mirroring" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зеркалирование"
+          }
+        }
+      }
+    },
+    "Mirroring another display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повторяет другой экран"
+          }
+        }
+      }
+    },
     "Mirroring works only with the main display." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Зеркалирование возможно только с основным экраном."
+          }
+        }
+      }
+    },
+    "Mirrors it onto the main display, so it stays on, and keeps it listed for recovery. Undo from the menu." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На экране включается повтор основного экрана: он остаётся включённым и сохраняется в списке для восстановления. Отменить — из меню."
           }
         }
       }
@@ -3413,12 +3753,22 @@
         }
       }
     },
-    "Monitor color mode" : {
+    "Monitor color preset" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Цветовой режим монитора"
+            "value" : "Цветовой пресет монитора"
+          }
+        }
+      }
+    },
+    "Monitor colour preset" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цветовой пресет монитора"
           }
         }
       }
@@ -3433,12 +3783,32 @@
         }
       }
     },
-    "Monitor volume over DDC. Click the icon to mute or unmute" : {
+    "Monitor volume over DDC. Click the icon to mute or unmute the monitor." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Громкость монитора по DDC. Значок — выключить/включить звук"
+            "value" : "Громкость монитора по DDC. Значок выключает и включает звук монитора."
+          }
+        }
+      }
+    },
+    "Monitor volume over DDC. There's no earlier level to restore — raise the volume with the slider." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Громкость монитора по DDC. Прежнего уровня для восстановления нет — увеличьте громкость ползунком."
+          }
+        }
+      }
+    },
+    "Monitor volume over DDC. This monitor has no readable mute, so the icon sets the volume to 0 and back to the previous level." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Громкость монитора по DDC. У этого монитора нет считываемого выключения звука, поэтому значок ставит громкость на 0 и возвращает прежний уровень."
           }
         }
       }
@@ -3529,16 +3899,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Родные и рекомендуемые"
-          }
-        }
-      }
-    },
-    "native, no scaling" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "родное, без масштабирования"
           }
         }
       }
@@ -3663,12 +4023,22 @@
         }
       }
     },
-    "no HiDPI" : {
+    "No feedback is shown" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "без HiDPI"
+            "value" : "Индикатор не показывается"
+          }
+        }
+      }
+    },
+    "No hardware control" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нет аппаратного управления"
           }
         }
       }
@@ -3679,6 +4049,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Без HiDPI"
+          }
+        }
+      }
+    },
+    "no HiDPI" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "без HiDPI"
           }
         }
       }
@@ -3783,6 +4163,36 @@
         }
       }
     },
+    "Not applied." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не применено."
+          }
+        }
+      }
+    },
+    "Not applied: none of this scene’s displays are connected." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не применено: ни один монитор этой сцены не подключён."
+          }
+        }
+      }
+    },
+    "Not applied: required displays aren’t connected (%@). Nothing was changed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не применено: обязательные мониторы не подключены (%@). Ничего не изменено."
+          }
+        }
+      }
+    },
     "Not connected" : {
       "localizations" : {
         "ru" : {
@@ -3813,6 +4223,16 @@
         }
       }
     },
+    "not specified" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "не указан"
+          }
+        }
+      }
+    },
     "Not specified" : {
       "localizations" : {
         "ru" : {
@@ -3823,12 +4243,12 @@
         }
       }
     },
-    "not specified" : {
+    "Nothing was sent: OpenDisplay has no usable DDC connection to this monitor." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "не указан"
+            "value" : "Ничего не отправлено: у OpenDisplay нет рабочего DDC-подключения к этому монитору."
           }
         }
       }
@@ -3874,12 +4294,12 @@
         }
       }
     },
-    "On" : {
+    "OK" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "вкл."
+            "value" : "ОК"
           }
         }
       }
@@ -3890,6 +4310,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "включено"
+          }
+        }
+      }
+    },
+    "On" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "вкл."
           }
         }
       }
@@ -3930,6 +4360,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "вкл./выкл."
+          }
+        }
+      }
+    },
+    "on/off state" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "включение/выключение"
           }
         }
       }
@@ -3986,22 +4426,72 @@
       }
     },
     "OpenDisplay" : {},
-    "OpenDisplay asked macOS to turn it on and nothing appeared. It is still listed in the menu, with recovery steps." : {
+    "OpenDisplay asked macOS to reconnect it and the display didn’t appear. It is still listed in the menu, with recovery steps." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay попросил macOS включить его, но изображение так и не появилось. Он по-прежнему есть в меню вместе с шагами восстановления."
+            "value" : "OpenDisplay попросил macOS подключить его, но экран так и не появился. Он по-прежнему есть в меню вместе с шагами восстановления."
           }
         }
       }
     },
-    "OpenDisplay Settings" : {
+    "OpenDisplay asked macOS to stop mirroring it and it didn’t return to the desktop. It is still listed in the menu, with recovery steps." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Настройки OpenDisplay"
+            "value" : "OpenDisplay попросил macOS выключить на нём повтор, но экран не вернулся на рабочий стол. Он по-прежнему есть в меню вместе с шагами восстановления."
+          }
+        }
+      }
+    },
+    "OpenDisplay doesn't send DDC commands to Apple displays: some older models can be left with a screen that stays black. You can allow it for this display in Settings → Displays." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenDisplay не отправляет команды DDC мониторам Apple: у некоторых старых моделей после этого экран может остаться чёрным. Разрешить DDC для этого монитора можно в «Настройки → Мониторы»."
+          }
+        }
+      }
+    },
+    "OpenDisplay doesn’t change displays from links, so nothing was changed. To disconnect a display, use its switch in the OpenDisplay menu." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenDisplay не меняет экраны по ссылкам, поэтому ничего не изменилось. Чтобы отключить экран, воспользуйтесь его переключателем в меню OpenDisplay."
+          }
+        }
+      }
+    },
+    "OpenDisplay draws every style itself; none of them is the macOS system HUD." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Все стили OpenDisplay рисует сам; ни один из них не является системным индикатором macOS."
+          }
+        }
+      }
+    },
+    "OpenDisplay sends no DDC commands to this monitor: another connected monitor reports the same identity (usually the same model without a serial number), so it can't tell which connection belongs to which." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenDisplay не отправляет этому монитору команды DDC: другой подключённый монитор сообщает те же идентификационные данные (обычно та же модель без серийного номера), и нельзя определить, какое подключение кому принадлежит."
+          }
+        }
+      }
+    },
+    "OpenDisplay sends no DDC commands to this monitor: macOS doesn't report which connection belongs to it, and with several displays attached a guess could control the wrong one." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenDisplay не отправляет этому монитору команды DDC: macOS не сообщает, какое подключение ему принадлежит, а при нескольких подключённых экранах догадка может управлять не тем монитором."
           }
         }
       }
@@ -4033,6 +4523,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Собственные записи OpenDisplay: хронология событий мониторов, журнал действий, список отключённых им мониторов, реестр мониторов и настройки (без местоположения и профилей приложений)"
+          }
+        }
+      }
+    },
+    "Opened for %@. Load sources to select it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыто для монитора «%@». Загрузите источники, чтобы выбрать его."
           }
         }
       }
@@ -4097,6 +4597,16 @@
         }
       }
     },
+    "paused: custom colour profile" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "приостановлено: пользовательский профиль"
+          }
+        }
+      }
+    },
     "permission" : {
       "localizations" : {
         "ru" : {
@@ -4147,22 +4657,22 @@
         }
       }
     },
-    "Position" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Положение"
-          }
-        }
-      }
-    },
     "position" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "положение"
+          }
+        }
+      }
+    },
+    "Position" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Положение"
           }
         }
       }
@@ -4309,12 +4819,22 @@
         }
       }
     },
-    "Publishes each brightness and volume change over the dev.opendisplay.osd distributed notification for external HUD apps. Off by default." : {
+    "Publishes each brightness and volume change OpenDisplay makes — including slider, HTTP, command-line and Shortcuts brightness changes — over the dev.opendisplay.osd distributed notification, whether or not OpenDisplay shows its own HUD. Off by default." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Передаёт изменения яркости и громкости через распределённое уведомление dev.opendisplay.osd для внешних индикаторов. По умолчанию выключено."
+            "value" : "Передаёт каждое изменение яркости и громкости, сделанное OpenDisplay, — включая изменения яркости ползунком, по HTTP, из командной строки и из «Быстрых команд» — через распределённое уведомление dev.opendisplay.osd, независимо от того, показывает ли OpenDisplay свой индикатор. По умолчанию выключено."
+          }
+        }
+      }
+    },
+    "Put in Standby" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перевести в режим ожидания"
           }
         }
       }
@@ -4329,6 +4849,16 @@
         }
       }
     },
+    "Put “%@” in standby over DDC?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перевести «%@» в режим ожидания по DDC?"
+          }
+        }
+      }
+    },
     "Quit OpenDisplay" : {
       "localizations" : {
         "ru" : {
@@ -4339,12 +4869,12 @@
         }
       }
     },
-    "Quit OpenDisplay — reconnects any displays it turned off" : {
+    "Quit OpenDisplay — brings back any displays it disconnected or mirrored" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Выйти из OpenDisplay — отключённые экраны подключатся"
+            "value" : "Выйти из OpenDisplay — отключённые экраны и экраны с повтором вернутся"
           }
         }
       }
@@ -4529,6 +5059,16 @@
         }
       }
     },
+    "relative placement" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "относительное расположение"
+          }
+        }
+      }
+    },
     "Relaunch" : {
       "localizations" : {
         "ru" : {
@@ -4565,6 +5105,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Удалить"
+          }
+        }
+      }
+    },
+    "Remove from desktop (mirror)" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Убрать с рабочего стола (повтор)"
           }
         }
       }
@@ -4659,22 +5209,22 @@
         }
       }
     },
-    "Reset to defaults" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сброс к заводским настройкам"
-          }
-        }
-      }
-    },
     "Reset to Defaults" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сбросить настройки"
+          }
+        }
+      }
+    },
+    "Reset to defaults" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сброс к заводским настройкам"
           }
         }
       }
@@ -4709,22 +5259,22 @@
         }
       }
     },
-    "resolution" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "разрешение"
-          }
-        }
-      }
-    },
     "Resolution" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Разрешение"
+          }
+        }
+      }
+    },
+    "resolution" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "разрешение"
           }
         }
       }
@@ -4830,22 +5380,22 @@
         }
       }
     },
-    "Rotation" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Поворот"
-          }
-        }
-      }
-    },
     "rotation" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "поворот"
+          }
+        }
+      }
+    },
+    "Rotation" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поворот"
           }
         }
       }
@@ -4867,6 +5417,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Поворот выключен. Включается в «%@ → Labs»."
+          }
+        }
+      }
+    },
+    "Rotation isn’t protected: OpenDisplay can rotate displays only with Labs › Experimental display rotation on." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поворот не защищается: OpenDisplay поворачивает экраны, только когда включено «Экспериментальные функции › Экспериментальный поворот экрана»."
+          }
+        }
+      }
+    },
+    "Rotation isn’t protected: this build can’t rotate displays." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поворот не защищается: эта сборка не умеет поворачивать экраны."
           }
         }
       }
@@ -4961,6 +5531,16 @@
         }
       }
     },
+    "Scenes can’t set yet, so skipped: %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сцены пока не умеют это задавать, поэтому пропущено: %@."
+          }
+        }
+      }
+    },
     "Screen %u is active. Pixel dimensions confirmed." : {
       "localizations" : {
         "ru" : {
@@ -5017,6 +5597,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сначала выберите подключённый монитор."
+          }
+        }
+      }
+    },
+    "Sending…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправка…"
           }
         }
       }
@@ -5252,6 +5842,16 @@
         }
       }
     },
+    "software minimum %lld%%" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "программный минимум %lld%%"
+          }
+        }
+      }
+    },
     "Software · combined" : {
       "localizations" : {
         "ru" : {
@@ -5363,12 +5963,33 @@
         }
       }
     },
+    "Standard" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Стандартный"
+          }
+        }
+      }
+    },
     "Standby" : {
+      "extractionState" : "manual",
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Режим ожидания"
+          }
+        }
+      }
+    },
+    "Standby…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Режим ожидания…"
           }
         }
       }
@@ -5413,12 +6034,32 @@
         }
       }
     },
+    "Still mirrored" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повтор не снят"
+          }
+        }
+      }
+    },
     "Stop" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Остановить"
+          }
+        }
+      }
+    },
+    "Stop mirroring the display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выключить повтор экрана"
           }
         }
       }
@@ -5493,12 +6134,32 @@
         }
       }
     },
+    "Switch to %@ sent — the monitor hasn't confirmed it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переключение на %@ отправлено — монитор его не подтвердил."
+          }
+        }
+      }
+    },
     "Switches the monitor’s hardware colour preset to a warm one in the evening and back each morning. Follows Night Shift’s on/off state when it can be read; otherwise the schedule decides." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Вечером включает тёплый аппаратный цветовой режим, утром возвращает дневной. Следует состоянию Night Shift, если оно доступно, иначе использует расписание."
+          }
+        }
+      }
+    },
+    "Switching to %@…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переключение на %@…"
           }
         }
       }
@@ -5581,6 +6242,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Это сочетание клавиш уже назначено."
+          }
+        }
+      }
+    },
+    "The arrangement changed before the drop, so nothing was moved." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расположение изменилось до того, как вы отпустили экран, поэтому ничего не перемещено."
           }
         }
       }
@@ -5688,12 +6359,42 @@
         }
       }
     },
-    "The last active display can't be turned off" : {
+    "The last change didn't reach the monitor (DDC write failed)." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Последний активный экран отключить нельзя"
+            "value" : "Последнее изменение не дошло до монитора (ошибка записи DDC)."
+          }
+        }
+      }
+    },
+    "The monitor didn't accept the factory reset (DDC write failed). Nothing was changed, including OpenDisplay's own dimming and temperature." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитор не принял сброс к заводским настройкам (ошибка записи DDC). Ничего не изменилось, в том числе затемнение и температура OpenDisplay."
+          }
+        }
+      }
+    },
+    "The monitor didn't accept the switch to %@ (DDC write failed)." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитор не принял переключение на %@ (ошибка записи DDC)."
+          }
+        }
+      }
+    },
+    "The monitor didn't accept the “%@” command (DDC write failed). Nothing changed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитор не принял команду «%@» (ошибка записи DDC). Ничего не изменилось."
           }
         }
       }
@@ -5738,22 +6439,52 @@
         }
       }
     },
-    "The monitor kept the “%@” mode." : {
+    "The monitor is asked to blank its picture. Some monitors don't wake again over DDC — then only their power button brings the picture back." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Монитор оставил режим «%@»."
+            "value" : "Монитору будет отправлена команда погасить изображение. Некоторые мониторы не просыпаются по DDC — тогда изображение вернёт только их кнопка питания."
           }
         }
       }
     },
-    "The monitor restores its factory settings — brightness, contrast, colour mode, and anything else it resets. OpenDisplay also clears its software dimming and colour temperature for this display." : {
+    "The monitor is asked to power down. Many monitors can't be turned back on over DDC — only with their own power button." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Восстанавливает заводские настройки монитора: яркость, контрастность, цветовой режим и остальные параметры, которые сбрасывает сам монитор. OpenDisplay также снимает программное затемнение и цветовую температуру."
+            "value" : "Монитору будет отправлена команда выключиться. Многие мониторы нельзя снова включить по DDC — только их собственной кнопкой питания."
+          }
+        }
+      }
+    },
+    "The monitor is asked to restore its factory settings — brightness, contrast, color preset and whatever else it resets. OpenDisplay's own dimming and color temperature stay as they are." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитору будет отправлена команда восстановить заводские настройки — яркость, контрастность, цветовой пресет и всё остальное, что он сбрасывает. Затемнение и цветовая температура OpenDisplay останутся как есть."
+          }
+        }
+      }
+    },
+    "The monitor is asked to restore its factory settings — brightness, contrast, colour preset and anything else it resets. OpenDisplay’s own software dimming and colour temperature stay as they are; you can reset them separately afterwards." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитору будет отправлена команда восстановить заводские настройки — яркость, контрастность, цветовой пресет и всё остальное, что он сбрасывает. Программное затемнение и цветовая температура OpenDisplay останутся как есть; их можно сбросить отдельно после этого."
+          }
+        }
+      }
+    },
+    "The monitor kept the “%@” preset." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Монитор оставил пресет «%@»."
           }
         }
       }
@@ -5764,16 +6495,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Монитор сохранил режим «%@»."
-          }
-        }
-      }
-    },
-    "The monitor will restore its factory brightness, contrast, color mode, and everything else." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Монитор вернёт заводские яркость, контраст, цветовой режим и остальное."
           }
         }
       }
@@ -5849,6 +6570,16 @@
         }
       }
     },
+    "This build uses only public macOS interfaces, and monitor control over DDC needs private ones. Brightness uses software dimming." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эта сборка использует только открытые интерфейсы macOS, а управлению монитором по DDC нужны закрытые. Яркость регулируется программным затемнением."
+          }
+        }
+      }
+    },
     "This display set" : {
       "localizations" : {
         "ru" : {
@@ -5875,6 +6606,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Этот точный режим больше недоступен. Другой буфер или частота автоматически не подставляются."
+          }
+        }
+      }
+    },
+    "This is the main display: the menu bar and Dock stay on it while it is dark. Use the monitor's power button to get them back." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это основной экран: строка меню и Dock останутся на нём, пока он тёмный. Чтобы вернуть их, нажмите кнопку питания монитора."
+          }
+        }
+      }
+    },
+    "This is the only screen showing a picture. If it doesn't wake, you'll have no screen to work with until you press the monitor's power button." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это единственный экран с изображением. Если он не проснётся, работать будет не на чем, пока вы не нажмёте кнопку питания монитора."
           }
         }
       }
@@ -5960,36 +6711,6 @@
         }
       }
     },
-    "Turn display off" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Отключить монитор"
-          }
-        }
-      }
-    },
-    "Turn off" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выключить"
-          }
-        }
-      }
-    },
-    "Turn Off" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Отключить"
-          }
-        }
-      }
-    },
     "Turn off after" : {
       "localizations" : {
         "ru" : {
@@ -6020,6 +6741,16 @@
         }
       }
     },
+    "Turn Off Monitor" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выключить монитор"
+          }
+        }
+      }
+    },
     "Turn off on battery power" : {
       "localizations" : {
         "ru" : {
@@ -6030,12 +6761,32 @@
         }
       }
     },
-    "Turn off the display (turn it back on with the same switch)" : {
+    "Turn off “%@” over DDC?" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Отключить экран (вернуть — этим же переключателем)"
+            "value" : "Выключить «%@» по DDC?"
+          }
+        }
+      }
+    },
+    "Turn off…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выключить…"
+          }
+        }
+      }
+    },
+    "Turn On Broadcasting" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включить передачу событий"
           }
         }
       }
@@ -6070,12 +6821,12 @@
         }
       }
     },
-    "Turned off by OpenDisplay" : {
+    "Turning this off would leave no physical display on" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Отключён OpenDisplay"
+            "value" : "Если отключить этот экран, не останется ни одного физического экрана"
           }
         }
       }
@@ -6671,12 +7422,32 @@
       }
     },
     "×" : {},
-    "“Native” is the sharpest: the picture is drawn 1:1, without scaling. A new mode has to be confirmed, or it reverts on its own." : {
+    "“%@” sent. The monitor accepted the command; OpenDisplay can't check whether the screen actually changed." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Чётче всего — «родное»: картинка рисуется 1:1, без масштабирования. Новый режим нужно подтвердить, иначе он вернётся сам."
+            "value" : "Команда «%@» отправлена. Монитор её принял; OpenDisplay не может проверить, изменился ли экран на самом деле."
+          }
+        }
+      }
+    },
+    "“External HUD only” hides OpenDisplay’s HUD, and broadcasting is off, so no app receives the changes either." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«Только внешний индикатор» скрывает индикатор OpenDisplay, а передача событий выключена, поэтому изменения не получает и ни одно другое приложение."
+          }
+        }
+      }
+    },
+    "“Native” is the mode the display reports as native; it doesn’t guarantee unscaled output. Sizes are in points — a HiDPI framebuffer is larger. A new mode has to be confirmed, or it reverts on its own." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«Родное» — режим, который дисплей сообщает как родной; это не гарантирует вывод без масштабирования. Размеры указаны в точках — буфер изображения HiDPI больше. Новый режим нужно подтвердить, иначе он вернётся сам."
           }
         }
       }
