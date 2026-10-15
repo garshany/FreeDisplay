@@ -9,22 +9,62 @@ permissions:
 
 jobs:
   build-test:
-    runs-on: macos-15-arm64
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode 26.3 (Swift 6.2)
+      - name: Select newest installed Xcode 26 or newer
+        id: xcode
+        shell: bash
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+          set -euo pipefail
+          xcode_path=$(ls -d /Applications/Xcode_*.app 2>/dev/null | python3 -c '
+          import re
+          import sys
+
+          candidates = []
+          for path in sys.stdin.read().splitlines():
+              match = re.search(r"/Xcode_(\d+(?:\.\d+)*).*\.app$", path)
+              if match and int(match[1].split(".")[0]) >= 26:
+                  version = tuple(map(int, match[1].split(".")))
+                  candidates.append((version + (0,) * (3 - len(version)), path))
+          if not candidates:
+              sys.exit("::error::No Xcode 26 or newer found in /Applications/Xcode_*.app")
+          print(sorted(candidates)[-1][1])
+          ')
+          sudo xcode-select -s "$xcode_path/Contents/Developer"
+          export DEVELOPER_DIR="$xcode_path/Contents/Developer"
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
           xcodebuild -version
           swift --version
+          python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+
+          required = re.search(r"^// swift-tools-version:\s*(\d+(?:\.\d+){1,2})", Path("Package.swift").read_text())
+          swift = subprocess.check_output(["swift", "--version"], text=True)
+          installed = re.search(r"Swift version (\d+(?:\.\d+){1,2})", swift)
+          if not required or not installed:
+              sys.exit("::error::Cannot determine Package.swift swift-tools-version or installed Swift version")
+          def version(value):
+              parts = tuple(map(int, value.split(".")))
+              return parts + (0,) * (3 - len(parts))
+          if version(installed[1]) < version(required[1]):
+              sys.exit(f"::error::Selected Xcode provides Swift {installed[1]}, but Package.swift requires Swift {required[1]} or newer")
+          xcode = subprocess.check_output(["xcodebuild", "-version"], text=True)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("cache-version=" + "-".join(xcode.split()) + "\n")
+          PYTHON
       - uses: actions/cache@v4
         with:
           path: |
             .spm
             .dd/SourcePackages
-          key: ${{ runner.os }}-${{ runner.arch }}-xcode26.3-spm-${{ hashFiles('Package.swift', 'project.yml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-xcode-${{ steps.xcode.outputs.cache-version }}-spm-${{ hashFiles('Package.swift', 'project.yml') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-xcode26.3-spm-
+            ${{ runner.os }}-${{ runner.arch }}-xcode-${{ steps.xcode.outputs.cache-version }}-spm-
       - name: Build and test core
         run: |
           swift build --scratch-path ./.spm
