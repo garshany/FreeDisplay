@@ -97,13 +97,14 @@ sets them (a `config` line has no brightness keys and vice versa):
 ```
 
 `source` is one of `menu` (a slider in the menu-bar panel or Settings), `mediaKey`, `hotkey`, `http`
-(the local HTTP server), `cli` (another `opendisplay brightness` run), `appIntent` (Shortcuts) or
-`app` (OpenDisplay's own automation: FaceLight, presets, restoring a level); consumers must tolerate
-others. Each change is published exactly once, whether or not OpenDisplay drew its own HUD for it —
-sliders, HTTP, CLI and Intent changes draw none but are still published. Not published: the
-follower writes a Display Group fans out (they carry no new user intent, and a HUD receiver would
-show the wrong display), and brightness changes made outside OpenDisplay (macOS keys, System
-Settings, auto-brightness) — nothing observes those generally.
+(the local HTTP server), `cli` (another `opendisplay brightness` run), `appIntent` (Shortcuts), `osd`
+(the bar of the interactive on-screen display), `groupSync` (a Display Group carrying its leader's
+change to this display) or `app` (FreeDisplay's own automation: FaceLight, presets, restoring a
+level); consumers must tolerate others. Each change is published exactly once, whether or not
+FreeDisplay drew its own HUD for it — sliders, HTTP, CLI and Intent changes draw none but are still
+published, and so is each group follower's write, as its own `groupSync` event for that display.
+Not published: brightness changes made outside FreeDisplay (macOS keys, System Settings,
+auto-brightness) — nothing observes those generally.
 
 `brightness` events require **Broadcast OSD events** enabled in OpenDisplay's Settings (default
 off) — `listen` prints a one-time note to stderr on startup when it's off, so brightness stays
@@ -154,3 +155,39 @@ A display belongs to at most one group — `group add` moves it out of whichever
 says so. Groups live in the app's `settings.json`, so a group mutation made while OpenDisplay is
 running is overwritten the next time the app saves its settings: quit the app first, or make the
 change in Settings → Displays → Groups.
+
+### Rich OSD events and receiver settings
+
+`dev.opendisplay.osd` remains FreeDisplay's version-1 string dictionary in `userInfo`.
+`displayID` identifies the adjusted display; optional `screenID` is a Core Graphics presentation
+screen hint. Optional `symbol`, `text`, `control` and `state` describe the feedback. `state` can be
+`requested`, `applied` (software) or `verified` (read-back); an event is not proof of physical
+brightness. A later read-back updates the local HUD without publishing the same change again.
+`input` events contain the input name in `text` and omit `value`/`maxValue`. Receivers skip unknown
+kinds and tolerate missing/zero maximum, missing values and unknown optional fields. No
+BetterDisplay notification compatibility is claimed.
+
+With **Let HUD apps take over these settings** enabled, a receiver can query/claim/release feedback
+preferences. Subscribe to `dev.opendisplay.osd.settings.response` first, then post to
+`dev.opendisplay.osd.settings.request`. Both directions use a JSON string in the notification's
+`object`, with no `userInfo`, so sandboxed receivers can send requests too. Correlate by `uuid`:
+
+```json
+{"version":1,"uuid":"receiver-query","command":"get"}
+{"version":1,"uuid":"receiver-claim","command":"claim","receiver":"Example HUD","hideBasic":true,"hideCustom":false}
+{"version":1,"uuid":"receiver-release","command":"release","receiver":"Example HUD"}
+```
+
+Responses report `result` (`ok`, `disabled`, `malformed`, `refused`, `notClaimed`), `showsBasic`,
+`showsCustom`, `publishing`, and optional `claimedBy`. A disabled handshake reports no settings.
+Absent request version means version 1; unsupported versions are refused as malformed. Claims turn
+broadcasting on and hide only the requested local feedback families. Release restores each prior
+preference unless the user changed its value after the claim. Repeated claims from the same
+receiver retain the original snapshot; another receiver cannot replace it. Names are labels,
+not authenticated identities: any local process can use this explicitly enabled interface.
+
+If a receiver exits without releasing, Settings offers **Restore My Settings**. Turning off the
+handshake also restores the claim; importing/resetting preferences ends receiver ownership.
+Archives export the user's preferences with the temporary receiver overlay removed. There is no
+lease, polling interval or automatic expiry. A receiver cannot assume a response or HUD listener
+exists when FreeDisplay is not running.

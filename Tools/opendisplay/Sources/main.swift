@@ -1016,10 +1016,18 @@ func applyBrightness(_ level: Float, to target: ResolvedDisplay) async -> Bright
 /// setting is re-read at publish time because the app owns the file.
 func publishBrightnessEvent(_ write: BrightnessWrite) {
     guard write.outcome.isSuccess, settingsStore?.load().publishOSDEventsEnabled == true else { return }
+    // TR-17: what carried the change and whether the display confirmed it, as the app says too.
+    let control: String? = switch write.provider {
+    case "displayServices"?: "native"
+    case "ddc"?: "ddc"
+    default: nil
+    }
     let broadcast = OSDBroadcast(
         kind: .brightness, value: Double(write.requested), maxValue: 1,
         displayID: write.target.observation.recordID.rawValue, displayName: name(for: write.target),
-        source: OSDBroadcast.Source.cli.rawValue, timestamp: Date().timeIntervalSince1970)
+        source: OSDBroadcast.Source.cli.rawValue, timestamp: Date().timeIntervalSince1970,
+        symbol: "sun.max", control: control,
+        state: (write.outcome == .verified ? OSDBroadcast.State.verified : .requested).rawValue)
     DistributedNotificationCenter.default().postNotificationName(
         Notification.Name(OSDBroadcast.notificationName), object: nil, userInfo: broadcast.userInfo,
         deliverImmediately: true)

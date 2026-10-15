@@ -36,7 +36,7 @@ final class OSDFeedbackPolicyTests: XCTestCase {
         XCTAssertTrue(OSDFeedbackPolicy.externalOnlyDeliversNothing(settings(style: .external)))
         XCTAssertFalse(OSDFeedbackPolicy.externalOnlyDeliversNothing(settings(style: .external, publish: true)))
         XCTAssertFalse(OSDFeedbackPolicy.externalOnlyDeliversNothing(settings(style: .native)))
-        // With the HUD switched off the style isn't in play, so nothing is promised.
-        XCTAssertFalse(OSDFeedbackPolicy.externalOnlyDeliversNothing(settings(osd: false, style: .external)))
+        // External-only still reports dispatch status with basic feedback off (custom is independent).
+        XCTAssertTrue(OSDFeedbackPolicy.externalOnlyDeliversNothing(settings(osd: false, style: .external)))
     }
 }

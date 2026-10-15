@@ -15,11 +15,26 @@ public enum OSDStyle: String, Hashable, Sendable, Codable, CaseIterable {
     case external
 }
 
-/// Where the HUD appears on the target display.
+/// Where the HUD appears. The centred placements and the top corner are on the screen chosen by
+/// `OSDScreenChoice`; under the menu-bar icon is wherever the icon is.
 public enum OSDPosition: String, Hashable, Sendable, Codable, CaseIterable {
     case bottomCenter
     case topCenter
     case center
+    /// Under OpenDisplay's menu-bar icon, on the icon's screen (SO-35). Where macOS isn't showing
+    /// the icon, the top trailing corner of the chosen screen stands in.
+    case underMenuBarIcon
+    case underMenuBar
+    /// The top corner on the reading direction's trailing side: right for left-to-right languages,
+    /// left for right-to-left ones.
+    case topTrailing
+
+    /// Placements by the menu bar, where an open OpenDisplay menu sits: while it is open they give
+    /// way to it (the change itself still happens). The centred placements stay distinct from the
+    /// menu and are never suppressed.
+    public var isMenuBarAnchored: Bool {
+        self == .underMenuBarIcon || self == .underMenuBar || self == .topTrailing
+    }
 }
 
 /// Decides when to show / refresh / hide the OSD HUD (Batch-3 #2). Pure timing logic (exercised by
@@ -76,14 +91,67 @@ public enum OSDFeedbackPolicy {
     /// - Parameter localHUDWanted: whether this change's origin asks for a local confirmation at
     ///   all (key presses do; sliders, which already show their value, don't).
     public static func route(localHUDWanted: Bool, settings: OpenDisplaySettings) -> Route {
-        Route(drawsLocalHUD: localHUDWanted && settings.osdEnabled && settings.osdStyle != .external,
+        route(Context(kind: .brightness, localHUDWanted: localHUDWanted), settings: settings)
+    }
+
+    /// One change as the feedback switches see it (SO-35).
+    public struct Context: Hashable, Sendable {
+        public var kind: OSDContent.Kind
+        /// The changed display's stable record id, for the per-display volume switch; nil when the
+        /// change has no single display.
+        public var displayID: String?
+        /// Whether this change's origin asks for a local confirmation at all.
+        public var localHUDWanted: Bool
+        /// Whether OpenDisplay's menu is open right now.
+        public var menuOpen: Bool
+
+        public init(kind: OSDContent.Kind, displayID: String? = nil, localHUDWanted: Bool, menuOpen: Bool = false) {
+            self.kind = kind
+            self.displayID = displayID
+            self.localHUDWanted = localHUDWanted
+            self.menuOpen = menuOpen
+        }
+    }
+
+    /// The basic switch covers brightness, volume and mute; everything else — today the input
+    /// switch — is custom feedback with its own switch. The two are independent: either can be on
+    /// with the other off.
+    public static func isBasic(_ kind: OSDContent.Kind) -> Bool {
+        switch kind {
+        case .brightness, .volume, .mute: return true
+        case .input: return false
+        }
+    }
+
+    /// Who hears about one change. The event is published whatever happens locally: the per-display
+    /// volume switch, an open menu and the feedback switches only decide OpenDisplay's own HUD.
+    public static func route(_ context: Context, settings: OpenDisplaySettings) -> Route {
+        Route(drawsLocalHUD: drawsLocalHUD(context, settings: settings),
               publishesEvent: settings.publishOSDEventsEnabled)
+    }
+
+    /// A display group's follower write (owner decision #8): published as the follower's own event
+    /// (`OSDBroadcast.Source.groupSync`) whenever events are, and never drawn — the leader's change
+    /// already showed whatever feedback it asked for, and one HUD per follower would stack up.
+    public static func groupFollowerRoute(settings: OpenDisplaySettings) -> Route {
+        route(Context(kind: .brightness, localHUDWanted: false), settings: settings)
+    }
+
+    private static func drawsLocalHUD(_ context: Context, settings: OpenDisplaySettings) -> Bool {
+        guard context.localHUDWanted, settings.osdStyle != .external else { return false }
+        let switchedOn = isBasic(context.kind) ? settings.osdEnabled : settings.osdFeedback.showsCustomFeedback
+        guard switchedOn else { return false }
+        // The per-display volume switch covers mute too: both report that display's sound.
+        if context.kind == .volume || context.kind == .mute, let id = context.displayID,
+           settings.osdFeedback.volumeHiddenDisplayIDs.contains(id) { return false }
+        if context.menuOpen, settings.osdPosition.isMenuBarAnchored { return false }
+        return true
     }
 
     /// True when the feedback settings promise a presentation that nothing delivers (SO-04):
     /// "External HUD only" suppresses OpenDisplay's HUD so an external app can draw instead, but
     /// with broadcasting off no external app receives anything — key presses get no feedback at all.
     public static func externalOnlyDeliversNothing(_ settings: OpenDisplaySettings) -> Bool {
-        settings.osdEnabled && settings.osdStyle == .external && !settings.publishOSDEventsEnabled
+        settings.osdStyle == .external && !settings.publishOSDEventsEnabled
     }
 }

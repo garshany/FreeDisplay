@@ -438,6 +438,8 @@ final class AppModel: ObservableObject {
 
     /// Native-looking OSD HUD for brightness/volume changes (Batch-3 #4).
     private let osdHUD = OSDHUDController()
+    /// Answers receiver apps' OSD settings handshake (IN-16) for the app's lifetime.
+    private var osdHandshake: OSDReceiverHandshakeListener?
     /// Active media-key event tap (Batch-3 #3) when interception is on AND Accessibility is granted.
     private var mediaKeyTap: MediaKeyTap?
     /// Re-arms the media-key tap once the Accessibility grant lands. TCC has no notification API, so
@@ -536,6 +538,15 @@ final class AppModel: ObservableObject {
         observeSleepAndWake()  // re-assert what the user turned off once macOS has woken the desk
         reconcileMediaKeyTap()  // Batch-3 #3: arm the media-key tap if enabled + Accessibility granted
         reconcileXDRPowerAutomation()  // Issue #35: watch power only if an XDR battery rule is armed
+        // SO-35: the interactive HUD's bar goes through the same funnels as the menu's sliders.
+        osdHUD.onAdjust = { [weak self] id, kind, level, bypassSync in
+            self?.adjustFromOSD(id, kind: kind, level: level, bypassSync: bypassSync)
+        }
+        // IN-16: always listening, so a receiver asking while the handshake is off hears "disabled"
+        // rather than nothing; what a request may change is decided by `OSDReceiverHandshake`.
+        osdHandshake = OSDReceiverHandshakeListener { [weak self] incoming in
+            self?.answerOSDHandshake(incoming) ?? .init(result: .disabled)
+        }
         NotificationDelivery.style = settings.notificationStyle  // SO-12: where notices go
         if settings.displayNotificationsEnabled, settings.notificationStyle == .notificationCenter {
             NotificationDelivery.requestAuthorization()  // Batch-2 #5
@@ -2398,7 +2409,13 @@ final class AppModel: ObservableObject {
         if onScreen {
             let source = eventSource ?? (syncToken != nil ? .app : origin == .keys ? .mediaKey : .menu)
             presentOSD(kind: .brightness, value: brightness[id] ?? value, for: observation, source: source,
-                       showsLocalHUD: origin != .slider)
+                       showsLocalHUD: origin != .slider, assurance: Self.osdAssurance(method),
+                       control: Self.osdControl(method))
+        } else if eventSource == .osd {
+            // A gamma guard refusal must not leave the interactive HUD claiming an applied level.
+            osdHUD.noteAdjustment(OSDContent(kind: .brightness, value: brightness[id] ?? value,
+                                             assurance: .notConfirmed),
+                                  display: id, verificationTarget: nil)
         }
         syncGroupBrightness(value, applied: brightness[id], previous: previous, from: observation,
                             token: syncToken, origin: origin, bypass: syncBypass)  // Issue #39
@@ -2587,15 +2604,26 @@ final class AppModel: ObservableObject {
         for follower in fanOut.writes {
             guard let observation = displays.first(where: { $0.recordID == follower.member })
             else { continue }
-            applySilentBrightness(follower.value, for: observation)
+            let write = applySilentBrightness(follower.value, for: observation)
+            // Owner decision #8: each follower's change is published as its own event, once, with
+            // no HUD; a rejected software write that changed nothing on screen is not.
+            if let write, write.onScreen, OSDFeedbackPolicy.groupFollowerRoute(settings: settings).publishesEvent {
+                publishOSDEvent(OSDContent(kind: .brightness, value: brightness[follower.member] ?? follower.value,
+                                           assurance: Self.osdAssurance(write.method)),
+                                for: observation, source: .groupSync, control: Self.osdControl(write.method))
+            }
         }
         groupSyncEcho.end(token)
     }
 
     /// A follower's brightness write: same per-member method resolution the user funnel does
     /// (native DisplayServices, coalesced DDC, or software gamma), with no OSD and no adaptive note.
-    private func applySilentBrightness(_ value: Float, for observation: DisplayObservation) {
-        guard let cgID = observation.cgDisplayID else { return }
+    /// Returns the route used and whether the change can be on screen (a rejected gamma write, with
+    /// gamma the only carrier, changed nothing); nil when the display has no screen to write to.
+    @discardableResult
+    private func applySilentBrightness(_ value: Float, for observation: DisplayObservation)
+        -> (method: BrightnessMethod, onScreen: Bool)? {
+        guard let cgID = observation.cgDisplayID else { return nil }
         let id = observation.recordID
         #if PUBLIC_API_ONLY
         let method = BrightnessMethod.software
@@ -2620,8 +2648,10 @@ final class AppModel: ObservableObject {
             let level = DimmingComposer.softwareBrightnessLevel(requested: value)
             brightness[id] = level
             softwareDim[id] = level
-            applyDim(level: level, id: id, cgID: cgID)
+            let landed = applyDim(level: level, id: id, cgID: cgID)
+            return (method, landed || effectiveDimmingMethod != .gamma)
         }
+        return (method, true)
     }
 
     /// Fans a leader's contrast out to the rest of its group — a flat mirror with no offset learning
@@ -2780,6 +2810,8 @@ final class AppModel: ObservableObject {
                 let outcome = DDCWriteVerification.outcome(
                     target: lastTarget, readback: reading?.current, tolerance: 1)
                 noteWriteVerification(outcome, vcp: vcp, id: id)
+                // TR-17: a HUD still showing this change now says whether the display took it.
+                osdHUD.noteVerification(outcome, maxValue: reading?.max, display: id, kind: .brightness, target: lastTarget)
                 if case .ignored(let actual) = outcome, let reading, reading.max > 0,
                    brightnessMethod[id] == .hardware {
                     brightness[id] = Float(actual) / Float(reading.max)
@@ -3007,7 +3039,8 @@ final class AppModel: ObservableObject {
         }
         // Batch-3 #4 local HUD only when asked; the volume event is published either way (IN-04).
         if control == .volume {
-            presentOSD(kind: .volume, value: value, for: observation, source: eventSource, showsLocalHUD: showsOSD)
+            presentOSD(kind: .volume, value: value, for: observation, source: eventSource, showsLocalHUD: showsOSD,
+                       control: "ddc")
         }
         if control == .contrast, !isGroupSync { syncGroupContrast(value, from: observation) }  // Issue #39
         #endif
@@ -3035,6 +3068,9 @@ final class AppModel: ObservableObject {
                     target: lastTarget, readback: reading?.current, tolerance: 1)
                 noteWriteVerification(outcome, vcp: key.vcp, id: key.id)
                 noteWriteTransport(sent: lastSent, outcome: outcome, vcp: key.vcp, id: key.id)
+                if control == .volume {  // TR-17, as for brightness
+                    osdHUD.noteVerification(outcome, maxValue: reading?.max, display: key.id, kind: .volume, target: lastTarget)
+                }
                 // Snap the slider to where the panel actually is, so it stops showing a level the
                 // monitor isn't at (LG: contrast 40 written, panel stays at 18/70).
                 if case .ignored(let actual) = outcome, let reading, reading.max > 0 {
@@ -6121,29 +6157,117 @@ final class AppModel: ObservableObject {
     /// IN-04): OpenDisplay's own HUD, only when `showsLocalHUD` and the HUD settings allow, and —
     /// when broadcasting is on — the external event for every change, whether or not anything was
     /// drawn here. The single funnel `setBrightness` / `setHardwareControl(.volume)` call.
+    ///
+    /// `assurance` says how far the level is known to be true (TR-17) and `control` what carried it;
+    /// both travel with the event. The feedback switches, the per-display volume switch and an open
+    /// menu only decide the local HUD (SO-35) — the event goes out whatever they say.
     func presentOSD(kind: OSDContent.Kind, value: Float, for observation: DisplayObservation,
-                    source: OSDBroadcast.Source, showsLocalHUD: Bool = true) {
-        let route = OSDFeedbackPolicy.route(localHUDWanted: showsLocalHUD, settings: settings)
-        if route.drawsLocalHUD {
-            osdHUD.present(OSDContent(kind: kind, value: value), cgDisplayID: observation.cgDisplayID,
-                           style: settings.osdStyle, position: settings.osdPosition)
+                    source: OSDBroadcast.Source, showsLocalHUD: Bool = true,
+                    assurance: OSDContent.Assurance = .requested, control: String? = nil) {
+        let content = OSDContent(kind: kind, value: value, assurance: assurance)
+        let verificationTarget: Int?
+        #if !PUBLIC_API_ONLY
+        switch kind {
+        case .brightness: verificationTarget = control == "ddc" ? ddcTarget[observation.recordID] : nil
+        case .volume: verificationTarget = control == "ddc"
+            ? ddcControlTarget[DDCControlKey(id: observation.recordID, vcp: HardwareControl.volume.vcp)] : nil
+        case .mute, .input: verificationTarget = nil
         }
-        if route.publishesEvent {
-            OSDBroadcaster.publish(kind: kind, value: Double(value),
-                                   displayID: observation.recordID.rawValue,
-                                   displayName: displayName(for: observation), source: source.rawValue)
+        #else
+        verificationTarget = nil
+        #endif
+        let route = OSDFeedbackPolicy.route(
+            .init(kind: kind, displayID: observation.recordID.rawValue, localHUDWanted: showsLocalHUD,
+                  menuOpen: osdHUD.environment().menuOpen), settings: settings)
+        if route.drawsLocalHUD {
+            osdHUD.present(content, display: observation.recordID,
+                           affected: observation.cgDisplayID, appearance: osdAppearance,
+                           verificationTarget: verificationTarget, adjustable: osdAdjustable(kind, observation))
+        } else if source == .osd {
+            osdHUD.noteAdjustment(content, display: observation.recordID, verificationTarget: verificationTarget)
+        }
+        if route.publishesEvent { publishOSDEvent(content, for: observation, source: source, control: control) }
+    }
+
+    /// Posts one change's event, with the screen OpenDisplay would draw feedback on as a hint.
+    private func publishOSDEvent(_ content: OSDContent, for observation: DisplayObservation,
+                                 source: OSDBroadcast.Source, control: String?) {
+        OSDBroadcaster.publish(content, displayID: observation.recordID.rawValue,
+                               displayName: displayName(for: observation), source: source.rawValue,
+                               screenID: osdHUD.screenID(for: osdAppearance, affected: observation.cgDisplayID),
+                               control: control)
+    }
+
+    /// The OSD settings as the HUD reads them.
+    private var osdAppearance: OSDHUDAppearance {
+        let feedback = settings.osdFeedback
+        return OSDHUDAppearance(style: settings.osdStyle, position: settings.osdPosition, screen: feedback.screen,
+                                showsValue: feedback.showsValue, segmentedBar: feedback.segmentedBar,
+                                rounded: feedback.rounded, adaptiveBackground: feedback.adaptiveBackground,
+                                shadow: feedback.shadow,
+                                interactive: feedback.interactive,
+                                volumeCompletionSound: feedback.volumeCompletionSound,
+                                step: settings.adjustmentSteps.fraction(fine: false))
+    }
+
+    /// Whether the interactive HUD may adjust this change's display: brightness always (it goes
+    /// through the same funnel as the slider), volume only where DDC volume is confirmed — the
+    /// only sound the bar can set.
+    private func osdAdjustable(_ kind: OSDContent.Kind, _ observation: DisplayObservation) -> Bool {
+        switch kind {
+        case .brightness: return true
+        case .volume: return DDCAudioPolicy.volumeKeysUsable(audioCapability(for: observation))
+        case .mute, .input: return false
         }
     }
 
-    /// Confirms a hotkey-driven input switch with the OSD HUD (todo 4) — the same on-screen
-    /// confirmation brightness/volume changes get, so a KVM-style input jump is never silent. Not
-    /// broadcast: the external/notch HUD schema (Batch-3 #6) only understands the level-based kinds
-    /// today.
+    /// The interactive HUD's bar (SO-35): the menu sliders' funnels, so groups, routes and events
+    /// behave exactly as for a slider. Shift is the one-operation bypass of group sync.
+    private func adjustFromOSD(_ id: DisplayRecordID, kind: OSDContent.Kind, level: Float, bypassSync: Bool) {
+        guard let observation = displays.first(where: { $0.recordID == id && $0.isActive }),
+              osdAdjustable(kind, observation) else { return }
+        switch kind {
+        case .brightness:
+            setBrightness(level, for: observation, origin: .slider, eventSource: .osd, syncBypass: bypassSync)
+        case .volume:
+            setHardwareControl(.volume, level, for: observation, showsOSD: false, eventSource: .osd)
+        case .mute, .input:
+            break
+        }
+    }
+
+    /// TR-17: software dimming is OpenDisplay's own doing; a native or DDC write is a request.
+    private static func osdAssurance(_ method: BrightnessMethod) -> OSDContent.Assurance {
+        method == .software ? .applied : .requested
+    }
+
+    /// The `control` an event names for a brightness route.
+    private static func osdControl(_ method: BrightnessMethod) -> String {
+        switch method {
+        case .native: return "native"
+        case .hardware: return "ddc"
+        case .software: return "software"
+        }
+    }
+
+    /// Where the menu is and whether it is open, for the HUD (SO-35). Set by the app delegate.
+    func setOSDEnvironment(_ provider: @escaping @MainActor () -> OSDHUDEnvironment) {
+        osdHUD.environment = provider
+    }
+
+    /// Confirms a hotkey-driven input switch (todo 4) — the same on-screen confirmation
+    /// brightness/volume changes get, so a KVM-style input jump is never silent. Custom feedback,
+    /// with its own switch (SO-35), and published as an `input` event with the input's name
+    /// (IN-16/T30): sent, not confirmed — nothing reads the input back.
     private func presentInputSwitchOSD(inputName: String, for observation: DisplayObservation) {
-        guard settings.osdEnabled, settings.osdStyle != .external else { return }
-        let content = OSDContent(kind: .input, value: 0, label: inputName)
-        osdHUD.present(content, cgDisplayID: observation.cgDisplayID,
-                       style: settings.osdStyle, position: settings.osdPosition)
+        let content = OSDContent(kind: .input, value: 0, label: inputName, assurance: .requested)
+        let route = OSDFeedbackPolicy.route(
+            .init(kind: .input, displayID: observation.recordID.rawValue, localHUDWanted: true,
+                  menuOpen: osdHUD.environment().menuOpen), settings: settings)
+        if route.drawsLocalHUD {
+            osdHUD.present(content, display: nil, affected: observation.cgDisplayID, appearance: osdAppearance)
+        }
+        if route.publishesEvent { publishOSDEvent(content, for: observation, source: .hotkey, control: "ddc") }
     }
 
     /// Handle a captured media key (Batch-3 #1/#3). Resolves the target display via the pure
@@ -6200,6 +6324,10 @@ final class AppModel: ObservableObject {
         switch muteAction(for: observation) {
         case .discrete(let mute):
             setDiscreteMute(mute, for: observation)
+            // The monitor's own mute changes no level, so it had no feedback at all (SO-35): mute
+            // shows as muted, unmute as the volume it returns to — both requested, not confirmed.
+            presentOSD(kind: mute ? .mute : .volume, value: mute ? 0 : ddcControl(.volume, for: observation) ?? 0,
+                       for: observation, source: eventSource, control: "ddc")
         case .zeroVolume(let level):
             preMuteVolume[id] = level
             setHardwareControl(.volume, 0, for: observation, eventSource: eventSource)
@@ -6491,6 +6619,37 @@ final class AppModel: ObservableObject {
         guard settings.publishOSDEventsEnabled != enabled else { return }
         settings.publishOSDEventsEnabled = enabled
         persistSettings()
+    }
+
+    /// Changes the newer OSD preferences (SO-35, IN-16) and saves them.
+    func updateOSDFeedback(_ change: (inout OSDFeedbackSettings) -> Void) {
+        var feedback = settings.osdFeedback
+        change(&feedback)
+        guard feedback != settings.osdFeedback else { return }
+        settings.osdFeedback = feedback
+        if !feedback.receiverHandshakeEnabled { OSDReceiverHandshake.release(&settings) }
+        persistSettings()
+    }
+
+    /// Gives the feedback settings back from the receiver app holding them (IN-16) — what the
+    /// receiver's own release does, for one that quit or crashed without it.
+    func restoreOSDSettingsFromReceiver() {
+        var updated = settings
+        OSDReceiverHandshake.release(&updated)
+        guard updated != settings else { return }
+        settings = updated
+        persistSettings()
+    }
+
+    /// One handshake request from a receiver app (IN-16).
+    private func answerOSDHandshake(_ incoming: OSDSettingsHandshake.Incoming) -> OSDSettingsHandshake.Response {
+        var updated = settings
+        let response = OSDReceiverHandshake.handle(incoming, settings: &updated)
+        if updated != settings {
+            settings = updated
+            persistSettings()
+        }
+        return response
     }
 
     #if DEBUG

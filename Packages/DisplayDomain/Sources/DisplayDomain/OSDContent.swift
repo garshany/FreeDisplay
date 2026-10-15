@@ -12,6 +12,19 @@ public struct OSDContent: Hashable, Sendable {
         case input
     }
 
+    /// How much the shown level is known to be true (TR-17). A level bar animating to a value says
+    /// nothing about whether the display took it, so the HUD keeps the difference visible.
+    public enum Assurance: String, Hashable, Sendable, Codable {
+        /// OpenDisplay itself carries the change (software dimming): what is shown is what is applied.
+        case applied
+        /// Sent to the display, not read back yet — the normal state of a hardware change.
+        case requested
+        /// The display reported the value afterwards.
+        case verified
+        /// The display answered with another value, or didn't answer: the change is not confirmed.
+        case notConfirmed
+    }
+
     /// Number of segments in the native-style bar.
     public static let segmentCount = 16
 
@@ -21,11 +34,14 @@ public struct OSDContent: Hashable, Sendable {
     /// The text shown in place of the segment bar for `.input` (e.g. "HDMI 2"); nil for every other
     /// kind.
     public var label: String?
+    /// See `Assurance`. Defaults to `.requested`: a caller that can't say otherwise claims nothing.
+    public var assurance: Assurance
 
-    public init(kind: Kind, value: Float, label: String? = nil) {
+    public init(kind: Kind, value: Float, label: String? = nil, assurance: Assurance = .requested) {
         self.kind = kind
         self.value = max(0, min(1, value))
         self.label = label
+        self.assurance = assurance
     }
 
     /// Filled segments (0...16) for the bar, rounded to the nearest segment.

@@ -286,13 +286,17 @@ extension OpenDisplaySettings {
     }
 
     /// These settings with every restore ledger emptied. The ledgers record what a display looked
-    /// like before FaceLight, an evening preset or an app preset changed it; they belong to the
+    /// like before FaceLight, an evening preset or an app preset changed it — and which receiver app
+    /// holds the feedback settings, with the user's own to give back (IN-16); they belong to the
     /// live session on this Mac, so an archive never carries them.
     public func withoutRestoreLedgers() -> OpenDisplaySettings {
         var copy = self
+        // Export the user's preferences, not the temporary receiver overlay.
+        OSDReceiverHandshake.release(&copy)
         copy.faceLightPriorStateByDisplay = [:]
         copy.adaptiveDayPresetByDisplay = [:]
         copy.appPresetPriorStateByDisplay = [:]
+        copy.osdFeedback.receiverClaim = nil
         return copy
     }
 
@@ -304,6 +308,9 @@ extension OpenDisplaySettings {
         copy.faceLightPriorStateByDisplay = live.faceLightPriorStateByDisplay
         copy.adaptiveDayPresetByDisplay = live.adaptiveDayPresetByDisplay
         copy.appPresetPriorStateByDisplay = live.appPresetPriorStateByDisplay
+        // Import is an explicit replacement of feedback preferences too. A receiver's older
+        // snapshot must never undo those newly imported choices on a later release.
+        copy.osdFeedback.receiverClaim = nil
         return copy
     }
 }
