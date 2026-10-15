@@ -85,17 +85,23 @@ struct LuminanceCard: View {
             .padding(.horizontal, 11)
             .padding(.vertical, 8)
         }
-        .task(id: display.recordID) { await readReported() }
+        .task(id: display.cgDisplayID) { await readReported() }
     }
 
     /// The anchors the EDID states. Only reads (the public IORegistry walk the report and the EDID
     /// pane use); a display whose EDID can't be tied to it alone reports nothing.
     private func readReported() async {
         notice = nil
+        reported = ReportedLuminance()
         guard let cgID = display.cgDisplayID else { reported = ReportedLuminance(); return }
         let lookup = await Task.detached(priority: .userInitiated) { EDIDReader.lookup(for: cgID) }.value
+        guard !Task.isCancelled else { return }
         if case .matched(let bytes) = lookup {
-            reported = ReportedLuminance.from(EDIDDecoder.decode(bytes))
+            let decoded = EDIDDecoder.decode(bytes)
+            reported = ReportedLuminance.from(decoded)
+            if !decoded.isStructurallyValid {
+                notice = String(localized: "Reported luminance is unavailable because the EDID has structural errors.")
+            }
         } else {
             reported = ReportedLuminance()
         }
@@ -136,16 +142,9 @@ private struct LuminanceAnchorRow: View {
     @State private var rejected = false
     @FocusState private var focused: Bool
 
-    private static let formatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.usesGroupingSeparator = false
-        formatter.maximumFractionDigits = 4
-        return formatter
-    }()
-
     private var storedText: String {
-        stored.map { Self.formatter.string(from: NSNumber(value: $0.nits)) ?? "\($0.nits)" } ?? ""
+        // An untouched field must not round and overwrite a more precise saved anchor on blur.
+        stored.map { String($0.nits).replacingOccurrences(of: ".", with: Locale.current.decimalSeparator ?? ".") } ?? ""
     }
 
     var body: some View {
@@ -203,8 +202,7 @@ private struct LuminanceAnchorRow: View {
             commit(nil)
             return
         }
-        // The user's own decimal separator first; a plain "." number is accepted in any language.
-        guard let value = Self.formatter.number(from: text)?.doubleValue ?? Double(text) else {
+        guard let value = try? LuminanceAnchorInput.parse(text, locale: .current) else {
             rejected = true
             draft = storedText
             return

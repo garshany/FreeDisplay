@@ -296,7 +296,8 @@ final class EDIDDecoderTests: XCTestCase {
     func testDecodesDisplayID20TypeVIIAndParameters() throws {
         let timing = displayIDTiming(clock: 594_000, preferred: true, h: (3840, 560, 176, 88), v: (2160, 90, 8, 10))
         // Display parameters in 0.1 mm: 6970 × 3920 → 697.0 × 392.0 mm; native 3840 × 2160.
-        let parameters: [UInt8] = [0x21, 0x00, 8, 0x3A, 0x1B, 0x50, 0x0F, 0x00, 0x0F, 0x70, 0x08]
+        let parameters: [UInt8] = [0x21, 0x00, 29, 0x3A, 0x1B, 0x50, 0x0F, 0x00, 0x0F, 0x70, 0x08]
+            + [UInt8](repeating: 0, count: 21)
         let product: [UInt8] = [0x20, 0x00, 12, 0x00, 0x1A, 0x2B, 0x01, 0x00, 0, 0, 0, 0, 0xFF, 24, 0]
         let ext = displayID(version: 0x20, productType: 4, blocks: [product, parameters, [0x22, 0x00, 20] + timing, [0x26, 0x00, 0]])
         let decoded = EDIDDecoder.decode(base(extensions: 1) + ext)
@@ -337,6 +338,42 @@ final class EDIDDecoderTests: XCTestCase {
         XCTAssertEqual(id.tiles.first?.horizontalTiles, 2, "the layout part is still decoded")
         XCTAssertNil(id.tiles.first?.vendor)
         XCTAssertTrue(id.timings.isEmpty)
+    }
+
+    func testDisplayIDParameterPrefixesAreInspectableAndMarkedIncomplete() {
+        for (version, tag, length) in [(UInt8(0x13), UInt8(0x01), 12), (0x20, 0x21, 29)] {
+            let prefix: [UInt8] = [tag, 0, 8, 0x3A, 0x1B, 0x50, 0x0F, 0x00, 0x0F, 0x70, 0x08]
+            let decoded = EDIDDecoder.decode(base(extensions: 1) + displayID(version: version, blocks: [prefix]))
+            XCTAssertTrue(decoded.issues.contains(.displayIDDataBlockMalformed(block: 1, tag: Int(tag))), "expected \(length) bytes")
+            guard case .displayID(let id)? = decoded.extensions.first?.content else { return XCTFail("not DisplayID") }
+            XCTAssertEqual(id.parameters?.nativeWidth, 3840)
+        }
+    }
+
+    func testDisplayIDNegativeZeroLuminanceMeansDoNotUse() {
+        var payload = [UInt8](repeating: 0, count: 29)
+        for offset in [21, 23, 25] { payload[offset + 1] = 0x80 }
+        let decoded = EDIDDecoder.decode(base(extensions: 1) + displayID(version: 0x20, blocks: [[0x21, 0, 29] + payload]))
+        guard case .displayID(let id)? = decoded.extensions.first?.content else { return XCTFail("not DisplayID") }
+        XCTAssertNil(id.parameters?.maxLuminanceFullCoverage)
+        XCTAssertNil(id.parameters?.maxLuminanceTenPercent)
+        XCTAssertNil(id.parameters?.minLuminance)
+    }
+
+    func testDisplayIDTileHighBitsAndInvalidLocation() {
+        // 18 columns, 35 rows; tile column 17, row 34. Topology byte packs counts and locations.
+        let payload: [UInt8] = [0x80, 0x12, 0x12, 0x66, 0xFF, 0x09, 0x3F, 0x0B]
+            + [UInt8](repeating: 0, count: 14)
+        let decoded = EDIDDecoder.decode(base(extensions: 1) + displayID(version: 0x20, blocks: [[0x28, 0, 22] + payload]))
+        guard case .displayID(let id)? = decoded.extensions.first?.content else { return XCTFail("not DisplayID") }
+        XCTAssertEqual(id.tiles.first?.horizontalTiles, 18)
+        XCTAssertEqual(id.tiles.first?.verticalTiles, 35)
+        XCTAssertEqual(id.tiles.first?.column, 17)
+        XCTAssertEqual(id.tiles.first?.row, 34)
+        var invalid = payload
+        invalid[2] = 0xF2
+        let bad = EDIDDecoder.decode(base(extensions: 1) + displayID(version: 0x20, blocks: [[0x28, 0, 22] + invalid]))
+        XCTAssertTrue(bad.issues.contains(.displayIDDataBlockMalformed(block: 1, tag: 0x28)))
     }
 
     func testABadDisplayIDSectionChecksumIsReportedWhileTheBlockStillDecodes() {

@@ -262,6 +262,11 @@ extension EDIDDecoder {
                 if var parameters = displayIDParameters(payload, unitMM: unit) {
                     if tag == 0x21 { displayIDLuminance(payload, into: &parameters) }
                     section.parameters = parameters
+                    // Keep readable prefixes, but a partial parameter block isn't a valid one.
+                    let requiredLength = tag == 0x21 ? 29 : 12
+                    if payload.count != requiredLength {
+                        issues.append(.displayIDDataBlockMalformed(block: block, tag: tag))
+                    }
                 } else {
                     malformed(tag)
                 }
@@ -279,7 +284,9 @@ extension EDIDDecoder {
                 if let tile = displayIDTile(payload, oui: tag == 0x28 || isV2) {
                     section.tiles.append(tile)
                     // 22 bytes carry the topology ID; a shorter block keeps the layout only.
-                    if payload.count < 22 { issues.append(.displayIDDataBlockMalformed(block: block, tag: tag)) }
+                    if payload.count != 22 || tile.column >= tile.horizontalTiles || tile.row >= tile.verticalTiles {
+                        issues.append(.displayIDDataBlockMalformed(block: block, tag: tag))
+                    }
                 } else {
                     malformed(tag)
                 }
@@ -323,7 +330,10 @@ extension EDIDDecoder {
     static func displayIDLuminance(_ p: [UInt8], into parameters: inout EDIDDecoded.DisplayID.Parameters) {
         guard p.count >= 27 else { return }
         func value(_ index: Int) -> Double? {
-            let decoded = halfFloat(UInt16(p[index]) | (UInt16(p[index + 1]) << 8))
+            let bits = UInt16(p[index]) | (UInt16(p[index + 1]) << 8)
+            // DisplayID uses negative zero as "do not use", including for minimum black.
+            guard bits != 0x8000 else { return nil }
+            let decoded = halfFloat(bits)
             return decoded.isFinite && decoded >= 0 ? decoded : nil
         }
         parameters.maxLuminanceFullCoverage = value(21).flatMap { $0 > 0 ? $0 : nil }

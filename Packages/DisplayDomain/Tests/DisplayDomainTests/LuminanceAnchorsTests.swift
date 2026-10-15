@@ -2,6 +2,36 @@ import XCTest
 @testable import DisplayDomain
 
 final class LuminanceAnchorsTests: XCTestCase {
+    func testWholeFieldLuminanceParsingAndLocale() throws {
+        let english = Locale(identifier: "en_US_POSIX"), russian = Locale(identifier: "ru_RU")
+        XCTAssertNil(try LuminanceAnchorInput.parse(" \n", locale: english))
+        XCTAssertEqual(try LuminanceAnchorInput.parse(" 412.1234567 ", locale: english), 412.1234567)
+        XCTAssertEqual(try LuminanceAnchorInput.parse("412,5", locale: russian), 412.5)
+        XCTAssertEqual(try LuminanceAnchorInput.parse("412.5", locale: russian), 412.5)
+        XCTAssertEqual(try LuminanceAnchorInput.parse("-5", locale: russian), -5)
+        XCTAssertEqual(try LuminanceAnchorInput.parse("1e3", locale: english), 1000)
+        for locale in [english, russian] {
+            for invalid in ["300nits", "300 400", "NaN", "inf", "-inf", "1e999", "12.3.4", "1,2,3"] {
+                XCTAssertThrowsError(try LuminanceAnchorInput.parse(invalid, locale: locale), "\(invalid), \(locale)")
+            }
+        }
+    }
+
+    func testCorruptEDIDStaysInspectableButDoesNotSupplyLuminanceAnchors() {
+        let valid = base(extensions: 1) + ctaHDR()
+        XCTAssertFalse(ReportedLuminance.from(EDIDDecoder.decode(valid)).values.isEmpty)
+        var corrupt = valid
+        corrupt[255] ^= 1
+        let decoded = EDIDDecoder.decode(corrupt)
+        XCTAssertFalse(decoded.isStructurallyValid)
+        XCTAssertEqual(decoded.extensions.count, 1, "the inspector can still show acquired bytes")
+        let reported = ReportedLuminance.from(decoded)
+        XCTAssertTrue(reported.values.isEmpty)
+        XCTAssertNil(reported.minimum)
+        XCTAssertFalse(reported.statesHDRTransfer)
+        XCTAssertTrue(ReportedLuminance.from(EDIDDecoder.decode(Array(valid.dropLast()))).values.isEmpty)
+    }
+
     // MARK: Fixtures
 
     private func withChecksum(_ block: [UInt8]) -> [UInt8] {

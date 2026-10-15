@@ -2,6 +2,26 @@
 // Original clean-room implementation for FreeDisplay (SD-13, TR-13, TB-13, FB T20).
 import Foundation
 
+/// Whole-field parsing for luminance edits. NumberFormatter can accept a numeric prefix of an
+/// invalid field; that would silently replace an anchor with a value the user didn't enter.
+public enum LuminanceAnchorInput {
+    public enum InputError: Error, Equatable { case invalidNumber }
+
+    /// Blank clears the override. Accept the caller's decimal separator or a plain dot, with no
+    /// grouping, trailing text or nonfinite values. Negative light is handled by `setting`.
+    public static func parse(_ text: String, locale: Locale) throws(InputError) -> Double? {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        for candidateLocale in [locale, Locale(identifier: "en_US_POSIX")] {
+            let scanner = Scanner(string: text)
+            scanner.locale = candidateLocale
+            scanner.charactersToBeSkipped = nil
+            if let value = scanner.scanDouble(), scanner.isAtEnd, value.isFinite { return value }
+        }
+        throw .invalidNumber
+    }
+}
+
 /// A luminance figure a display can be described by. Each is an anchor for labelling — a value the
 /// user entered or the display's EDID states — never something OpenDisplay measured, and never a
 /// setting the panel receives: changing one changes a label, not the light.
@@ -210,6 +230,9 @@ public struct ReportedLuminance: Hashable, Sendable {
     }
 
     public static func from(_ edid: EDIDDecoded) -> ReportedLuminance {
+        // Invalid bytes remain available to the EDID inspector, but aren't trusted as anchors for
+        // calculated light levels. Acquisition alone doesn't validate their contents.
+        guard edid.isStructurallyValid else { return ReportedLuminance() }
         var reported = ReportedLuminance()
         func offer(_ anchor: LuminanceAnchor, _ nits: Double?, _ source: LuminanceReportSource) {
             guard reported.values[anchor] == nil, let nits, nits.isFinite, nits > 0 else { return }
