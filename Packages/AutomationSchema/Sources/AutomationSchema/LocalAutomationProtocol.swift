@@ -71,6 +71,19 @@ public struct IntegrationHTTPConfiguration: Codable, Equatable, Sendable {
         self.enabled = enabled; self.port = port; self.remoteAccess = remoteAccess
     }
     public var host: String { remoteAccess ? "0.0.0.0" : "127.0.0.1" }
+    public func shouldStart(safeStartup: Bool) -> Bool { enabled && !safeStartup }
+
+    /// Revoking exposure must succeed even while the port editor contains an invalid draft.
+    public func updating(enabled: Bool, port draft: String, remoteAccess: Bool) throws -> Self {
+        let reducingAccess = !enabled || (self.enabled && self.remoteAccess && !remoteAccess)
+        let port: UInt16?
+        do { port = try Self.parsePort(draft) }
+        catch {
+            guard reducingAccess else { throw error }
+            port = self.port
+        }
+        return .init(enabled: enabled, port: port, remoteAccess: remoteAccess)
+    }
     public static func parsePort(_ text: String) throws -> UInt16? {
         if text.isEmpty { return nil }
         guard text.allSatisfy({ $0.isASCII && $0.isNumber }), let port = UInt16(text), port != 0 else {
