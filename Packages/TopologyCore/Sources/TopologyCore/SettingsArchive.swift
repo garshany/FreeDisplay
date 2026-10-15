@@ -27,13 +27,13 @@ public struct ArchivedDefaults: Hashable, Sendable, Codable {
 /// About › Manage App Settings exports, validates on import, writes as a backup before any
 /// replacement, and uses for a reset.
 ///
-/// Covered: the preferences in settings.json, favourite resolutions, the remembered-display
-/// registry (names, tags, pairings), saved scenes and the UserDefaults-held preferences in
-/// `defaults`. Deliberately not covered: the restore ledgers inside settings.json (they describe
+/// Covered: the preferences in settings.json (luminance anchors included), favourite resolutions,
+/// the remembered-display registry (names, tags, pairings), saved scenes, the menu layout
+/// (menu-layout.json) and the UserDefaults-held preferences in `defaults`. Deliberately not covered: the restore ledgers inside settings.json (they describe
 /// a display's state at a moment on one Mac, and replaying them elsewhere would write stale values
 /// to hardware), the list of displays the app is keeping off, checkpoints, logs, the macOS display
-/// configuration, Launch at Login and the interface language. Those stay as they are on import and
-/// on reset.
+/// configuration, Launch at Login, the interface language and the tray's remembered expanded
+/// sections (window state, not configuration). Those stay as they are on import and on reset.
 ///
 /// The file is JSON with a format marker and a version. A newer version is refused rather than
 /// half-read; the `settings` section itself keeps the store's per-key tolerance, so an archive
@@ -53,6 +53,8 @@ public struct SettingsArchive: Hashable, Sendable {
     public var registry: RegistryState
     public var scenes: [Scene]
     public var defaults: ArchivedDefaults
+    /// Menu customisation: item placement, per-display visibility and icons, display order.
+    public var menuLayout: MenuLayoutSettings
 
     /// An archive of the given state. The restore ledgers are always stripped from `settings` —
     /// see the type comment — so no archive this initializer makes can carry them.
@@ -62,7 +64,8 @@ public struct SettingsArchive: Hashable, Sendable {
                 favorites: FavoriteResolutions,
                 registry: RegistryState,
                 scenes: [Scene],
-                defaults: ArchivedDefaults) {
+                defaults: ArchivedDefaults,
+                menuLayout: MenuLayoutSettings = .default) {
         self.version = Self.currentVersion
         self.createdAt = createdAt
         self.appVersion = appVersion
@@ -71,13 +74,14 @@ public struct SettingsArchive: Hashable, Sendable {
         self.registry = registry
         self.scenes = scenes
         self.defaults = defaults
+        self.menuLayout = menuLayout
     }
 
     /// What a reset installs: every covered store back to its first-run state.
     public static func factoryDefaults(createdAt: Date, appVersion: String?) -> SettingsArchive {
         SettingsArchive(createdAt: createdAt, appVersion: appVersion, settings: .default,
                         favorites: FavoriteResolutions(), registry: RegistryState(), scenes: [],
-                        defaults: ArchivedDefaults())
+                        defaults: ArchivedDefaults(), menuLayout: .default)
     }
 
     // MARK: - File format
@@ -123,8 +127,9 @@ public struct SettingsArchive: Hashable, Sendable {
     }
 
     /// Every display the archived preferences are keyed to: per-display brightness routes and DDC
-    /// overrides, learned offsets, app-preset targets, group members, input-switch shortcuts,
-    /// protected layouts and favourite resolutions.
+    /// overrides, learned offsets, luminance anchors, app-preset targets, group members,
+    /// input-switch shortcuts, protected layouts, favourite resolutions and per-display menu
+    /// preferences and order.
     public var referencedDisplayIDs: Set<DisplayRecordID> {
         var ids = Set<DisplayRecordID>()
         ids.formUnion(settings.softwareBrightnessDisplayIDs.map(DisplayRecordID.init(rawValue:)))
@@ -139,6 +144,9 @@ public struct SettingsArchive: Hashable, Sendable {
             ids.formUnion(LayoutProtectionPolicy.members(of: layout))
         }
         ids.formUnion(favorites.displayIDs)
+        ids.formUnion(settings.luminanceAnchorsByDisplay.keys.map(DisplayRecordID.init(rawValue:)))
+        ids.formUnion(menuLayout.displays.keys.map(DisplayRecordID.init(rawValue:)))
+        ids.formUnion(menuLayout.displayOrder.map(DisplayRecordID.init(rawValue:)))
         return ids
     }
 
@@ -180,7 +188,7 @@ public enum SettingsArchiveError: Error, Hashable, Sendable {
 
 extension SettingsArchive: Codable {
     private enum CodingKeys: String, CodingKey {
-        case format, version, createdAt, appVersion, settings, favorites, registry, scenes, defaults
+        case format, version, createdAt, appVersion, settings, favorites, registry, scenes, defaults, menuLayout
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -194,6 +202,7 @@ extension SettingsArchive: Codable {
         try container.encode(registry, forKey: .registry)
         try container.encode(scenes, forKey: .scenes)
         try container.encode(defaults, forKey: .defaults)
+        try container.encode(menuLayout, forKey: .menuLayout)
     }
 
     /// Checks the marker and version before touching any section, then decodes each section with
@@ -234,6 +243,12 @@ extension SettingsArchive: Codable {
         defaults = try Self.section(.defaults, in: container) {
             try $0.decodeIfPresent(ArchivedDefaults.self, forKey: .defaults)
         } ?? ArchivedDefaults()
+        // Archives written before the menu layout was archived don't carry it; like a missing
+        // `defaults`, an absent section installs the first-run layout — import replaces, it
+        // doesn't merge.
+        menuLayout = try Self.section(.menuLayout, in: container) {
+            try $0.decodeIfPresent(MenuLayoutSettings.self, forKey: .menuLayout)
+        } ?? .default
     }
 
     private static func section<T>(_ key: CodingKeys, in container: KeyedDecodingContainer<CodingKeys>,
@@ -272,6 +287,10 @@ extension OpenDisplaySettings {
         if !Self.isLevel(adaptiveFallbackDayLevel) { return "adaptiveFallbackDayLevel" }
         if !Self.isLevel(adaptiveFallbackNightLevel) { return "adaptiveFallbackNightLevel" }
         if let percent = xdrLowBatteryCutoffPercent, !(0...100).contains(percent) { return "xdrLowBatteryCutoffPercent" }
+        // Luminance is a non-negative number of cd/m²; an entry outside that names no light.
+        if luminanceAnchorsByDisplay.values.contains(where: { $0.unusableAnchor != nil }) {
+            return "luminanceAnchorsByDisplay"
+        }
         return nil
     }
 

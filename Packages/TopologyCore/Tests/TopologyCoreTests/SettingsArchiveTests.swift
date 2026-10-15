@@ -507,4 +507,77 @@ final class SettingsArchiveTests: XCTestCase {
         XCTAssertTrue(defaults.referencedDisplayIDs.isEmpty)
         XCTAssertEqual(defaults.defaults, ArchivedDefaults())
     }
+
+    // MARK: - Menu layout and luminance anchors (FD-054 / FD-046)
+
+    private let side = DisplayRecordID.forCGUUID("SIDE-UUID")
+
+    private func layout() -> MenuLayoutSettings {
+        var layout = MenuLayoutSettings(placements: [MenuItemFamily.brightness.rawValue: .expanded],
+                                        displayOrder: [travel.rawValue, desk.rawValue], mainDisplayFirst: true)
+        layout.setHidden(true, for: [side])
+        layout.setIconSymbol("tv", for: [desk])
+        return layout
+    }
+
+    private func anchoredSettings() throws -> OpenDisplaySettings {
+        var settings = richSettings()
+        var anchors = try LuminanceAnchorSettings().setting(.sdrMaximum, nits: 320, basis: .userMeasurement).settings
+        anchors.manualValuesEnabled = false
+        settings.luminanceAnchorsByDisplay = [side.rawValue: anchors]
+        return settings
+    }
+
+    func testMenuLayoutAndLuminanceAnchorsRoundTrip() throws {
+        var original = archive(settings: try anchoredSettings())
+        original.menuLayout = layout()
+        let decoded = try SettingsArchive.decode(original.encoded())
+        XCTAssertEqual(decoded, original)
+        XCTAssertEqual(decoded.menuLayout.isHidden(side), true)
+        XCTAssertEqual(decoded.menuLayout.displayOrder, [travel.rawValue, desk.rawValue])
+        let anchors = try XCTUnwrap(decoded.settings.luminanceAnchorsByDisplay[side.rawValue])
+        XCTAssertFalse(anchors.manualValuesEnabled, "switched-off values stay switched off")
+        XCTAssertEqual(anchors.overrides[.sdrMaximum], ManualLuminance(nits: 320, basis: .userMeasurement))
+    }
+
+    func testAnArchiveFromBeforeTheMenuLayoutInstallsTheFirstRunLayout() throws {
+        var object = try archiveObject()
+        XCTAssertNotNil(object["menuLayout"], "exports carry the menu layout")
+        object["menuLayout"] = nil
+        XCTAssertEqual(try SettingsArchive.decode(json(object)).menuLayout, .default)
+        object["menuLayout"] = "not a layout"
+        XCTAssertThrowsError(try SettingsArchive.decode(json(object))) {
+            XCTAssertEqual($0 as? SettingsArchiveError, .damaged(section: "menuLayout"))
+        }
+    }
+
+    func testAnUnusableLuminanceValueIsRefused() throws {
+        let data = try archive(setting: "luminanceAnchorsByDisplay",
+                               [side.rawValue: ["manualValuesEnabled": true, "overrides": ["sdrMinimum": ["nits": -1]]]])
+        XCTAssertThrowsError(try SettingsArchive.decode(data)) {
+            XCTAssertEqual($0 as? SettingsArchiveError, .invalidValue(section: "settings", item: "luminanceAnchorsByDisplay"))
+        }
+        let zero = try archive(setting: "luminanceAnchorsByDisplay",
+                               [side.rawValue: ["overrides": ["sdrMinimum": ["nits": 0]]]])
+        XCTAssertEqual(try SettingsArchive.decode(zero).settings.luminanceAnchorsByDisplay[side.rawValue]?.overrides[.sdrMinimum]?.nits, 0)
+    }
+
+    func testMenuAndLuminancePreferencesCountAsDisplayReferences() throws {
+        let other = DisplayRecordID.forCGUUID("ORDER-ONLY")
+        var layoutOnly = MenuLayoutSettings(displayOrder: [other.rawValue])
+        layoutOnly.setHidden(true, for: [side])
+        let viaLayout = SettingsArchive(createdAt: now, appVersion: nil, settings: .default, favorites: FavoriteResolutions(),
+                                        registry: RegistryState(), scenes: [], defaults: ArchivedDefaults(),
+                                        menuLayout: layoutOnly)
+        XCTAssertEqual(viaLayout.referencedDisplayIDs, [side, other])
+        var settings = OpenDisplaySettings.default
+        settings.luminanceAnchorsByDisplay = [side.rawValue: try LuminanceAnchorSettings().setting(.sdrMaximum, nits: 300).settings]
+        let viaAnchors = SettingsArchive(createdAt: now, appVersion: nil, settings: settings, favorites: FavoriteResolutions(),
+                                         registry: RegistryState(), scenes: [], defaults: ArchivedDefaults())
+        XCTAssertEqual(viaAnchors.unmatchedDisplays(known: []).map(\.id), [side])
+    }
+
+    func testFactoryDefaultsResetTheMenuLayoutToo() {
+        XCTAssertEqual(SettingsArchive.factoryDefaults(createdAt: now, appVersion: "1").menuLayout, .default)
+    }
 }
