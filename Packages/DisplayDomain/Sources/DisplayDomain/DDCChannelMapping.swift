@@ -113,10 +113,12 @@ public enum DDCChannelMappingPolicy {
     /// target included; `otherMappings` are the pairings of the other connected displays.
     public static func resolve(channels: [DDCChannel], target: DDCServiceMatcher.Target,
                                externals: [DDCServiceMatcher.Target], displayID: DisplayRecordID,
-                               mapping: DDCChannelMapping?, otherMappings: [DDCChannelMapping])
+                               mapping: DDCChannelMapping?, otherMappings: [DDCChannelMapping],
+                               unobservedExternalCount: Int = 0)
         -> (resolution: DDCServiceMatcher.Resolution, status: Status?) {
         let attributes = channels.map(\.attributes)
-        let automatic = DDCServiceMatcher.resolve(attributes, against: target, among: externals)
+        let automatic = DDCServiceMatcher.resolve(attributes, against: target, among: externals,
+                                                  unobservedExternalCount: unobservedExternalCount)
         guard let mapping else { return (automatic, nil) }
         let validation = validate(mapping, displayID: displayID, target: target, channels: channels,
                                   externals: externals, otherMappings: otherMappings)

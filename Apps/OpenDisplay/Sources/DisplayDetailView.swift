@@ -584,7 +584,8 @@ struct AppearanceCard: View {
                         }
                     }
                 }
-                if model.ddcWriteWasIgnored(0x14, for: display), let current = model.colorPreset[display.recordID] {
+                if model.ddcWriteDidFail(0x14, for: display) { secondaryNote(DDCStatusText.writeFailed) }
+                else if model.ddcWriteWasIgnored(0x14, for: display), let current = model.colorPreset[display.recordID] {
                     secondaryNote(String(localized: "The monitor stayed on \(model.presetName(current))."))
                 }
                 if detectFoundNothing {
@@ -706,7 +707,8 @@ struct ControlsCard: View {
             Text("Turn this on if DDC values change but the picture doesn’t. Software brightness uses the dimming method selected below.")
                 .font(.caption).foregroundStyle(.secondary)
             #endif
-            if model.ddcWriteWasIgnored(0x10, for: display) { ignoredCaption(Self.ignoredNote) }
+            if model.ddcWriteDidFail(0x10, for: display) { ignoredCaption(DDCStatusText.writeFailed) }
+            else if model.ddcWriteWasIgnored(0x10, for: display) { ignoredCaption(Self.ignoredNote) }
             ODDivider()
             let controls = HardwareControl.allCases.filter { model.ddcControl($0, for: display) != nil }
             #if !PUBLIC_API_ONLY
@@ -887,7 +889,7 @@ struct DimmingCard: View {
     /// of full black by the composer). The method in force decides — the overlay while the
     /// custom-profile safeguard pauses gamma.
     private var range: ClosedRange<Double> {
-        model.effectiveDimmingMethod == .gamma ? Double(DimmingComposer.gammaFloor)...1 : 0...1
+        model.effectiveDimmingMethod(for: display.recordID) == .gamma ? Double(DimmingComposer.gammaFloor)...1 : 0...1
     }
 
     private var footnote: String {
@@ -927,13 +929,13 @@ struct DimmingCard: View {
                 Text(issue).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             // The safeguard's override, offered only where it matters: a custom profile is assigned
-            // somewhere, or the override is already on and should stay visible to be undone.
-            if !model.customProfileDisplays.isEmpty || model.settings.allowGammaWithCustomProfiles {
+            // on this display, or the override is already on and should stay visible to be undone.
+            if model.customProfileDisplays.contains(display.recordID) || model.settings.allowGammaWithCustomProfiles {
                 Toggle(isOn: Binding(get: { model.settings.allowGammaWithCustomProfiles },
                                      set: { model.setAllowGammaWithCustomProfiles($0) })) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Allow gamma with custom colour profiles")
-                        Text("Applies to all displays. Custom ICC profiles combined with gamma changes can leave a screen black or tinted; if that happens, turn this off or choose a factory profile.")
+                        Text("Allows gamma on displays with custom ICC profiles. Combining a custom profile with gamma changes can leave that display black or tinted; if that happens, turn this off or choose a factory profile.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -954,7 +956,10 @@ struct UseAsCard: View {
                 Toggle("", isOn: Binding(get: { display.isMain },
                                          set: { on in if on { Task { await model.setMain(for: display) } } }))
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
-                    .disabled(display.isMain || model.busy)
+                    .disabled(display.isMain || model.busy || model.displayConfigurationBusy)
+            }
+            if let error = model.modeChangeError {
+                Text(error).font(.caption).foregroundStyle(ODColor.caution)
             }
             if !display.isMain {
                 ODDivider()

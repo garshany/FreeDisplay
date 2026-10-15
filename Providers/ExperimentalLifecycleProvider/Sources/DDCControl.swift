@@ -1,8 +1,10 @@
 #if os(macOS)
+import ColorSync
 import CoreGraphics
 import DisplayDomain
 import Foundation
 import IOKit
+import TopologyCore
 
 /// DDC/CI control of an external display over its private `IOAVService` I2C channel (Apple Silicon).
 /// VCP feature codes follow the DDC/CI + MCCS spec: 0x10 brightness, 0x12 contrast, 0x62 audio
@@ -278,11 +280,13 @@ public actor ExternalDisplayDDC {
         let services = externalServices()
         guard !services.isEmpty else { return (.none, nil) }
         let index: Int
+        let online = externalDisplayIDs()
         let resolved = DDCChannelMappingPolicy.resolve(
             channels: services.map(\.channel), target: identity(of: displayID),
-            externals: externalDisplayIDs().map(identity(of:)),
+            externals: online.map(identity(of:)),
             displayID: recordID ?? DisplayRecordID(rawValue: ""),
-            mapping: recordID == nil ? nil : pairing, otherMappings: otherPairings)
+            mapping: recordID == nil ? nil : pairing, otherMappings: otherPairings,
+            unobservedExternalCount: unobservedExternalCount(online: online))
         switch resolved.resolution {
         case .matched(let found), .sole(let found): index = found
         case .refused(let reason):
@@ -345,6 +349,23 @@ public actor ExternalDisplayDDC {
         return zip(externals, candidates).map { service, attributes in
             (service, DDCChannel(path: registryPath(of: service), attributes: attributes))
         }
+    }
+
+    /// Managed-offline monitors missing from the online enumeration: their services still exist, so a
+    /// "sole" automatic match must not claim one of them (owner decision #29).
+    private static func unobservedExternalCount(online: [CGDirectDisplayID]) -> Int {
+        let observations = online.map { number in
+            let uuid: String?
+            if let value = CGDisplayCreateUUIDFromDisplayID(number)?.takeRetainedValue() {
+                uuid = CFUUIDCreateString(kCFAllocatorDefault, value) as String
+            } else { uuid = nil }
+            return DisplayObservation(recordID: uuid.map(DisplayRecordID.forCGUUID)
+                                        ?? DisplayRecordID(rawValue: "cgid:\(number)"),
+                                      cgDisplayID: number, cgUUID: uuid, isActive: CGDisplayIsActive(number) != 0,
+                                      generation: .initial)
+        }
+        let ledger = (try? ManagedOfflineStore.defaultDirectory()).map { ManagedOfflineStore(directory: $0).load() } ?? []
+        return DDCBindingPopulation.unobservedExternalCount(observations: observations, ledger: ledger)
     }
 
     /// The service-plane path of a registry entry, or "" when IOKit can't report one.

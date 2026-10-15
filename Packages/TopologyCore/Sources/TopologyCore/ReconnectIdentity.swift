@@ -114,6 +114,38 @@ public enum ReconnectIdentity {
         return nil
     }
 
+    /// Checkpoints outlive CG display numbers. Rescue requires positive UUID evidence even when
+    /// the disabled screen is absent from enumeration; absence of a contradiction alone is unsafe.
+    public static func recoveryTarget(for observation: DisplayObservation,
+                                      ledger: [ManagedOfflineDisplay],
+                                      numberForUUID: (String) -> UInt32?,
+                                      uuidForNumber: (UInt32) -> String?) throws -> DisplayRecordID {
+        guard let uuid = persistentUUID(of: observation), !uuid.isEmpty else {
+            throw RecoveryRefusal.identityUnconfirmed(observation.recordID)
+        }
+        if let recordUUID = observation.recordID.cgUUID, !sameUUID(recordUUID, uuid) {
+            throw RecoveryRefusal.identityUnconfirmed(observation.recordID)
+        }
+        let number = numberForUUID(uuid) ?? observation.cgDisplayID
+        guard let number, number != 0, let resolved = uuidForNumber(number), sameUUID(uuid, resolved) else {
+            throw RecoveryRefusal.identityUnconfirmed(observation.recordID)
+        }
+        let entry = ManagedOfflineDisplay(recordID: .forCGUUID(uuid), cgID: number,
+                                          name: observation.recordID.rawValue, displayClass: observation.displayClass)
+        return try reconnectTarget(for: entry, observations: [], ledger: ledger, uuidForNumber: uuidForNumber)
+    }
+
+    public enum RecoveryRefusal: Error, Sendable, CustomStringConvertible {
+        case identityUnconfirmed(DisplayRecordID)
+
+        public var description: String {
+            switch self {
+            case .identityUnconfirmed(let id):
+                return "Cannot confirm the persistent identity of \(id.rawValue); recovery refused."
+            }
+        }
+    }
+
     /// An observation's persistent identity: the UUID it carries, or the one inside its `cg:` id.
     static func persistentUUID(of observation: DisplayObservation) -> String? {
         observation.cgUUID ?? observation.recordID.cgUUID

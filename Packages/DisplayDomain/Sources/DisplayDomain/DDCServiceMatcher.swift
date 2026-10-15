@@ -132,6 +132,8 @@ public enum DDCServiceMatcher {
     ///
     /// - `externals`: the CG identities of every external display that could own a service,
     ///   including `target` itself (OpenDisplay's own virtual screens excluded by the caller).
+    /// - `unobservedExternalCount`: managed-offline monitors missing from that enumeration. They
+    ///   still own services, so even one rules out a one-service/one-display fallback.
     ///
     /// A candidate that contradicts `target` (`contradicts`) is out before anything is scored. Among
     /// the rest, a unique highest positive score wins — and only if the assignment is exclusive: no
@@ -143,7 +145,7 @@ public enum DDCServiceMatcher {
     /// setup — exactly one service and exactly one external — where the service can't belong to
     /// anything else, unless its identity says it does.
     public static func resolve(_ candidates: [Candidate?], against target: Target,
-                               among externals: [Target]) -> Resolution {
+                               among externals: [Target], unobservedExternalCount: Int = 0) -> Resolution {
         guard !candidates.isEmpty else { return .none }
         let scores = candidates.map { compatibleScore($0, against: target) }
         let best = scores.compactMap { $0 }.max() ?? 0
@@ -160,7 +162,7 @@ public enum DDCServiceMatcher {
             }
             return contested ? .refused(.ambiguousIdentity) : .matched(index: winners[0])
         }
-        if candidates.count == 1, externals.count <= 1 {
+        if candidates.count == 1, externals.count <= 1, unobservedExternalCount == 0 {
             return scores[0] == nil ? .refused(.contradictingIdentity) : .sole(index: 0)
         }
         return .refused(.unidentified)

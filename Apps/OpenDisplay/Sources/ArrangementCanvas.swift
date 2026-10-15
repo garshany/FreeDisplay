@@ -319,7 +319,8 @@ struct ArrangementRevertBanner: View {
         if let pending = model.pendingRevert {
             VStack(alignment: .leading, spacing: 6) {
                 ODInlineBanner(tone: .orange, systemImage: "clock.arrow.circlepath",
-                               title: pending.kind == .arrangement
+                               title: pending.kind == .mainDisplay ? String(localized: "Keep the new main display?")
+                                   : pending.kind == .arrangement
                                    ? String(localized: "Keep the new arrangement?")
                                    : String(localized: "Keep these display settings?"),
                                message: String(localized: "\(pending.message). Reverting in \(pending.secondsRemaining)s…"))

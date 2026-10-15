@@ -142,6 +142,21 @@ final class DDCChannelMappingTests: XCTestCase {
         XCTAssertEqual(DDCChannelMappingPolicy.saving(moved, into: existing), [moved])
     }
 
+    /// Owner decision #29: a monitor FreeDisplay switched off still owns a service, so the lone
+    /// remaining channel is not "sole" for the lone online monitor — the count reaches the matcher.
+    func testSwitchedOffMonitorsReachTheAutomaticMatcher() {
+        let lone = [DDCChannel(path: "IOService:/dcpext0/DCPAVServiceProxy", attributes: nil)]
+        let free = DDCChannelMappingPolicy.resolve(channels: lone, target: twin, externals: [twin],
+                                                   displayID: left, mapping: nil, otherMappings: [])
+        XCTAssertEqual(free.resolution, DDCServiceMatcher.resolve([nil], against: twin, among: [twin]))
+        let withOffline = DDCChannelMappingPolicy.resolve(channels: lone, target: twin, externals: [twin],
+                                                          displayID: left, mapping: nil, otherMappings: [],
+                                                          unobservedExternalCount: 1)
+        XCTAssertEqual(withOffline.resolution,
+                       DDCServiceMatcher.resolve([nil], against: twin, among: [twin], unobservedExternalCount: 1))
+        XCTAssertNotEqual(withOffline.resolution, free.resolution)
+    }
+
     func testAPairingRoundTrips() throws {
         let saved = pairing(left, 1)
         let decoded = try JSONDecoder().decode(DDCChannelMapping.self, from: JSONEncoder().encode(saved))
