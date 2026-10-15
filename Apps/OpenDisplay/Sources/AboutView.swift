@@ -109,7 +109,7 @@ struct AboutView: View {
 /// "A fork of OpenDisplay by aquitaine" — the upstream credit both About surfaces carry.
 struct ForkAttributionText: View {
     var body: some View {
-        Text("Free, open-source display control for macOS. A fork of OpenDisplay by aquitaine; the app is still named OpenDisplay.app.")
+        Text("Free, open-source display control for macOS. FreeDisplay.app is a fork of OpenDisplay by aquitaine.")
     }
 }
 

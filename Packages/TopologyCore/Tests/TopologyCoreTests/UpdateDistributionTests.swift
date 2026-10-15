@@ -112,7 +112,7 @@ final class ProjectIdentityTests: XCTestCase {
         Built: 1970-01-01T00:00:00Z
         macOS: Version 15.0 (Build 24A335)
         Architecture: arm64
-        Bundle: dev.opendisplay.app (OpenDisplay.app)
+        Bundle: dev.opendisplay.app (FreeDisplay.app)
         Source: https://github.com/garshany/FreeDisplay
         Based on: OpenDisplay by aquitaine, GPL-3.0
         """)

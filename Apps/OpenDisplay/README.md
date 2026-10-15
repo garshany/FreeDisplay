@@ -1,16 +1,9 @@
-# OpenDisplay (app)
+# FreeDisplay (app)
 
-**macOS app target** (SwiftUI + AppKit). The menu-bar popover (primary surface) and the
-settings window, built from `Packages/OpenDisplayDesignSystem`. Hosts the dependency
-composition root: `DisplayRegistry`, `TopologyCoordinator`, providers, stores, and the
-`RecoveryService` (Reconnect All + global hotkey).
+The macOS SwiftUI/AppKit menu-bar app composes the shared Packages logic with the real
+platform providers. Its internal target/scheme remains `OpenDisplay`; the built product is
+`FreeDisplay.app`. Public-only builds use the `OpenDisplay-PublicAPIOnly` scheme.
 
-Surfaces (PRD §8.1): menu-bar root, topology workspace, display detail, scenes, automation,
-health & recovery, Labs. The UI consumes immutable snapshots and submits commands through the
-command gateway — it never mutates domain state directly.
-
-Milestone: **M1 (menu-bar + connect/disconnect) → M3 (Core 1.0)**.
-
-> Scaffolded: run `make xcode` to generate the project, then build/run the `OpenDisplay`
-> scheme. The app currently runs against `SimulatedDisplaySystem`; real providers land in M0.
-> Sources: `Apps/OpenDisplay/Sources` (`OpenDisplayApp`, `AppModel`, `MenuBarView`, `SettingsView`).
+Generate the local project with `xcodegen generate --spec project.local.yml`. See the
+[FreeDisplay help](../../Docs/FreeDisplay-Help.md) for actual controls, capability boundaries,
+verification and undo. Builds/tests do not certify hardware or distribution signatures.

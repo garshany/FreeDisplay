@@ -170,7 +170,7 @@ published, and so is each group follower's write, as its own `groupSync` event f
 Not published: brightness changes made outside FreeDisplay (macOS keys, System Settings,
 auto-brightness) — nothing observes those generally.
 
-`brightness` events require **Broadcast OSD events** enabled in OpenDisplay's Settings (default
+`brightness` events require **Broadcast OSD events** enabled in FreeDisplay's Settings (default
 off) — `listen` prints a one-time note to stderr on startup when it's off, so brightness stays
 silent but visibly explained rather than silently empty. `config` events need no setting; they come
 from the same `CGDisplayRegisterReconfigurationCallback` source the app itself watches.
@@ -216,7 +216,7 @@ app fans out with — including the precedence ladder, so a member FaceLight or 
 currently holding is skipped rather than overwritten. Absent and skipped members are listed by name.
 
 A display belongs to at most one group — `group add` moves it out of whichever group held it and
-says so. Groups live in the app's `settings.json`, so a group mutation made while OpenDisplay is
+says so. Groups live in the app's `settings.json`, so a group mutation made while FreeDisplay is
 running is overwritten the next time the app saves its settings: quit the app first, or make the
 change in Settings → Displays → Groups.
 

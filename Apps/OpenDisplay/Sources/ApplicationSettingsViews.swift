@@ -431,7 +431,7 @@ struct ManageAppSettingsSheet: View {
         panel.allowedContentTypes = [.json]
         panel.canCreateDirectories = true
         let day = Date().formatted(.iso8601.year().month().day())
-        panel.nameFieldStringValue = String(localized: "OpenDisplay Settings \(day).json")
+        panel.nameFieldStringValue = String(localized: "FreeDisplay Settings \(day).json")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         working = true
         Task {

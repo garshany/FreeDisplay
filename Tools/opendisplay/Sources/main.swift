@@ -1755,7 +1755,7 @@ func runLayout() async {
         }
         if change == .protect && !store.load().layoutProtectionEnabled {
             print("note: turn on \u{201C}Put my arrangement back when it changes\u{201D} in "
-                  + "OpenDisplay \u{2192} Arrange for it to be restored automatically")
+                  + "FreeDisplay \u{2192} Arrange for it to be restored automatically")
         }
     case "status":
         await runLayoutStatus(store: store)
@@ -2030,7 +2030,7 @@ func warnIfBrightnessEventsAreOff() {
     let settingsStore = (try? SettingsStore.defaultDirectory()).map(SettingsStore.init(directory:))
     guard settingsStore?.load().publishOSDEventsEnabled != true else { return }
     FileHandle.standardError.write(Data(
-        "note: brightness events need \"Broadcast OSD events\" on in OpenDisplay settings\n".utf8))
+        "note: brightness events need \"Broadcast OSD events\" on in FreeDisplay settings\n".utf8))
 }
 
 /// Streams brightness + config-change events as line-delimited JSON until Ctrl-C. Line-buffered

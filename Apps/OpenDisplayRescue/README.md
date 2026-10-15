@@ -1,14 +1,8 @@
-# OpenDisplay Rescue
+# FreeDisplay Rescue
 
-**macOS target — independent, minimal-dependency, signed/notarized.** A standalone rescue
-app + CLI that can reconnect managed-offline displays, disable auto-apply policies, restore a
-checkpoint, and launch safe mode **even when the main app is corrupt, crashed, or displayed on
-the very screen being removed** (PRD LIF-011, DIA-010, D-004).
+The independent macOS recovery app uses the persisted managed-offline records and shared
+identity/safety logic. Its internal target/scheme remains `OpenDisplayRescue`.
 
-Reads the rescue-readable `CheckpointStore` format directly. Its safety/restore logic reuses
-`Packages/DisplayDomain` + `Packages/TopologyCore` and the `LifecycleProvider.recover(to:)`
-contract. Rescue work always preempts ordinary queued operations.
-
-Milestone: **M0 (proof) → M2 (shipped)**.
-
-> Stub — Xcode target added on macOS. Process topology / IPC auth is open question Q-003.
+See [stranded-display recovery](../../Docs/Recovering-a-stranded-display.md) for the recovery
+workflow. A successful build is separate from a signed/notarized distribution or a physically
+verified reconnect. Release signing and packaging are owned by the parent release process.

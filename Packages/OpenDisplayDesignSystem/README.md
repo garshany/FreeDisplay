@@ -1,6 +1,6 @@
 # OpenDisplayDesignSystem
 
-The SwiftUI port of the OpenDisplay design kit. **macOS target** (Xcode), built in M0–M1.
+The SwiftUI design system used by FreeDisplay. **macOS target** (Xcode), built in M0–M1.
 
 The original web design system (tokens, components, screens, icon inventory, and the screen
 & icon plan) is preserved verbatim under [`reference/`](reference/) as the **source of

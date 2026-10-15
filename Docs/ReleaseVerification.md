@@ -6,10 +6,13 @@ key are not FreeDisplay's. There is no validated FreeDisplay Developer ID/Team I
 branch. Until the owner publishes them with a validated release, use the source-build instructions
 and do not treat an ad-hoc development signature as release authentication.
 
-The prepared package format is `OpenDisplay.zip` containing `OpenDisplay.app`; compatibility keeps
-that bundle name, bundle IDs, settings locations and `opendisplay` CLI. A renamed icon is not proof
-of the publisher. Use the exact checksum and full expected Developer ID authority/Team ID published
-by the fork owner for the exact release asset. Never copy BetterDisplay's or upstream's identity.
+The built product is `FreeDisplay.app`. Archive names and final packaging belong to the parent
+release process; an existing `OpenDisplay.zip` name may remain. Confirm its actual contents against
+the release announcement rather than inferring the bundle from the archive filename. Internal
+bundle IDs, settings locations, executable and `opendisplay` CLI retain compatibility identities.
+A renamed icon is not proof of the publisher. Use the exact checksum and full expected Developer ID
+authority/Team ID published by the fork owner for the exact release asset. Never copy BetterDisplay's
+or upstream's identity. Publisher gates are in [Release checks](FreeDisplay-Release-Checks.md).
 
 For an owner-validated release (commands are for the recipient; not run by this branch's agent):
 
@@ -17,10 +20,10 @@ For an owner-validated release (commands are for the recipient; not run by this 
 # In the directory holding the downloaded zip and its trusted release checksum:
 shasum -a 256 -c OpenDisplay.zip.sha256
 # After extracting the app, with the path adjusted to its actual location:
-codesign --verify --deep --strict --verbose=2 /path/to/OpenDisplay.app
-codesign -dvv /path/to/OpenDisplay.app
-xcrun stapler validate /path/to/OpenDisplay.app
-syspolicy_check distribution /path/to/OpenDisplay.app
+codesign --verify --deep --strict --verbose=2 /path/to/FreeDisplay.app
+codesign -dvv /path/to/FreeDisplay.app
+xcrun stapler validate /path/to/FreeDisplay.app
+syspolicy_check distribution /path/to/FreeDisplay.app
 ```
 
 Compare **all 64** hex digest characters, `Authority` and `TeamIdentifier` against a separately trusted
@@ -29,7 +32,7 @@ not publisher authentication. A valid signature by an unexpected identity is sti
 Modified bundles must fail signature verification. The release publisher must also check nested code
 and supported architectures; ordinary `codesign` success alone does not prove a release is notarized.
 
-On systems without `syspolicy_check`, use `spctl -a -t exec -vvv /path/to/OpenDisplay.app` instead.
+On systems without `syspolicy_check`, use `spctl -a -t exec -vvv /path/to/FreeDisplay.app` instead.
 File-not-found, folder-access failure and Apple-service/network failure are different from a confirmed
 signature mismatch; retain the exact error and retry from the trusted origin. Do not disable
 Gatekeeper or remove quarantine as a troubleshooting shortcut.

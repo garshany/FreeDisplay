@@ -4,13 +4,12 @@ import Foundation
 /// is built on and credits, and the license. Both About surfaces, the copied build report and the
 /// docs state the same facts from here.
 ///
-/// The product is FreeDisplay. The app bundle, executable, CLI and URL scheme keep the upstream
-/// name (OpenDisplay.app, `opendisplay`, `opendisplay://`) so existing installs, scripts and
-/// permissions keep working; the identity says so rather than pretending otherwise.
+/// The built product is FreeDisplay.app. Internal executable, CLI, URL scheme and storage
+/// identities keep their compatibility names so existing scripts and preferences keep working.
 public enum ProjectIdentity {
     public static let productName = "FreeDisplay"
-    /// The name the app bundle, executable, CLI and URL scheme still carry.
-    public static let bundleName = "OpenDisplay"
+    /// The built app bundle name, for presentation in build reports.
+    public static let bundleName = "FreeDisplay"
     public static let upstreamName = "OpenDisplay"
     public static let upstreamAuthor = "aquitaine"
     /// The license the fork is distributed under, inherited from upstream.
