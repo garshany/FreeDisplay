@@ -19,6 +19,9 @@ public protocol AutomationEnvironment: Sendable {
     /// Why this surface can't run `command` at all, or nil when it can.
     func unavailability(of command: AutomationCommandName) -> AutomationIssue?
 
+    /// Revalidate session authorization after asynchronous preparation, before mutation dispatch.
+    func validateMutation() async throws(AutomationIssue)
+
     func brightnessRoutes(for display: AutomationDisplayCandidate) async -> BrightnessRouteAvailability
     /// A fresh read through `route`.
     func readBrightness(of display: AutomationDisplayCandidate, via route: BrightnessRoute) async throws(AutomationIssue) -> BrightnessReadback
@@ -57,6 +60,7 @@ public protocol AutomationEnvironment: Sendable {
 }
 
 public extension AutomationEnvironment {
+    func validateMutation() async throws(AutomationIssue) {}
     func tvCapabilities(for display: AutomationDisplayCandidate) async -> TVCapabilityReport? { nil }
     func tvCanPerform(_ action: TVAction, on display: AutomationDisplayCandidate) async -> Bool { false }
     func tvControl(_ action: TVAction, on display: AutomationDisplayCandidate) async throws(AutomationIssue) -> TVCommandReceipt {
@@ -163,6 +167,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
                 }
                 _ = try AutomationSelectorResolver.resolve(.group(name), text: request.targetText, in: set)
                 var result = context.result(status: .noOp)
+                try await validateMutation()
                 result.envelope = try await environment.writeGroupBrightness(level, group: name, dryRun: request.dryRun)
                 return result
             }
@@ -213,6 +218,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
         case .feedIntegration(let control, let response):
             let display = try required(target)
             if context.request.dryRun { return context.plan("parse and feed integration control \(control) on \(display.name); no setter") }
+            try await validateMutation()
             let sample = try await environment.feedIntegration(control: control, response: response, display: display)
             var result = context.result(status: .committed)
             result.integrationSample = sample
@@ -227,6 +233,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
                 throw AutomationIssue(.capabilityUnavailable, "the selected display has no ready TV controller for this action", subject: display.id.rawValue)
             }
             if context.request.dryRun { return context.plan("send \(action.name) to the paired TV", field: "tvControl") }
+            try await validateMutation()
             let receipt = try await environment.tvControl(action, on: display)
             // Protocol acknowledgement is not a readback of physical power, audio or active input.
             let outcome: OperationOutcome = receipt.delivery == .failed ? .failed : .sent
@@ -290,6 +297,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
                 return context.plan("set the brightness of \(display.name) to \(level.wholePercent)% via \(route.rawValue)",
                                     field: "brightness", requested: .double(level.normalized))
             }
+            try await validateMutation()
             let report = try await environment.writeBrightness(level, to: display, via: route)
             return settleBrightness(report, display: display, route: route, context: context)
 
@@ -300,6 +308,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
                 return context.plan("change the brightness of \(display.name) by \(delta) via \(route.rawValue)",
                                     field: "brightness")
             }
+            try await validateMutation()
             let report = try await environment.adjustBrightness(by: delta, of: display, via: route)
             return settleBrightness(report, display: display, route: route, context: context)
 
@@ -324,6 +333,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             if context.request.dryRun {
                 return context.plan("set hardware contrast", field: "contrast", requested: .double(level.normalized))
             }
+            try await validateMutation()
             return settleBrightness(try await environment.writeContrast(level, to: display), display: display,
                                     route: .ddc, context: context, field: "contrast")
 
@@ -355,6 +365,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             if context.request.dryRun {
                 return context.plan("switch \(display.name) to \(key)", field: "mode", requested: .string(key))
             }
+            try await validateMutation()
             let settlement = try await environment.applyMode(mode, to: display, keepWithoutConfirmation: keep)
             var warnings: [String] = []
             if case .awaitingConfirmation(let seconds) = settlement {
@@ -381,6 +392,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             if context.request.dryRun {
                 return context.plan("make \(display.name) the main display", field: "main", requested: .bool(true))
             }
+            try await validateMutation()
             let settlement = try await environment.makeMain(display)
             guard settlement.observedMain == display.id else {
                 throw AutomationIssue(.notConfirmed, "macOS didn't make \(display.name) the main display",
@@ -423,6 +435,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
 
         case .reconnectAll:
             if context.request.dryRun { return context.plan("reconnect every display FreeDisplay turned off") }
+            try await validateMutation()
             let envelope = try await environment.reconnectAll()
             var result = AutomationResult(command: .reconnectAll, envelope: envelope)
             if envelope.status == .failed {
@@ -434,6 +447,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             let display = try required(target)
             try await environment.validateDisconnect(display)
             if context.request.dryRun { return context.plan("turn \(display.name) off", field: "connected") }
+            try await validateMutation()
             let envelope = try await environment.disconnect(display)
             var result = AutomationResult(command: .disconnect, envelope: envelope)
             if envelope.status == .failed || envelope.status == .rolledBack {
@@ -442,6 +456,12 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             }
             return result
         }
+    }
+
+    private func validateMutation() async throws(AutomationIssue) {
+        if let issue = AutomationMutationPolicy.cancellationIssue { throw issue }
+        try await environment.validateMutation()
+        if let issue = AutomationMutationPolicy.cancellationIssue { throw issue }
     }
 
     private func required(_ target: AutomationDisplayCandidate?) throws(AutomationIssue) -> AutomationDisplayCandidate {
@@ -546,6 +566,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             return context.plan("assign \(profile?.name ?? "the factory profile") to \(display.name)",
                                 field: field, requested: requested)
         }
+        try await validateMutation()
         let after = try await environment.applyColorProfile(profile, to: display)
         guard Self.holds(after, profile) else {
             throw AutomationIssue(.notConfirmed,

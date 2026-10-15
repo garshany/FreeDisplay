@@ -44,6 +44,12 @@ public struct IntegrationConfiguration: Hashable, Codable, Sendable {
         }
         return result
     }
+    /// Validation may become stricter after an upgrade. Retain the definitions and disk bytes;
+    /// quarantine their execution flags until the user reviews the rejected invocation.
+    public func executionAdmission() -> (configuration: Self, failure: String?) {
+        do { try validateForStorage(); return (self, nil) }
+        catch { return (pausedForImport(), (error as? IntegrationError)?.message ?? error.localizedDescription) }
+    }
     public func validateForStorage() throws {
         try validate(in: .init(candidates: displays.map {
             AutomationDisplayCandidate(id: $0.id, name: $0.id.rawValue, availability: .disconnected)

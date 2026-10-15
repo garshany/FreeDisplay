@@ -110,6 +110,32 @@ final class IntegrationControlTests: XCTestCase {
         await clock.release()
         XCTAssertEqual(fake.calls.count, 1)
     }
+    func testPollingExpandsCurrentBindingAndRejectsOldInflightMetadata() async throws {
+        let runtime = IntegrationControlRuntime(), fake = IntegrationFake(), clock = IntegrationTestClock()
+        var candidate = AutomationDisplayCandidate(id: .init(rawValue: "desk"), cgDisplayID: 7, name: "Old", availability: .active)
+        let original = IntegrationAction.process(executable: "/owned/read", arguments: ["[*:DISPLAY_ID:*]", "[*:DEVICE_NAME:*]"], budget: .init(timeoutSeconds: 1, maximumOutputBytes: 100))
+        try runtime.startPolling(seconds: 0.375, key: "a", parser: .ranged(multiplier: 100, regex: nil, capture: 0),
+            environment: fake, failurePolicy: .continuePolling,
+            prepare: { try IntegrationActionPolicy.prepare(original, context: .init(display: candidate)) },
+            sleep: { try await clock.sleep($0) })
+        _ = await clock.requested()
+        candidate.cgDisplayID = 9; candidate.name = "Current"
+        await clock.release(); await fake.waitForCalls(1)
+        guard case .process(_, let arguments, _) = fake.calls[0].action else { return XCTFail() }
+        XCTAssertEqual(arguments, ["9", "Current"])
+        // Another rebind while the read is suspended invalidates its receipt and sample.
+        candidate.cgDisplayID = 11
+        fake.complete(0, .init(.processExited, exitCode: 0, stdout: "20"))
+        _ = await clock.requested()
+        XCTAssertNil(runtime.samples["a"]); XCTAssertNil(runtime.receipts["a"])
+        await clock.release(); await fake.waitForCalls(2)
+        guard case .process(_, let fresh, _) = fake.calls[1].action else { return XCTFail() }
+        XCTAssertEqual(fresh, ["11", "Current"])
+        fake.complete(1, .init(.processExited, exitCode: 0, stdout: "80"))
+        _ = await clock.requested()
+        XCTAssertEqual(runtime.samples["a"]?.value, .level(.init(normalized: 0.8)!))
+        runtime.cancelAll(); await clock.release()
+    }
     func testConfiguredStopPolicyStopsPollingAfterVisibleFailure() async throws {
         let runtime = IntegrationControlRuntime(), fake = IntegrationFake(), clock = IntegrationTestClock()
         try runtime.startPolling(seconds: 0.125, key: "a", action: action("r"), parser: .boolean(on: "ON", off: "OFF", regex: false), environment: fake, failurePolicy: .stop, sleep: { try await clock.sleep($0) })

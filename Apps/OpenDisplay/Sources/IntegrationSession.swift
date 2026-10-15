@@ -11,6 +11,7 @@ final class IntegrationSession: ObservableObject {
     @Published private(set) var failure: String?
     @Published private(set) var activity: [String] = []
     let runtime = IntegrationControlRuntime()
+    let execution = AutomationExecutionGeneration()
     private weak var model: AppModel?
     private var environment: AppIntegrationEnvironment?
     private var store: IntegrationConfigurationStore?
@@ -18,6 +19,7 @@ final class IntegrationSession: ObservableObject {
     private var tasks: [UUID: Task<Void, Never>] = [:]
     private var delayed: [DisplayRecordID: Task<Void, Never>] = [:]
     private var pollKeys: Set<String> = []
+    private var pollBindings: [String: AutomationDisplayCandidate] = [:]
     private var shuttingDown = false
     private var isSleeping = false
 
@@ -28,8 +30,9 @@ final class IntegrationSession: ObservableObject {
         do {
             store = try IntegrationConfigurationStore(directory: SettingsStore.defaultDirectory())
             let loaded = try store!.load()
-            try loaded.validateForStorage()
-            configuration = loaded
+            let admission = loaded.executionAdmission()
+            configuration = admission.configuration
+            failure = admission.failure
         } catch { failure = (error as? IntegrationError)?.message ?? error.localizedDescription }
         synchronize()
     }
@@ -59,8 +62,7 @@ final class IntegrationSession: ObservableObject {
         for event in events where event.phase == .hardDisconnect {
             delayed.removeValue(forKey: event.display)?.cancel()
         }
-        // Cancel existing polls only for disconnected/disabled controls; ordinary topology refresh
-        // neither resets the interval nor restarts pending reads.
+        // Preserve polling cadence on an unchanged binding; a rebind cancels its old work.
         reconcilePolling()
         deliver(events)
     }
@@ -151,8 +153,17 @@ final class IntegrationSession: ObservableObject {
         do {
             let plans = try IntegrationPlan.polls(configuration: configuration, displays: displaySet, safeStartup: safeStartup, sleeping: isSleeping)
             let wanted = Set(plans.map(\.key))
+            for plan in plans where pollBindings[plan.key] != plan.action.binding {
+                runtime.cancel(plan.key); pollKeys.remove(plan.key)
+            }
             for plan in plans where !pollKeys.contains(plan.key) {
-                try runtime.startPolling(seconds: plan.seconds, key: plan.key, action: plan.action, parser: plan.parser, environment: environment, failurePolicy: plan.failurePolicy,
+                try runtime.startPolling(seconds: plan.seconds, key: plan.key, parser: plan.parser, environment: environment, failurePolicy: plan.failurePolicy,
+                                         prepare: { [weak self] in
+                                             guard let self, !self.shuttingDown else { return nil }
+                                             return try IntegrationPlan.polls(configuration: self.configuration,
+                                                 displays: self.displaySet, safeStartup: self.safeStartup,
+                                                 sleeping: self.isSleeping).first { $0.key == plan.key }?.action
+                                         },
                                          sleep: { try await Task.sleep(for: .seconds($0)) })
             }
             for key in pollKeys.subtracting(wanted) { runtime.cancel(key) }
@@ -164,10 +175,14 @@ final class IntegrationSession: ObservableObject {
                 }
             }
             pollKeys = wanted
+            pollBindings = Dictionary(uniqueKeysWithValues: plans.compactMap { plan in
+                plan.action.binding.map { (plan.key, $0) }
+            })
         } catch { failure = (error as? IntegrationError)?.message ?? error.localizedDescription; runtime.cancelAll(); pollKeys.removeAll() }
     }
 
     func stopWork() {
+        execution.invalidate()
         tasks.values.forEach { $0.cancel() }; tasks.removeAll()
         delayed.values.forEach { $0.cancel() }; delayed.removeAll()
         runtime.cancelAll(); pollKeys.removeAll()

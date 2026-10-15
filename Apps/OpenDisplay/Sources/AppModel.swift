@@ -90,8 +90,8 @@ enum FeatureFlags {
 @MainActor
 final class AppModel: ObservableObject {
     lazy var integrationService = IntegrationService(model: self)
-    private var automationContrastAccepted: [DisplayRecordID: Bool] = [:]
-    private var automationContrastReceipt: [DisplayRecordID: BrightnessReadback] = [:]
+    private let contrastReceipts = CoalescedBrightnessReceipts<DisplayRecordID>()
+    private let brightnessReceipts = CoalescedBrightnessReceipts<DisplayRecordID>()
     @Published private(set) var displays: [DisplayObservation] = []
     @Published private(set) var statusText = String(localized: "Scanning…")
     @Published private(set) var busy = false
@@ -374,7 +374,6 @@ final class AppModel: ObservableObject {
     private var groupBrightnessLoop: Task<Void, Never>?
     private var nativeMonitors: [DisplayRecordID: BrightnessMonitor] = [:]
     private var nativeTargets: [DisplayRecordID: Float] = [:]
-    private var automationBrightnessWriteAccepted: [DisplayRecordID: Bool] = [:]
     private var nativeWriters: [DisplayRecordID: Task<Void, Never>] = [:]
     /// When the poll last saw a native member change — what switches it to the fast cadence.
     private var groupBrightnessLastChange: Date?
@@ -2568,6 +2567,8 @@ final class AppModel: ObservableObject {
         for (id, controller) in ddc where !ids.contains(id) { controller.invalidate() }
         ddc = ddc.filter { ids.contains($0.key) }
         brightnessMax = brightnessMax.filter { ids.contains($0.key) }
+        brightnessReceipts.retain(only: ids)
+        contrastReceipts.retain(only: ids)
         ddcTarget = ddcTarget.filter { ids.contains($0.key) }
         inputSourceTarget = inputSourceTarget.filter { ids.contains($0.key) }
         colorPresetTarget = colorPresetTarget.filter { ids.contains($0.key) }
@@ -2810,8 +2811,8 @@ final class AppModel: ObservableObject {
                        origin: GroupSyncPolicy.ManualWrite.Origin = .slider,
                        eventSource: OSDBroadcast.Source? = nil,
                        syncBypass: Bool = false, policyWrite: Bool = false,
-                       keyboardEligible: Set<DisplayRecordID>? = nil) {
-        guard let cgID = observation.cgDisplayID else { return }
+                       keyboardEligible: Set<DisplayRecordID>? = nil, receipt: BrightnessWriteReceipt? = nil) {
+        guard let cgID = observation.cgDisplayID else { receipt?.reject("Display is unavailable"); return }
         let id = observation.recordID
         // What a delta-mode group measures this change from: the level before this write.
         let previous = brightness[id]
@@ -2829,7 +2830,7 @@ final class AppModel: ObservableObject {
         switch method {
         case .native:
             #if !PUBLIC_API_ONLY
-            writeNativeBrightness(value, for: observation)
+            writeNativeBrightness(value, for: observation, receipt: receipt)
             #endif
         case .hardware:
             #if !PUBLIC_API_ONLY
@@ -2838,7 +2839,7 @@ final class AppModel: ObservableObject {
             // adaptive yields instead of fighting the slider. The adaptive loop's own writes go
             // through `applyAdaptiveBrightness`, never here.
             if !policyWrite { noteManualBrightnessForAdaptive(value, id: id) }
-            automationBrightnessWriteAccepted[id] = false
+            brightnessReceipts.enqueue(receipt, for: id)
             if ddcWriters[id] == nil { brightnessBeforeDDCWrite[id] = previous }
             ddcTarget[id] = Int((value * Float(brightnessMax[id] ?? 100)).rounded())
             if ddcWriters[id] == nil {
@@ -2856,6 +2857,7 @@ final class AppModel: ObservableObject {
             // With gamma as the only carrier a rejected write changed nothing on screen, so no HUD
             // may confirm it; the caption reports the failure instead.
             onScreen = landed || effectiveDimmingMethod(for: id) != .gamma
+            receipt?.complete(accepted: onScreen, readback: onScreen ? .applied(Double(level)) : .none)
         }
         // Batch-3 #4: the HUD confirms key presses; a slider already shows its own value. The event
         // goes out for every change regardless (IN-04) — a slider, HTTP or restore draws no HUD,
@@ -2975,11 +2977,12 @@ final class AppModel: ObservableObject {
     }
 
     /// Serialize native writes and baseline their readback so polling never echoes our own work.
-    private func writeNativeBrightness(_ value: Float, for observation: DisplayObservation) {
+    private func writeNativeBrightness(_ value: Float, for observation: DisplayObservation,
+                                       receipt: BrightnessWriteReceipt? = nil) {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
-        automationBrightnessWriteAccepted[id] = false
         nativeMonitors[id, default: BrightnessMonitor()].beginWrite()
+        brightnessReceipts.enqueue(receipt, for: id)
         nativeTargets[id] = value
         guard nativeWriters[id] == nil else { return }
         nativeWriters[id] = Task { [weak self] in
@@ -2987,11 +2990,13 @@ final class AppModel: ObservableObject {
             let control = brightnessControl
             var sample: Float?
             while let target = nativeTargets.removeValue(forKey: id) {
+                let requestReceipt = brightnessReceipts.take(id)
+                guard requestReceipt?.admitDispatch() != false else { continue }
                 let receipt = await Task.detached(priority: .userInitiated) {
                     let accepted = control.setBrightness(target, for: cgID)
                     return (accepted, control.brightness(for: cgID))
                 }.value
-                automationBrightnessWriteAccepted[id] = receipt.0
+                requestReceipt?.complete(accepted: receipt.0, readback: receipt.1.map { .level(Double($0)) } ?? .none)
                 sample = receipt.1
             }
             nativeMonitors[id, default: BrightnessMonitor()].endWrite(value: sample)
@@ -3113,9 +3118,9 @@ final class AppModel: ObservableObject {
     /// Returns the route used and whether the change can be on screen (a rejected gamma write, with
     /// gamma the only carrier, changed nothing); nil when the display has no screen to write to.
     @discardableResult
-    private func applySilentBrightness(_ value: Float, for observation: DisplayObservation)
+    private func applySilentBrightness(_ value: Float, for observation: DisplayObservation, receipt: BrightnessWriteReceipt? = nil)
         -> (method: BrightnessMethod, onScreen: Bool)? {
-        guard let cgID = observation.cgDisplayID else { return nil }
+        guard let cgID = observation.cgDisplayID else { receipt?.reject("Display is unavailable"); return nil }
         let id = observation.recordID
         #if PUBLIC_API_ONLY
         let method = BrightnessMethod.software
@@ -3129,11 +3134,11 @@ final class AppModel: ObservableObject {
         switch method {
         case .native:
             #if !PUBLIC_API_ONLY
-            writeNativeBrightness(value, for: observation)
+            writeNativeBrightness(value, for: observation, receipt: receipt)
             #endif
         case .hardware:
             #if !PUBLIC_API_ONLY
-            applyAdaptiveBrightness(value, for: observation)  // the existing coalesced DDC writer
+            applyAdaptiveBrightness(value, for: observation, receipt: receipt)  // the existing coalesced DDC writer
             #endif
         case .software:
             // Same as the user funnel: cache the floored level that is applied.
@@ -3141,7 +3146,9 @@ final class AppModel: ObservableObject {
             brightness[id] = level
             softwareDim[id] = level
             let landed = applyDim(level: level, id: id, cgID: cgID)
-            return (method, landed || effectiveDimmingMethod(for: id) != .gamma)
+            let accepted = landed || effectiveDimmingMethod(for: id) != .gamma
+            receipt?.complete(accepted: accepted, readback: accepted ? .applied(Double(level)) : .none)
+            return (method, accepted)
         }
         return (method, true)
     }
@@ -3297,6 +3304,11 @@ final class AppModel: ObservableObject {
     }
 
     private func drainDDCWrites(_ id: DisplayRecordID, _ observation: DisplayObservation) async {
+        var inFlight: BrightnessWriteReceipt?
+        defer {
+            inFlight?.reject("Request cancelled before readback")
+            brightnessReceipts.invalidate(id)
+        }
         guard let controller = await ddcController(for: observation) else {
             guard !Task.isCancelled else { return }
             brightness[id] = brightnessBeforeDDCWrite.removeValue(forKey: id)
@@ -3312,17 +3324,22 @@ final class AppModel: ObservableObject {
             var lastSent = true
             while !Task.isCancelled, !settings.softwareBrightnessDisplayIDs.contains(id.rawValue), let target = ddcTarget[id] {
                 guard ddcBindingIsCurrent(controller, for: id) else { return }
+                inFlight?.reject()
+                inFlight = brightnessReceipts.take(id)
                 ddcTarget[id] = nil
+                guard inFlight?.admitDispatch() != false else { continue }
                 lastTarget = target
                 lastSent = await controller.write(.brightness, target)
-                automationBrightnessWriteAccepted[id] = lastSent
+                if !lastSent { inFlight?.complete(accepted: false, readback: .none) }
             }
             guard let lastTarget else { break }
             switch await readBackAfterDrain(controller, vcp: vcp, settleNanos: Self.continuousSettleNanos,
                                             superseded: { [weak self] in self?.ddcTarget[id] != nil }) {
             case .cancelled: return  // pruned: the map entry is already gone, don't touch state
-            case .superseded: continue  // a newer target arrived; write it, verify that one instead
+            case .superseded: inFlight?.reject(); inFlight = nil; continue  // a newer target arrived; write it, verify that one instead
             case .reading(let reading):
+                inFlight?.complete(accepted: lastSent, readback: reading.map { .ddc(current: $0.current, max: $0.max) } ?? .none)
+                inFlight = nil
                 let outcome = DDCWriteVerification.outcome(
                     target: lastTarget, readback: reading?.current, tolerance: DDCReadbackPolicy.tolerance(.continuous))
                 noteWriteVerification(outcome, vcp: vcp, id: id)
@@ -3543,13 +3560,13 @@ final class AppModel: ObservableObject {
     /// on a group's behalf, so it doesn't mirror straight back (Issue #39).
     func setHardwareControl(_ control: HardwareControl, _ value: Float,
                             for observation: DisplayObservation, isGroupSync: Bool = false,
-                            showsOSD: Bool = true, eventSource: OSDBroadcast.Source = .menu) {
+                            showsOSD: Bool = true, eventSource: OSDBroadcast.Source = .menu,
+                            receipt: BrightnessWriteReceipt? = nil) {
         #if !PUBLIC_API_ONLY
-        guard observation.displayClass != .builtIn else { return }
+        guard observation.displayClass != .builtIn else { receipt?.reject("Hardware contrast is unavailable"); return }
         let id = observation.recordID
         if control == .contrast {
-            automationContrastAccepted[id] = nil
-            automationContrastReceipt[id] = nil
+            contrastReceipts.enqueue(receipt, for: id)
         }
         let key = DDCControlKey(id: id, vcp: control.vcp)
         ddcControlLevel[id, default: [:]][control.vcp] = value
@@ -3566,31 +3583,39 @@ final class AppModel: ObservableObject {
                        control: "ddc")
         }
         if control == .contrast, !isGroupSync { syncGroupContrast(value, from: observation) }  // Issue #39
+        #else
+        receipt?.reject("Hardware contrast is unavailable in this build")
         #endif
     }
 
     #if !PUBLIC_API_ONLY
     private func drainHardwareWrites(_ key: DDCControlKey, _ control: HardwareControl, _ observation: DisplayObservation) async {
+        var inFlight: BrightnessWriteReceipt?
+        defer {
+            inFlight?.reject("Request cancelled before readback")
+            if control == .contrast { contrastReceipts.invalidate(key.id) }
+        }
         guard let controller = await ddcController(for: observation) else { ddcControlWriter[key] = nil; return }
         while true {
             var lastTarget: Int?
             var lastSent = true
-            while let target = ddcControlTarget[key] {
+            while !Task.isCancelled, let target = ddcControlTarget[key] {
                 guard ddcBindingIsCurrent(controller, for: key.id) else { return }
+                if control == .contrast { inFlight?.reject(); inFlight = contrastReceipts.take(key.id) }
                 ddcControlTarget[key] = nil
+                guard inFlight?.admitDispatch() != false else { continue }
                 lastTarget = target
                 lastSent = await controller.write(vcp: key.vcp, target)
+                if !lastSent { inFlight?.complete(accepted: false, readback: .none) }
             }
             guard let lastTarget else { break }
             switch await readBackAfterDrain(controller, vcp: key.vcp, settleNanos: Self.continuousSettleNanos,
                                             superseded: { [weak self] in self?.ddcControlTarget[key] != nil }) {
             case .cancelled: return
-            case .superseded: continue
+            case .superseded: inFlight?.reject(); inFlight = nil; continue
             case .reading(let reading):
-                if control == .contrast {
-                    automationContrastAccepted[key.id] = lastSent
-                    automationContrastReceipt[key.id] = reading.map { .ddc(current: $0.current, max: $0.max) } ?? BrightnessReadback.none
-                }
+                inFlight?.complete(accepted: lastSent, readback: reading.map { .ddc(current: $0.current, max: $0.max) } ?? .none)
+                inFlight = nil
                 let outcome = DDCWriteVerification.outcome(
                     target: lastTarget, readback: reading?.current, tolerance: DDCReadbackPolicy.tolerance(.continuous))
                 noteWriteVerification(outcome, vcp: key.vcp, id: key.id)
@@ -4002,6 +4027,7 @@ final class AppModel: ObservableObject {
         guard observation.displayClass != .builtIn,
               let controller = await ddcController(for: observation) else { return .notSent }
         let id = observation.recordID
+        brightnessReceipts.invalidate(id); contrastReceipts.invalidate(id)
         ddcTarget[id] = nil
         colorPresetTarget[id] = nil
         inputSourceTarget[id] = nil
@@ -4263,7 +4289,8 @@ final class AppModel: ObservableObject {
     /// OSD-silent adaptive brightness apply: cache + coalesced DDC write, NO OSD flash and NO
     /// manual-change note — this is the machine's hand, not the user's. (`setBrightness` is the
     /// user funnel and does both.)
-    private func applyAdaptiveBrightness(_ value: Float, for observation: DisplayObservation) {
+    private func applyAdaptiveBrightness(_ value: Float, for observation: DisplayObservation, receipt: BrightnessWriteReceipt? = nil) {
+        brightnessReceipts.enqueue(receipt, for: observation.recordID)
         let id = observation.recordID
         if ddcWriters[id] == nil { brightnessBeforeDDCWrite[id] = brightness[id] }
         brightness[id] = value  // keep the visible slider honest
@@ -4989,7 +5016,8 @@ final class AppModel: ObservableObject {
     /// Applies a chosen resolution/mode behind the timed auto-revert gate (Issue 6), then re-reads the
     /// topology. A bad/blank resolution can leave a display unreadable, so the change is checkpointed
     /// and reverts itself unless confirmed within the window.
-    func setMode(_ mode: DisplayMode, for observation: DisplayObservation) async {
+    func setMode(_ mode: DisplayMode, for observation: DisplayObservation,
+                 beforeMutation: (() -> AutomationIssue?)? = nil) async {
         // An arrangement apply in flight is a Core Graphics transaction too; a second one would
         // capture a half-applied "before" and race its readback.
         guard !displayConfigurationBusy else {
@@ -5021,6 +5049,10 @@ final class AppModel: ObservableObject {
         }
         // Persist the original arrangement BEFORE the write so a crash during verification can
         // recover. It replaces a record an earlier rollback couldn't confirm (`RevertMarkerPolicy`).
+        if let issue = AutomationMutationPolicy.cancellationIssue ?? beforeMutation?() {
+            modeChangeError = issue.message.appLocalized
+            return
+        }
         Self.writeRevertMarker(before)
         refreshRevertRecord()
         // CGCompleteDisplayConfiguration blocks until the displays are reconfigured (often 1–3 s on
@@ -5104,7 +5136,7 @@ final class AppModel: ObservableObject {
     /// Re-anchor a fresh, identity-matched topology off the main actor. Every entry point shares
     /// this keep/revert transaction, so automation cannot bypass the owner's confirmation rule.
     @discardableResult
-    func setMain(for observation: DisplayObservation) async -> Bool {
+    func setMain(for observation: DisplayObservation, beforeMutation: (() -> AutomationIssue?)? = nil) async -> Bool {
         guard !displayConfigurationBusy else {
             modeChangeError = String(localized: "Confirm or revert the previous change first.")
             return false
@@ -5124,6 +5156,10 @@ final class AppModel: ObservableObject {
             return .init(displayID: id,
                          origin: DisplayOrigin(x: obs.origin.x - target.origin.x, y: obs.origin.y - target.origin.y),
                          mode: nil)
+        }
+        if let issue = AutomationMutationPolicy.cancellationIssue ?? beforeMutation?() {
+            modeChangeError = issue.message.appLocalized
+            return false
         }
         Self.writeRevertMarker(before)
         refreshRevertRecord()
@@ -7819,6 +7855,7 @@ final class AppModel: ObservableObject {
         if enabled {
             settings.softwareBrightnessDisplayIDs.insert(id.rawValue)
             #if !PUBLIC_API_ONLY
+            brightnessReceipts.invalidate(id)
             ddcWriters[id]?.cancel()
             ddcWriters[id] = nil
             ddcTarget[id] = nil
@@ -8159,15 +8196,17 @@ extension AppModel {
         }
         // Queue the whole base operation before awaiting receipts; follower writes do not become
         // leader events and cannot re-learn offsets or fan back through another group.
-        var queued: [(DisplayObservation, AutomationLevel)] = []
+        var queued: [(DisplayObservation, BrightnessWriteReceipt)] = []
         for write in fanOut.writes {
             guard let observation = displays.first(where: { $0.recordID == write.member }) else { continue }
-            if !dryRun { applySilentBrightness(write.value, for: observation) }
-            queued.append((observation, AutomationLevel(clamping: Double(write.value))))
+            let receipt = BrightnessWriteReceipt(AutomationLevel(clamping: Double(write.value)))
+            if !dryRun { applySilentBrightness(write.value, for: observation, receipt: receipt) }
+            queued.append((observation, receipt))
         }
         var outcomes: [OperationOutcome] = []
-        for (observation, requested) in queued {
-            let report = dryRun ? nil : await automationBrightnessWriteReport(requested, for: observation)
+        for (observation, receipt) in queued {
+            let requested = receipt.requested
+            let report = dryRun ? nil : await receipt.report()
             let verdict = report.map(BrightnessSettlement.settle)
             let outcome = verdict?.outcome ?? .alreadySatisfied
             outcomes.append(outcome)
@@ -8195,40 +8234,6 @@ extension AppModel {
         #else
         return .none
         #endif
-    }
-
-    func automationContrastWriteReport(_ requested: AutomationLevel,
-                                       for observation: DisplayObservation) async -> BrightnessWriteReport {
-        #if !PUBLIC_API_ONLY
-        let key = DDCControlKey(id: observation.recordID, vcp: HardwareControl.contrast.vcp)
-        if let writer = ddcControlWriter[key] { await writer.value }
-        #endif
-        let accepted = automationContrastAccepted[observation.recordID] ?? false
-        return BrightnessWriteReport(requested: requested, accepted: accepted,
-                                     readback: automationContrastReceipt[observation.recordID] ?? .none,
-                                     failure: accepted ? nil : "the hardware contrast route rejected the write")
-    }
-
-    /// Coalescing owns the transport receipt; automation must not turn a rejected write into a
-    /// successful request just because the last cached level exists.
-    func automationBrightnessWriteReport(_ requested: AutomationLevel,
-                                         for observation: DisplayObservation) async -> BrightnessWriteReport {
-        let readback = await automationBrightnessReadback(for: observation)
-        let accepted: Bool
-        switch brightnessMethod[observation.recordID] {
-        case .software?:
-            accepted = gammaWriteFailures[observation.recordID] == nil
-                || effectiveDimmingMethod(for: observation.recordID) != .gamma
-        case .native?, .hardware?:
-            #if !PUBLIC_API_ONLY
-            accepted = automationBrightnessWriteAccepted[observation.recordID] ?? false
-            #else
-            accepted = false
-            #endif
-        case nil: accepted = false
-        }
-        return BrightnessWriteReport(requested: requested, accepted: accepted, readback: readback,
-                                     failure: accepted ? nil : "the brightness route rejected the write")
     }
 
     /// The display's brightness as read back once every write already queued for it has run (TB-05):
