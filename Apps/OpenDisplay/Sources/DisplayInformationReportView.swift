@@ -8,6 +8,7 @@ import CoreGraphicsProvider
 import DisplayDomain
 import OpenDisplayDesignSystem
 import SwiftUI
+import TopologyCore
 import UniformTypeIdentifiers
 
 extension ReportLocalizer {
@@ -32,6 +33,19 @@ enum DisplayScreenLookup {
 }
 
 extension AppModel {
+    func informationReportFacts(for remembered: RememberedDisplay) async -> DisplayReportFacts {
+        if let live = displays.first(where: { remembered.observationIDs.contains($0.recordID) }) {
+            return await informationReportFacts(for: live)
+        }
+        let info = Bundle.main.infoDictionary
+        let version = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+        return remembered.savedReportFacts(
+            appVersion: version, generatedAt: Date().formatted(date: .abbreviated, time: .standard),
+            name: rememberedName(of: remembered),
+            lastSeen: remembered.record?.lastSeen?.formatted(date: .abbreviated, time: .shortened),
+            luminanceSettings: settings.luminanceAnchorsByDisplay)
+    }
+
     /// Gathers what the report states about a display, at the moment it is opened. Only reads:
     /// Core Graphics, NSScreen, IORegistry (EDID) and FreeDisplay's own caches. The EDID registry
     /// walk runs off the main actor.
@@ -155,7 +169,21 @@ enum ReportExport {
 struct DisplayInformationReportSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
-    let display: DisplayObservation
+    private enum Source {
+        case display(DisplayObservation)
+        case remembered(RememberedDisplay)
+    }
+    private let source: Source
+
+    init(display: DisplayObservation) { source = .display(display) }
+    init(remembered: RememberedDisplay) { source = .remembered(remembered) }
+
+    private var displayName: String {
+        switch source {
+        case .display(let display): return model.displayName(for: display)
+        case .remembered(let remembered): return model.rememberedName(of: remembered)
+        }
+    }
     @State private var report: InfoReport?
     @State private var loading = false
     @State private var status: String?
@@ -200,7 +228,7 @@ struct DisplayInformationReportSheet: View {
                 .disabled(report == nil)
                 Button("Export…") {
                     guard let report = shownReport else { return }
-                    let name = DisplayInformationReport.suggestedFileName(displayName: model.displayName(for: display))
+                    let name = DisplayInformationReport.suggestedFileName(displayName: displayName)
                     if let outcome = ReportExport.saveText(report.plainText(), suggestedName: name) { status = outcome }
                 }
                 .disabled(report == nil)
@@ -215,7 +243,13 @@ struct DisplayInformationReportSheet: View {
     private func load() async {
         loading = true
         defer { loading = false }
-        let facts = await model.informationReportFacts(for: display)
+        let facts: DisplayReportFacts
+        switch source {
+        case .display(let display): facts = await model.informationReportFacts(for: display)
+        case .remembered(let remembered):
+            let current = model.rememberedDisplays.first { $0.id == remembered.id } ?? remembered
+            facts = await model.informationReportFacts(for: current)
+        }
         report = DisplayInformationReport.build(facts, .app)
         status = nil
     }
