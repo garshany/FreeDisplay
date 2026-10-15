@@ -724,7 +724,7 @@ struct ControlsCard: View {
             ODDivider()
             let controls = HardwareControl.allCases.filter {
                 model.ddcControl($0, for: display) != nil
-                    && ($0 != .volume || !model.settings.keyboardAudioPreferences(for: display.recordID).nativeAudioEnabled)
+                    && ($0 != .volume || !model.keyboardAudioPreferences(for: display.recordID).nativeAudioEnabled)
             }
             #if !PUBLIC_API_ONLY
             if model.isAppleDisplay(display) {

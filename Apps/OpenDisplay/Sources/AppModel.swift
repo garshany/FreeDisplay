@@ -7694,7 +7694,7 @@ final class AppModel: ObservableObject {
                !Task.isCancelled, self.canProbeAudioControls(for: id) {
                 await self.readHardwareControl(.volume, controller: controller, observation: observation)
                 if !Task.isCancelled, !self.safeStartup,
-                   !self.settings.keyboardAudioPreferences(for: id).nativeAudioEnabled {
+                   !self.keyboardAudioPreferences(for: id).nativeAudioEnabled {
                     await self.refreshDiscreteMute(controller, observation: observation)
                 }
             }

@@ -1038,7 +1038,7 @@ private struct TrayDeviceControl: View {
     var body: some View {
         let controls = HardwareControl.allCases.filter {
                 model.ddcControl($0, for: display) != nil
-                    && ($0 != .volume || !model.settings.keyboardAudioPreferences(for: display.recordID).nativeAudioEnabled)
+                    && ($0 != .volume || !model.keyboardAudioPreferences(for: display.recordID).nativeAudioEnabled)
             }
         VStack(alignment: .leading, spacing: 8) {
             if let refusal = model.ddcBindingRefusal[display.recordID] {
