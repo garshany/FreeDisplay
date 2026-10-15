@@ -181,6 +181,7 @@ public struct AutomationResult: Hashable, Sendable, Codable {
     public var displays: [AutomationDisplaySummary]?
     public var capabilities: AutomationCapabilityReport?
     public var brightness: AutomationBrightnessReport?
+    public var contrast: AutomationBrightnessReport?
     public var modes: AutomationModeList?
     public var mode: AutomationModeReport?
     public var main: AutomationMainReport?

@@ -2,33 +2,32 @@
 import Foundation
 import Network
 import Security
+import Combine
 import AutomationSchema
 import TopologyCore
 
-/// Explicit opt-in, session-only local control. Constructing this object does not bind a socket.
-/// The caller must show the token privately; never persist/log it or embed it in a URL.
+/// Explicit opt-in authenticated HTTP listener. Constructing this object does not bind a socket.
+/// The app owns the saved Keychain credential; this listener holds it only while enabled.
 @MainActor
-final class LocalControlServer {
+final class LocalControlServer: ObservableObject {
     private var listener: NWListener?
     private var connections: [UUID: NWConnection] = [:]
     private var commands: [UUID: Task<Void, Never>] = [:]
     private var tasks: [UUID: Task<Void, Never>] = [:]
-    private(set) var token: String?
-    private(set) var port: UInt16?
-    private(set) var failure: String?
+    @Published private(set) var token: String?
+    @Published private(set) var port: UInt16?
+    @Published private(set) var failure: String?
 
     typealias Handler = @MainActor @Sendable (LocalHTTPControl.ParseResult) async -> AutomationHTTPResponse
 
     /// Every authenticated route goes to `handler`, which runs against the app's live model.
-    func start(handler: @escaping Handler) throws {
+    func start(token secret: String, configuration: IntegrationHTTPConfiguration,
+               onReady: @escaping @MainActor (UInt16) -> Void,
+               handler: @escaping Handler) throws {
         guard listener == nil else { return }
-        var random = [UInt8](repeating: 0, count: 32)
-        guard SecRandomCopyBytes(kSecRandomDefault, random.count, &random) == errSecSuccess else {
-            throw NSError(domain: "LocalControlServer", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "Couldn’t create a secure session token")])
-        }
-        let secret = random.map { String(format: "%02x", $0) }.joined()
         let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(configuration.host),
+                                                         port: configuration.port.flatMap(NWEndpoint.Port.init(rawValue:)) ?? .any)
         let newListener = try NWListener(using: parameters)
         token = secret
         failure = nil
@@ -37,7 +36,10 @@ final class LocalControlServer {
             Task { @MainActor [weak newListener] in
                 guard let self, let newListener, self.listener === newListener else { return }
                 switch state {
-                case .ready: self.port = newListener.port?.rawValue
+                case .ready:
+                    guard let port = newListener.port?.rawValue else { return }
+                    onReady(port)
+                    self.port = port
                 case .failed(let error): self.stop(); self.failure = String(localized: "Local server error: \(error.localizedDescription)")
                 default: break
                 }

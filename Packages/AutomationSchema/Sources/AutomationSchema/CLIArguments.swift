@@ -70,7 +70,7 @@ public enum CLIGrammar {
     /// Options followed by exactly one value. The value is taken as given even when it starts with
     /// `-`, so `--offset -5%` works while a bare `-5%` stays an unknown option: a minus sign alone
     /// never turns an absolute level into a relative change.
-    public static let valuedOptions: Set<String> = ["--out", "--method", "--offset"]
+    public static let valuedOptions: Set<String> = ["--out", "--method", "--offset", "--timeout"]
 
     /// Which options each verb honours. A verb missing from this table accepts none; an unknown
     /// verb is left for the dispatcher to reject, so its message can list the real verbs.
@@ -89,6 +89,12 @@ public enum CLIGrammar {
         "mode": ["--json"],
         "commands": ["--json"],
         "capabilities": ["--json"],
+        "contrast": ["--json"],
+        "main": ["--json"],
+        "profile": ["--json"],
+        "profiles": ["--json"],
+        "command": ["--json", "--dry-run"],
+        "ready": ["--json"],
         "ddc": ["--json"],
         "edid": ["--out"],
     ]
@@ -99,6 +105,7 @@ public enum CLIGrammar {
         "list", "diagnose", "lux", "lid", "listen", "alias", "tag", "recover", "disconnect",
         "reconnect", "scene", "layout", "group", "brightness", "ddc", "edid", "favorite",
         "favourite", "mode", "commands", "capabilities", "_rotate-exp", "help",
+        "contrast", "main", "profile", "profiles", "command", "ready",
     ]
 
     public static func parse(_ arguments: [String]) throws -> CLIParseResult {
@@ -130,7 +137,7 @@ public enum CLIGrammar {
         let command = positional.isEmpty ? "list" : positional.removeFirst()
         if command == "help" { return .help }
         if commands.contains(command) {
-            let allowed = supportedOptions[command] ?? []
+            let allowed = (supportedOptions[command] ?? []).union(CLIAppRequest.commands.contains(command) ? ["--timeout"] : [])
             let given = flags.union(values.keys)
             if let rejected = given.sorted().first(where: { !allowed.contains($0) }) {
                 throw CLIArgumentError.unsupportedOption(option: rejected, command: command)

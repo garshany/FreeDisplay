@@ -30,6 +30,10 @@ public protocol AutomationEnvironment: Sendable {
     func adjustBrightness(by delta: AutomationLevelDelta, of display: AutomationDisplayCandidate,
                           via route: BrightnessRoute) async throws(AutomationIssue) -> BrightnessWriteReport
 
+    func writeGroupBrightness(_ level: AutomationLevel, group: String, dryRun: Bool) async throws(AutomationIssue) -> ResultEnvelope
+    func readContrast(of display: AutomationDisplayCandidate) async throws(AutomationIssue) -> BrightnessReadback
+    func writeContrast(_ level: AutomationLevel, to display: AutomationDisplayCandidate) async throws(AutomationIssue) -> BrightnessWriteReport
+
     func modes(of display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationModeState
     /// Applies an exact offered mode through the surface's verified path; with
     /// `keepWithoutConfirmation` a verified mode is kept at once rather than awaiting the countdown.
@@ -44,6 +48,7 @@ public protocol AutomationEnvironment: Sendable {
     func applyColorProfile(_ profile: AutomationProfileInfo?, to display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationColorProfileState
 
     func reconnectAll() async throws(AutomationIssue) -> ResultEnvelope
+    func validateDisconnect(_ display: AutomationDisplayCandidate) async throws(AutomationIssue)
     func disconnect(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> ResultEnvelope
 }
 
@@ -64,6 +69,15 @@ public extension AutomationEnvironment {
     func adjustBrightness(by delta: AutomationLevelDelta, of display: AutomationDisplayCandidate,
                           via route: BrightnessRoute) async throws(AutomationIssue) -> BrightnessWriteReport {
         throw notOffered(.adjustBrightness)
+    }
+    func writeGroupBrightness(_ level: AutomationLevel, group: String, dryRun: Bool) async throws(AutomationIssue) -> ResultEnvelope {
+        throw notOffered(.setBrightness)
+    }
+    func readContrast(of display: AutomationDisplayCandidate) async throws(AutomationIssue) -> BrightnessReadback {
+        throw notOffered(.getContrast)
+    }
+    func writeContrast(_ level: AutomationLevel, to display: AutomationDisplayCandidate) async throws(AutomationIssue) -> BrightnessWriteReport {
+        throw notOffered(.setContrast)
     }
     func modes(of display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationModeState {
         throw notOffered(.listModes)
@@ -87,6 +101,7 @@ public extension AutomationEnvironment {
     func reconnectAll() async throws(AutomationIssue) -> ResultEnvelope {
         throw notOffered(.reconnectAll)
     }
+    func validateDisconnect(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) {}
     func disconnect(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> ResultEnvelope {
         throw notOffered(.disconnect)
     }
@@ -127,6 +142,17 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             try await environment.prepare()
             let set = await environment.displaySet()
             context.generation = set.topologyGeneration
+            if case .group(let name) = request.target {
+                // A group base write is the existing explicit policy operation, not an ambiguous
+                // selector narrowed to an arbitrary display. Other group operations still refuse.
+                guard case .setBrightness(let level, method: .automatic) = request.command else {
+                    throw AutomationIssue(.unsupportedSelector, "groups accept absolute automatic brightness only", subject: name)
+                }
+                _ = try AutomationSelectorResolver.resolve(.group(name), text: request.targetText, in: set)
+                var result = context.result(status: .noOp)
+                result.envelope = try await environment.writeGroupBrightness(level, group: name, dryRun: request.dryRun)
+                return result
+            }
             let target = try resolveTarget(request, descriptor: descriptor, in: set)
             context.target = target
             return try await execute(request.command, target: target, set: set, context: context)
@@ -234,6 +260,30 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             let report = try await environment.adjustBrightness(by: delta, of: display, via: route)
             return settleBrightness(report, display: display, route: route, context: context)
 
+        case .getContrast:
+            let display = try required(target)
+            if context.request.dryRun { return context.plan("read hardware contrast", field: "contrast") }
+            let readback = try await environment.readContrast(of: display)
+            guard let level = readback.level else {
+                throw AutomationIssue(.methodUnavailable, "hardware contrast is unavailable", subject: display.id.rawValue)
+            }
+            var result = context.result(status: .noOp, operations: [
+                .init(field: "contrast", observed: .double(level.normalized), verification: .verified, provider: BrightnessRoute.ddc.provider)])
+            result.contrast = brightnessReport(display, route: .ddc, requested: nil, level: level, outcome: nil,
+                                               readback: readback, note: nil)
+            return result
+        case .setContrast(let level):
+            let display = try required(target)
+            // Validate the actual ranged hardware controller before accepting a write.
+            guard try await environment.readContrast(of: display).level != nil else {
+                throw AutomationIssue(.methodUnavailable, "hardware contrast is unavailable", subject: display.id.rawValue)
+            }
+            if context.request.dryRun {
+                return context.plan("set hardware contrast", field: "contrast", requested: .double(level.normalized))
+            }
+            return settleBrightness(try await environment.writeContrast(level, to: display), display: display,
+                                    route: .ddc, context: context, field: "contrast")
+
         case .listModes, .getMode:
             let display = try required(target)
             let state = try await environment.modes(of: display)
@@ -339,6 +389,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
 
         case .disconnect:
             let display = try required(target)
+            try await environment.validateDisconnect(display)
             if context.request.dryRun { return context.plan("turn \(display.name) off", field: "connected") }
             let envelope = try await environment.disconnect(display)
             var result = AutomationResult(command: .disconnect, envelope: envelope)
@@ -362,7 +413,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
     }
 
     private func settleBrightness(_ report: BrightnessWriteReport, display: AutomationDisplayCandidate,
-                                  route: BrightnessRoute, context: Context) -> AutomationResult {
+                                  route: BrightnessRoute, context: Context, field: String = "brightness") -> AutomationResult {
         let verdict = BrightnessSettlement.settle(report)
         let verification: VerificationState
         switch verdict.outcome {
@@ -371,7 +422,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
         default: verification = .notApplicable
         }
         var result = context.result(status: .aggregate([verdict.outcome]), operations: [
-            .init(field: "brightness", requested: .double(report.requested.normalized),
+            .init(field: field, requested: .double(report.requested.normalized),
                   observed: verdict.observed.map { .double($0.normalized) }, verification: verification,
                   provider: route.provider, warnings: verdict.note.map { [$0] } ?? [], outcome: verdict.outcome)])
         if verdict.outcome == .failed {
@@ -380,10 +431,11 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             result.issue = issue
             result.envelope.errors = [issue.errorInfo]
         }
-        result.brightness = brightnessReport(display, route: route, requested: report.requested, level: verdict.observed,
+        let controlReport = brightnessReport(display, route: route, requested: report.requested, level: verdict.observed,
                                              outcome: verdict.outcome, readback: report.readback, note: verdict.note,
                                              reportedByDisplay: verdict.verifiedByDisplay
                                                  || (report.readback.isReportedByDisplay && verdict.observed != nil))
+        if field == "contrast" { result.contrast = controlReport } else { result.brightness = controlReport }
         return result
     }
 

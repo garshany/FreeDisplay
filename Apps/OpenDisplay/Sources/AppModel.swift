@@ -89,6 +89,9 @@ enum FeatureFlags {
 /// build the experimental module is absent and the public provider is used directly.
 @MainActor
 final class AppModel: ObservableObject {
+    lazy var integrationService = IntegrationService(model: self)
+    private var automationContrastAccepted: [DisplayRecordID: Bool] = [:]
+    private var automationContrastReceipt: [DisplayRecordID: BrightnessReadback] = [:]
     @Published private(set) var displays: [DisplayObservation] = []
     @Published private(set) var statusText = String(localized: "Scanning…")
     @Published private(set) var busy = false
@@ -3538,6 +3541,10 @@ final class AppModel: ObservableObject {
         #if !PUBLIC_API_ONLY
         guard observation.displayClass != .builtIn else { return }
         let id = observation.recordID
+        if control == .contrast {
+            automationContrastAccepted[id] = nil
+            automationContrastReceipt[id] = nil
+        }
         let key = DDCControlKey(id: id, vcp: control.vcp)
         ddcControlLevel[id, default: [:]][control.vcp] = value
         // A level the user picks replaces the one a zero-volume mute remembered (TB-03): unmute must
@@ -3574,6 +3581,10 @@ final class AppModel: ObservableObject {
             case .cancelled: return
             case .superseded: continue
             case .reading(let reading):
+                if control == .contrast {
+                    automationContrastAccepted[key.id] = lastSent
+                    automationContrastReceipt[key.id] = reading.map { .ddc(current: $0.current, max: $0.max) } ?? BrightnessReadback.none
+                }
                 let outcome = DDCWriteVerification.outcome(
                     target: lastTarget, readback: reading?.current, tolerance: DDCReadbackPolicy.tolerance(.continuous))
                 noteWriteVerification(outcome, vcp: key.vcp, id: key.id)
@@ -8000,6 +8011,70 @@ extension AppModel {
         return AutomationColorProfileState(name: colorProfileName[id], customProfilePath: custom,
                                            isFactory: assignment?.isFactory ?? false,
                                            controllable: colorProfileControllable[id] ?? false)
+    }
+
+    func automationGroupBrightness(_ level: AutomationLevel, groupName: String, dryRun: Bool,
+                                   actor: Actor) async throws(AutomationIssue) -> ResultEnvelope {
+        guard let group = DisplayGroupStore.group(named: groupName, in: settings.displayGroups) else {
+            throw AutomationIssue(.unknownGroup, "unknown display group", subject: groupName)
+        }
+        let fanOut = GroupSyncPolicy.groupWrites(level.float, group: group, world: groupSyncWorld())
+        var targets: [ResultEnvelope.TargetResult] = []
+        for member in fanOut.absent + fanOut.governed {
+            let reason = fanOut.absent.contains(member) ? "absent" : "FaceLight or an app preset owns it"
+            targets.append(.init(displayId: member.rawValue, alias: nil, identityConfidence: 1,
+                operations: [.init(field: "brightness", verification: .notApplicable, warnings: [reason], outcome: .skipped)]))
+        }
+        // Queue the whole base operation before awaiting receipts; follower writes do not become
+        // leader events and cannot re-learn offsets or fan back through another group.
+        var queued: [(DisplayObservation, AutomationLevel)] = []
+        for write in fanOut.writes {
+            guard let observation = displays.first(where: { $0.recordID == write.member }) else { continue }
+            if !dryRun { applySilentBrightness(write.value, for: observation) }
+            queued.append((observation, AutomationLevel(clamping: Double(write.value))))
+        }
+        var outcomes: [OperationOutcome] = []
+        for (observation, requested) in queued {
+            let report = dryRun ? nil : await automationBrightnessWriteReport(requested, for: observation)
+            let verdict = report.map(BrightnessSettlement.settle)
+            let outcome = verdict?.outcome ?? .alreadySatisfied
+            outcomes.append(outcome)
+            targets.append(.init(displayId: observation.recordID.rawValue, alias: records[observation.recordID]?.alias,
+                identityConfidence: 1, operations: [.init(field: "brightness", requested: .double(requested.normalized),
+                    observed: verdict?.observed.map { .double($0.normalized) },
+                    verification: outcome == .verified ? .verified : .readBackUnavailable,
+                    warnings: verdict?.note.map { [$0] } ?? [], outcome: outcome)]))
+        }
+        return ResultEnvelope(transactionId: "txn_brightness", status: outcomes.isEmpty ? .failed : .aggregate(outcomes),
+                              actor: actor, requestedAt: Date(), topologyGeneration: displays.map(\.generation.value).max() ?? 0,
+                              targets: targets)
+    }
+
+    func automationContrastReadback(for observation: DisplayObservation) async -> BrightnessReadback {
+        #if !PUBLIC_API_ONLY
+        let key = DDCControlKey(id: observation.recordID, vcp: HardwareControl.contrast.vcp)
+        if let writer = ddcControlWriter[key] { await writer.value }
+        guard observation.displayClass != .builtIn, ddcSupports(key.vcp, for: observation),
+              let controller = await ddcController(for: observation),
+              let reading = await controller.read(vcp: key.vcp), reading.max > 0 else { return .none }
+        ddcControlMax[key] = reading.max
+        ddcControlLevel[key.id, default: [:]][key.vcp] = Float(reading.current) / Float(reading.max)
+        return .ddc(current: reading.current, max: reading.max)
+        #else
+        return .none
+        #endif
+    }
+
+    func automationContrastWriteReport(_ requested: AutomationLevel,
+                                       for observation: DisplayObservation) async -> BrightnessWriteReport {
+        #if !PUBLIC_API_ONLY
+        let key = DDCControlKey(id: observation.recordID, vcp: HardwareControl.contrast.vcp)
+        if let writer = ddcControlWriter[key] { await writer.value }
+        #endif
+        let accepted = automationContrastAccepted[observation.recordID] ?? false
+        return BrightnessWriteReport(requested: requested, accepted: accepted,
+                                     readback: automationContrastReceipt[observation.recordID] ?? .none,
+                                     failure: accepted ? nil : "the hardware contrast route rejected the write")
     }
 
     /// Coalescing owns the transport receipt; automation must not turn a rejected write into a
