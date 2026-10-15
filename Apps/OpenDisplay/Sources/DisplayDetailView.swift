@@ -43,6 +43,7 @@ struct DisplayDetailView: View {
                 DimmingCard(display: display)
                 UseAsCard(display: display)
                 IdentityCard(display: display)
+                DisplayIdentityCard(display: display).id(display.recordID)
                 InformationCard(display: display)
                 // Display-agnostic, but the Displays tab is where it belongs (Issue #39) and this is
                 // the tab's only scrolling surface.

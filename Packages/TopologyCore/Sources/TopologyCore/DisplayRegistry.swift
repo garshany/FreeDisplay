@@ -133,7 +133,7 @@ public actor DisplayRegistry {
         displayClass: DisplayClass = .unknown,
         now: Date = Date()
     ) async -> DisplayRecord {
-        let record = resolveLocked([(fingerprint, cgUUID, displayClass)], now: now)[0]
+        let record = resolveLocked([(fingerprint, cgUUID, displayClass)], now: now)[0].record
         await persist()
         return record
     }
@@ -146,20 +146,23 @@ public actor DisplayRegistry {
         _ inputs: [(fingerprint: DisplayFingerprint, cgUUID: String?, displayClass: DisplayClass)],
         now: Date = Date()
     ) async -> [DisplayRecord] {
-        let records = resolveLocked(inputs, now: now)
-        if !inputs.isEmpty { await persist() }
-        return records
+        await resolveAllExplained(inputs, now: now).map(\.record)
     }
 
-    /// How a live display claims a remembered record, weakest first. Comparable so a record two
-    /// present displays both claim can go to the one with the better evidence.
-    private enum Evidence: Int, Comparable {
-        case scored, cgUUID, serial, serialAndCGUUID
-        static func < (lhs: Evidence, rhs: Evidence) -> Bool { lhs.rawValue < rhs.rawValue }
+    /// `resolveAll`, with how each display was matched (TB-09): the explanation is the very value
+    /// the decision was taken from, including a record lost to another present display.
+    public func resolveAllExplained(
+        _ inputs: [(fingerprint: DisplayFingerprint, cgUUID: String?, displayClass: DisplayClass)],
+        now: Date = Date(),
+        newRecordStrategy: DisplayIdentityStrategy = .automatic
+    ) async -> [(record: DisplayRecord, explanation: IdentityMatchExplanation)] {
+        let resolved = resolveLocked(inputs, now: now, newRecordStrategy: newRecordStrategy)
+        if !inputs.isEmpty { await persist() }
+        return resolved
     }
 
     private enum Claim {
-        case record(DisplayRecordID, Evidence)
+        case record(DisplayRecordID, IdentityMatchEvidence)
         case ambiguous([DisplayRecordID])
         case mint
     }
@@ -168,9 +171,11 @@ public actor DisplayRegistry {
     /// persist once after applying every mutation they intend to (see `resolve` / `resolveAll`).
     private func resolveLocked(
         _ inputs: [(fingerprint: DisplayFingerprint, cgUUID: String?, displayClass: DisplayClass)],
-        now: Date
-    ) -> [DisplayRecord] {
-        var claims = inputs.map { claim(for: $0.fingerprint, cgUUID: $0.cgUUID, excluding: []) }
+        now: Date,
+        newRecordStrategy: DisplayIdentityStrategy = .automatic
+    ) -> [(record: DisplayRecord, explanation: IdentityMatchExplanation)] {
+        var explanations = inputs.map { explain($0.fingerprint, cgUUID: $0.cgUUID, excluding: []) }
+        var claims = explanations.map(Self.claim(from:))
 
         // One record per present display. Two displays on the desk at once are two displays, so a
         // record both claim can be at most one of them: the strictly better-evidenced claimant
@@ -181,7 +186,7 @@ public actor DisplayRegistry {
         }
         var outranked: [Int] = []
         for (id, indices) in claimants where indices.count > 1 {
-            let strengths = indices.map { index -> Evidence in
+            let strengths = indices.map { index -> IdentityMatchEvidence in
                 guard case .record(_, let evidence) = claims[index] else { return .scored }
                 return evidence
             }
@@ -189,6 +194,7 @@ public actor DisplayRegistry {
             let strongest = indices.indices.filter { strengths[$0] == best }.map { indices[$0] }
             for index in indices where strongest.count > 1 || strongest.first != index {
                 claims[index] = .ambiguous([id])
+                explanations[index].decision = .ambiguous([id], .claimedByAnotherDisplay)
                 if strongest.count == 1 { outranked.append(index) }
             }
         }
@@ -200,33 +206,40 @@ public actor DisplayRegistry {
             for claim in claims { if case .record(let id, _) = claim { held.insert(id) } }
             var retried: [DisplayRecordID: [Int]] = [:]
             for index in outranked {
-                let next = claim(for: inputs[index].fingerprint, cgUUID: inputs[index].cgUUID, excluding: held)
+                var retry = explain(inputs[index].fingerprint, cgUUID: inputs[index].cgUUID, excluding: held)
+                let next = Self.claim(from: retry)
                 // `.ambiguous` from this round is about the remaining candidates; keep the one it lost too.
                 if case .ambiguous(let candidates) = next, case .ambiguous(let lost) = claims[index] {
                     claims[index] = .ambiguous(lost + candidates)
+                    retry.decision = .ambiguous(lost + candidates, .claimedByAnotherDisplay)
                 } else {
                     claims[index] = next
                 }
+                explanations[index] = retry
                 if case .record(let id, _) = claims[index] { retried[id, default: []].append(index) }
             }
             for (id, indices) in retried where indices.count > 1 {
-                for index in indices { claims[index] = .ambiguous([id]) }
+                for index in indices {
+                    claims[index] = .ambiguous([id])
+                    explanations[index].decision = .ambiguous([id], .claimedByAnotherDisplay)
+                }
             }
         }
 
         var handedOut: [DisplayRecordID: (record: DisplayRecord, cgUUID: String?)] = [:]
-        var records: [DisplayRecord] = []
+        var resolved: [(record: DisplayRecord, explanation: IdentityMatchExplanation)] = []
         for (index, input) in inputs.enumerated() {
             switch claims[index] {
             case .record(let id, _):
-                records.append(touchLocked(id, fingerprint: input.fingerprint, cgUUID: input.cgUUID, now: now))
+                resolved.append((touchLocked(id, fingerprint: input.fingerprint, cgUUID: input.cgUUID, now: now),
+                                 explanations[index]))
             case .mint:
                 let record = DisplayRecord(
                     id: .generate(now: now), fingerprint: input.fingerprint,
-                    displayClass: input.displayClass, lastSeen: now)
+                    displayClass: input.displayClass, lastSeen: now, identityStrategy: newRecordStrategy)
                 state.records.append(record)
                 if let cgUUID = input.cgUUID { state.cgUUIDIndex[cgUUID] = record.id }
-                records.append(record)
+                resolved.append((record, explanations[index]))
             case .ambiguous(let candidates):
                 // A stable id per CG UUID keeps the answer the same across refreshes; the index
                 // only tells apart two provisional displays reporting the same UUID.
@@ -234,59 +247,43 @@ public actor DisplayRegistry {
                 if handedOut[id] != nil { id = DisplayRecordID(rawValue: "\(id.rawValue)#\(index)") }
                 let record = DisplayRecord(
                     id: id, fingerprint: input.fingerprint, displayClass: input.displayClass,
-                    lastSeen: now, unresolvedCandidates: candidates.sorted { $0.rawValue < $1.rawValue })
+                    lastSeen: now, unresolvedCandidates: candidates.sorted { $0.rawValue < $1.rawValue },
+                    identityStrategy: newRecordStrategy)
                 handedOut[id] = (record, input.cgUUID)
-                records.append(record)
+                resolved.append((record, explanations[index]))
             }
         }
         provisional = handedOut
-        return records
+        return resolved
     }
 
     /// What one display claims on its own, before the batch's one-record-per-display rule, among
-    /// the records not in `excluded`.
-    private func claim(for fingerprint: DisplayFingerprint, cgUUID: String?,
-                       excluding excluded: Set<DisplayRecordID>) -> Claim {
-        // A record whose own vendor, model or qualified serial says it is a different display is not
-        // this one, whatever else points at it — so it is out of EVERY stage below, not just one. The
-        // CG UUID index is a same-Mac routing hint, and a score is a sum of agreements: a paired record
-        // of the same model still scores 0.925 for its twin with another serial. Following either
-        // would merge the two displays, hand this one the other's alias and tags, and overwrite the
-        // record's identity with this display's serial.
-        let candidates = state.records.filter {
-            !excluded.contains($0.id) && !IdentityScorer.identitiesConflict(fingerprint, $0.fingerprint)
-        }
-        let indexed = cgUUID.flatMap { state.cgUUIDIndex[$0] }
-            .flatMap { id in candidates.first { $0.id == id }?.id }
+    /// the records not in `excluded` — the matching stages of `IdentityMatching.evaluate`. A record
+    /// whose own vendor, model or qualified serial says it is a different display is out of EVERY
+    /// stage: the CG UUID index is a same-Mac routing hint, and a score is a sum of agreements (a
+    /// paired record of the same model still scores 0.925 for its twin with another serial).
+    /// Following either would merge the two displays, hand this one the other's alias and tags, and
+    /// overwrite the record's identity with this display's serial.
+    private func explain(_ fingerprint: DisplayFingerprint, cgUUID: String?,
+                         excluding excluded: Set<DisplayRecordID>) -> IdentityMatchExplanation {
+        IdentityMatching.evaluate(fingerprint: fingerprint, cgUUID: cgUUID, records: state.records,
+                                  cgUUIDIndex: state.cgUUIDIndex, excluding: excluded,
+                                  recognitionThreshold: recognitionThreshold)
+    }
 
-        // 1. Qualified serial: the same serial from the same vendor and model.
-        let serialMatches = candidates
-            .filter { IdentityScorer.serialsMatch(fingerprint, $0.fingerprint) }
-            .map(\.id)
-        if serialMatches.count == 1 {
-            return .record(serialMatches[0], indexed == serialMatches[0] ? .serialAndCGUUID : .serial)
+    private static func claim(from explanation: IdentityMatchExplanation) -> Claim {
+        switch explanation.decision {
+        case .record(let id, let evidence): return .record(id, evidence)
+        case .ambiguous(let candidates, _): return .ambiguous(candidates)
+        case .newRecord: return .mint
         }
-        if !serialMatches.isEmpty {
-            // Several records share it — identical units, or records the user has already split.
-            // This Mac's CG UUID index is the only thing that can say which one this display is.
-            if let indexed, serialMatches.contains(indexed) { return .record(indexed, .serialAndCGUUID) }
-            return .ambiguous(serialMatches)
-        }
+    }
 
-        // 2. Same-Mac CG-UUID fast path.
-        if let indexed { return .record(indexed, .cgUUID) }
-
-        // 3. The single best scored fingerprint match; a tie is an answer of its own.
-        let scored = candidates
-            .map { ($0.id, IdentityScorer.score(observed: fingerprint, candidate: $0).score) }
-            .filter { $0.1 >= recognitionThreshold }
-        if let best = scored.map(\.1).max() {
-            let top = scored.filter { $0.1 == best }.map(\.0)
-            return top.count == 1 ? .record(top[0], .scored) : .ambiguous(top)
-        }
-
-        // 4. Mint a new record.
-        return .mint
+    /// How a display reporting `fingerprint` would be matched against the registry as it is now,
+    /// on its own — for a display that isn't connected to ask about, or a test. A live display's
+    /// actual answer comes from `resolveAllExplained`, which also knows about the displays beside it.
+    public func explainMatch(fingerprint: DisplayFingerprint, cgUUID: String?) -> IdentityMatchExplanation {
+        explain(fingerprint, cgUUID: cgUUID, excluding: [])
     }
 
     public func setAlias(_ alias: String?, for id: DisplayRecordID) async {
@@ -299,6 +296,11 @@ public actor DisplayRegistry {
 
     public func removeTag(_ tag: String, from id: DisplayRecordID) async {
         try? await mutate(id) { $0.tags.remove(tag) }
+    }
+
+    /// Changing policy never transfers preferences or rewrites UUID routing.
+    public func setIdentityStrategy(_ strategy: DisplayIdentityStrategy, for id: DisplayRecordID) async {
+        try? await mutate(id) { $0.identityStrategy = strategy }
     }
 
     /// Marks a record as an explicit user pairing, lifting its identity confidence (REG-004).
@@ -344,15 +346,52 @@ public actor DisplayRegistry {
         return true
     }
 
-    /// Clears what the user attached to a record — its name and tags — while keeping the identity
-    /// evidence (fingerprint, pairing, CG UUID routing), so a connected display whose settings are
-    /// reset is still recognized as itself rather than re-matched from scratch.
+    /// Clears what the user attached to a record — its name and tags, and the history of settings
+    /// moved onto it — while keeping the identity evidence (fingerprint, pairing, CG UUID routing),
+    /// so a connected display whose settings are reset is still recognized as itself rather than
+    /// re-matched from scratch.
     public func clearUserData(for id: DisplayRecordID) async {
         guard state.records.contains(where: { $0.id == id }) else { return }
         try? await mutate(id) {
             $0.alias = nil
             $0.tags = []
+            $0.provenance = nil
         }
+    }
+
+    /// The registry half of a confirmed settings transfer (SD-10, `DisplaySettingsTransfer`): the
+    /// destination takes the source's name and/or tags — replacing its own, not merged — and records
+    /// where they came from; the source record and every CG UUID index entry pointing at it go, as
+    /// with `forget`. The destination keeps its own fingerprint, pairing and index entries: settings
+    /// move, identities never merge, so if the source's display is ever seen again it is recognized
+    /// afresh. A provisional destination becomes a record of its own, like any user edit makes it.
+    /// One write. Returns the destination's persisted id, or nil (and changes nothing) when the
+    /// destination is unknown or the source is the destination.
+    @discardableResult
+    public func transferUserData(from source: DisplayRecordID?, to destination: DisplayRecordID,
+                                 alias: Bool, tags: Bool,
+                                 provenance: DisplayRecordProvenance) async -> DisplayRecordID? {
+        guard source != destination else { return nil }
+        let sourceRecord = source.flatMap { id in state.records.first { $0.id == id } }
+        guard let index = state.records.firstIndex(where: { $0.id == destination }) ?? materializeLocked(destination)
+        else { return nil }
+        if alias { state.records[index].alias = sourceRecord?.alias }
+        if tags { state.records[index].tags = sourceRecord?.tags ?? [] }
+        state.records[index].provenance = (state.records[index].provenance ?? []) + [provenance]
+        let destinationID = state.records[index].id
+        if let source, sourceRecord != nil {
+            state.records.removeAll { $0.id == source }
+            state.cgUUIDIndex = state.cgUUIDIndex.filter { $0.value != source }
+        }
+        await persist()
+        return destinationID
+    }
+
+    /// Notes on a record that settings were moved onto it from one of its own earlier identifiers
+    /// (`DisplaySettingsTransfer` migration). Nothing about recognition changes.
+    public func appendProvenance(_ provenance: DisplayRecordProvenance, to id: DisplayRecordID) async {
+        guard state.records.contains(where: { $0.id == id }) else { return }
+        try? await mutate(id) { $0.provenance = ($0.provenance ?? []) + [provenance] }
     }
 
     // MARK: - Private

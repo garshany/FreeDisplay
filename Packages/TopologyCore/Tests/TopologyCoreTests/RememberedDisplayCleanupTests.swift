@@ -297,6 +297,29 @@ final class RememberedDisplayCleanupTests: XCTestCase {
         XCTAssertEqual(after.faceLightPriorStateByDisplay, settings.faceLightPriorStateByDisplay)
     }
 
+    /// A hand-paired DDC channel is per-display data like the Apple-DDC choice: listed, and gone with
+    /// a forget or a reset — other displays' pairings stay.
+    func testForgetAndResetDropTheDisplaysDDCChannelPairing() throws {
+        var settings = OpenDisplaySettings()
+        let identity = DDCServiceMatcher.Target(vendorNumber: 1, productNumber: 1, serialNumber: 0)
+        settings.ddcChannelMappings = [
+            DDCChannelMapping(displayID: deskOtherPort, displayIdentity: identity, channelPath: "P0",
+                              channelAttributes: nil, confirmedAt: Date(timeIntervalSince1970: 0)),
+            DDCChannelMapping(displayID: laptop, displayIdentity: identity, channelPath: "P1",
+                              channelAttributes: nil, confirmedAt: Date(timeIntervalSince1970: 0)),
+        ]
+        for (status, mode) in [(RememberedDisplay.Status.notConnected, RememberedDisplayCleanup.Mode.forget),
+                               (.connected, .reset)] {
+            let plan = try RememberedDisplayCleanup.plan(
+                for: deskEntry(status: status), mode: mode, settings: settings, favorites: FavoriteResolutions(),
+                menuLayout: MenuLayoutSettings(), ledger: [])
+            XCTAssertTrue(plan.ddcChannelMapping)
+            XCTAssertFalse(plan.removesOnlyRecord)
+            XCTAssertEqual(RememberedDisplayCleanup.applying(plan, to: settings).ddcChannelMappings.map(\.displayID),
+                           [laptop])
+        }
+    }
+
     func testPlanForADisplayWithNothingSavedRemovesOnlyTheRecord() throws {
         let entry = RememberedDisplay(id: "disp_tv", record: record("disp_tv"), isRegistered: true,
                                       observationIDs: [tv], status: .notConnected, offline: nil)

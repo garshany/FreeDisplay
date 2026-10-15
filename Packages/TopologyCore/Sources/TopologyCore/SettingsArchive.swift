@@ -129,6 +129,7 @@ public struct SettingsArchive: Hashable, Sendable {
         var ids = Set<DisplayRecordID>()
         ids.formUnion(settings.softwareBrightnessDisplayIDs.map(DisplayRecordID.init(rawValue:)))
         ids.formUnion(settings.ddcAppleDisplayOverrideIDs.map(DisplayRecordID.init(rawValue:)))
+        ids.formUnion(settings.ddcChannelMappings.map(\.displayID))
         ids.formUnion(settings.adaptiveBrightnessOffsetByDisplay.keys.map(DisplayRecordID.init(rawValue:)))
         for preset in settings.appPresets {
             if case .display(let raw) = preset.target { ids.insert(DisplayRecordID(rawValue: raw)) }

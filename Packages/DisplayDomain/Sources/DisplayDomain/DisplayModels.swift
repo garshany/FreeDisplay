@@ -175,9 +175,17 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
     }
 }
 
-/// The persistent record that user intent (alias, tags, pairing, policies) attaches to. It is
-/// linked to observations through scored identity evidence (PRD §10.5). Persists across the
-/// active/offline lifecycle (REG-006).
+/// Safe matching strategies restrict the existing evidence stages; none weaken conflict or tie rejection.
+public enum DisplayIdentityStrategy: String, Hashable, Sendable, Codable, CaseIterable {
+    /// Existing fail-closed qualified serial / UUID / unique-score matching.
+    case automatic
+    /// Match only a previously indexed UUID; positive identity conflicts still reject it.
+    case systemUUID
+    /// Require qualified vendor/model/serial evidence; a shared serial remains ambiguous.
+    case qualifiedSerial
+}
+
+/// The persistent record that user intent attaches to across the active/offline lifecycle.
 public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
     public var id: DisplayRecordID
     public var alias: String?
@@ -192,6 +200,13 @@ public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
     /// persisted — the record exists only until the user names, tags or pairs the display, which
     /// makes it a display of its own (`DisplayRegistry`).
     public var unresolvedCandidates: [DisplayRecordID]?
+    /// Where this record's saved settings came from when the user moved them here from another
+    /// record or from an earlier identifier of the same display (SD-10/TB-09), oldest first. Nil
+    /// (and absent from the file) for a record nothing was ever moved to, so older registries read
+    /// unchanged and records written before the field existed encode exactly as they did.
+    public var provenance: [DisplayRecordProvenance]?
+    /// Nil in older registries preserves the existing automatic strategy.
+    public var identityStrategy: DisplayIdentityStrategy?
 
     public init(
         id: DisplayRecordID,
@@ -201,7 +216,9 @@ public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
         displayClass: DisplayClass = .unknown,
         lastSeen: Date? = nil,
         pairingConfirmed: Bool = false,
-        unresolvedCandidates: [DisplayRecordID]? = nil
+        unresolvedCandidates: [DisplayRecordID]? = nil,
+        provenance: [DisplayRecordProvenance]? = nil,
+        identityStrategy: DisplayIdentityStrategy? = nil
     ) {
         self.id = id
         self.alias = alias
@@ -211,6 +228,8 @@ public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
         self.lastSeen = lastSeen
         self.pairingConfirmed = pairingConfirmed
         self.unresolvedCandidates = unresolvedCandidates
+        self.provenance = provenance
+        self.identityStrategy = identityStrategy
     }
 
     /// True when automatic recognition was ambiguous and this record is the registry's explicit
@@ -239,5 +258,39 @@ public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
         let classLabel = displayClass.rawValue.capitalized
         guard let mode else { return "\(classLabel) display" }
         return "\(classLabel) \(mode.pixelWidth)×\(mode.pixelHeight)"
+    }
+}
+
+/// One deliberate move of saved settings onto a record (SD-10, TB-09): the user transferred them
+/// from another remembered record, or brought them over from an identifier this same display was
+/// seen under before. Kept so "where did these settings come from?" has an answer after the source
+/// is gone. Recognition never reads it — it is history, not identity evidence.
+public struct DisplayRecordProvenance: Hashable, Sendable, Codable {
+    public enum Kind: String, Hashable, Sendable, Codable {
+        /// From another record, which was removed by the transfer.
+        case transferredFrom
+        /// From an earlier identifier (`cg:<uuid>`) of this same record.
+        case migratedFrom
+    }
+
+    public var kind: Kind
+    public var date: Date
+    /// The name the source was shown under when the user confirmed the move.
+    public var sourceName: String
+    /// The removed record, for a transfer from a registered one.
+    public var sourceRecordID: DisplayRecordID?
+    /// The ids the moved settings were saved under.
+    public var sourceObservationIDs: [DisplayRecordID]
+    /// The kinds of settings moved (`DisplaySettingsTransfer.Category` raw values).
+    public var categories: [String]
+
+    public init(kind: Kind, date: Date, sourceName: String, sourceRecordID: DisplayRecordID? = nil,
+                sourceObservationIDs: [DisplayRecordID], categories: [String]) {
+        self.kind = kind
+        self.date = date
+        self.sourceName = sourceName
+        self.sourceRecordID = sourceRecordID
+        self.sourceObservationIDs = sourceObservationIDs
+        self.categories = categories
     }
 }

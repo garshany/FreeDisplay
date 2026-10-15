@@ -1,0 +1,49 @@
+#if os(macOS)
+import Foundation
+
+/// Persistence enum values remain stable; presentation uses readable, extractable English keys.
+func identityLabel(_ key: String) -> String {
+    switch key {
+    case "automatic": return String(localized: "Automatic (qualified serial, UUID, unique fingerprint)")
+    case "systemUUID": return String(localized: "Strict macOS UUID")
+    case "qualifiedSerial": return String(localized: "Qualified vendor, model and serial")
+    case "name": return String(localized: "App name")
+    case "tags": return String(localized: "Tags")
+    case "favoriteModes": return String(localized: "Favourite modes")
+    case "menuPresentation": return String(localized: "Menu visibility, icon and order")
+    case "groupMembership": return String(localized: "Group membership and offset")
+    case "softwareBrightness": return String(localized: "Software brightness preference")
+    case "adaptiveOffset": return String(localized: "Adaptive brightness offset")
+    case "appleDDCOverride": return String(localized: "Apple DDC permission is not transferred")
+    case "ddcChannelMapping": return String(localized: "Manual DDC channel mapping is not transferred")
+    case "pendingRestores": return String(localized: "Pending restores stay under their original identifiers")
+    case "inputSwitchHotkeys": return String(localized: "Input hotkeys stay under their original identifiers")
+    case "appPresets": return String(localized: "App presets stay under their original identifiers")
+    case "protectedLayouts": return String(localized: "Protected layouts are not transferred; layouts referencing a forgotten source are removed")
+    case "vendor": return String(localized: "Vendor")
+    case "product": return String(localized: "Product")
+    case "serial": return String(localized: "Serial number")
+    case "modelName": return String(localized: "Model name")
+    case "manufactureDate": return String(localized: "Manufacture date")
+    case "physicalSize": return String(localized: "Physical size")
+    case "edid": return String(localized: "EDID")
+    case "same": return String(localized: "Same")
+    case "different": return String(localized: "Different")
+    case "onlyRemembered": return String(localized: "Only in the remembered record")
+    case "onlyCurrent": return String(localized: "Only in the current fingerprint")
+    case "neither": return String(localized: "Missing on both sides")
+    case "differentVendorOrModel": return String(localized: "Vendor or model differs")
+    case "differentSerial": return String(localized: "Serial differs")
+    case "sharedSerial": return String(localized: "Several records share this serial; an explicit choice is required")
+    case "tiedScore": return String(localized: "Several records tie for the best score; an explicit choice is required")
+    case "claimedByAnotherDisplay": return String(localized: "Another connected display claims this record; automatic matching is refused")
+    case "unstableDisplayID": return String(localized: "No stable display identity, or the mapping names another display")
+    case "displayIdentityChanged": return String(localized: "Display identity changed; the mapping was revoked")
+    case "channelMissing": return String(localized: "The channel is missing or ambiguous; the mapping was revoked")
+    case "channelIdentityChanged": return String(localized: "Channel identity changed; the mapping was revoked")
+    case "channelContradictsDisplay": return String(localized: "The channel names another monitor; the mapping was revoked")
+    case "channelClaimedByAnotherDisplay": return String(localized: "Another display owns this channel; the mapping was revoked")
+    default: return key.appLocalized
+    }
+}
+#endif

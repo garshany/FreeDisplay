@@ -37,6 +37,17 @@ public struct DisplayRecordID: Hashable, Sendable, Codable, CustomStringConverti
 
     private static let cgUUIDPrefix = "cg:"
 
+    /// When a registry-minted id (`disp_<ms>_<suffix>`, see `generate`) was minted — the moment the
+    /// registry first saw the display. Nil for any other id form, or one whose stamp doesn't parse. ::
+    ///
+    ///     DisplayRecordID(rawValue: "disp_1700000000000_ABC").mintedAt
+    ///     ok: 2023-11-14 22:13:20 UTC
+    public var mintedAt: Date? {
+        let parts = rawValue.split(separator: "_")
+        guard parts.count == 3, parts[0] == "disp", let millis = UInt64(parts[1]) else { return nil }
+        return Date(timeIntervalSince1970: Double(millis) / 1000)
+    }
+
     public var description: String { rawValue }
 }
 

@@ -41,6 +41,9 @@ public actor ExternalDisplayDDC {
     private typealias ReadFn = @convention(c) (AnyObject, UInt32, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> Int32
 
     private let transport: DDCTransport
+    /// The IORegistry path of the channel this controller talks through (`DDCChannel.path`), so the
+    /// app can tell which channel a bound display already owns. Empty when IOKit reported none.
+    public nonisolated let channelPath: String
 
     /// Outcome of trying to bind a display's DDC channel.
     public enum Binding: Sendable {
@@ -82,10 +85,18 @@ public actor ExternalDisplayDDC {
             return buffer
         }
     }
-    private enum Lookup { case channel(Channel), refused(DDCBindingRefusal), unavailable }
+    private enum Lookup { case channel(Channel, path: String), refused(DDCBindingRefusal), unavailable }
 
-    private init(channel: Channel) {
+    private init(channel: Channel, path: String) {
         transport = DDCTransport(wire: channel)
+        channelPath = path
+    }
+
+    /// A binding plus what the display's hand-paired channel had to do with it (TR-06, owner
+    /// decision #4): nil when the display has no pairing.
+    public struct BindingReport: Sendable {
+        public let binding: Binding
+        public let pairing: DDCChannelMappingPolicy.Status?
     }
 
     /// Withdraws this binding (FB-08): no further I/O goes through it — not even for a transaction
@@ -100,9 +111,9 @@ public actor ExternalDisplayDDC {
     /// Binds to the external display's IOAVService, or fails if the display is the built-in, has no
     /// AV service, the SPI is unavailable, or the binding is refused (see `bind`).
     public init?(displayID: CGDirectDisplayID, allowAppleDisplay: Bool = false) {
-        guard case .channel(let channel) = Self.lookup(displayID, allowAppleDisplay: allowAppleDisplay)
+        guard case .channel(let channel, let path) = Self.lookup(displayID, allowAppleDisplay: allowAppleDisplay).lookup
         else { return nil }
-        self.init(channel: channel)
+        self.init(channel: channel, path: path)
     }
 
     /// Binds to the external display's IOAVService, explaining a refusal. Refuses Apple-made
@@ -110,38 +121,97 @@ public actor ExternalDisplayDDC {
     /// `DDCEligibility`) and any service the identity evidence can't single out (`DDCServiceMatcher`):
     /// a guessed binding would send commands to a different monitor.
     public static func bind(displayID: CGDirectDisplayID, allowAppleDisplay: Bool = false) -> Binding {
-        switch lookup(displayID, allowAppleDisplay: allowAppleDisplay) {
-        case .channel(let channel): return .bound(ExternalDisplayDDC(channel: channel))
-        case .refused(let reason): return .refused(reason)
-        case .unavailable: return .unavailable
+        bind(displayID: displayID, allowAppleDisplay: allowAppleDisplay, recordID: nil, pairing: nil,
+             otherPairings: []).binding
+    }
+
+    /// `bind`, consulting the display's hand-paired channel when identity alone refuses
+    /// (`DDCChannelMappingPolicy`): `recordID` is the display's stable id, `pairing` its own pairing,
+    /// `otherPairings` those of the other connected displays.
+    public static func bind(displayID: CGDirectDisplayID, allowAppleDisplay: Bool, recordID: DisplayRecordID?,
+                            pairing: DDCChannelMapping?, otherPairings: [DDCChannelMapping]) -> BindingReport {
+        let (lookup, status) = lookup(displayID, allowAppleDisplay: allowAppleDisplay, recordID: recordID,
+                                      pairing: pairing, otherPairings: otherPairings)
+        switch lookup {
+        case .channel(let channel, let path):
+            return BindingReport(binding: .bound(ExternalDisplayDDC(channel: channel, path: path)), pairing: status)
+        case .refused(let reason): return BindingReport(binding: .refused(reason), pairing: status)
+        case .unavailable: return BindingReport(binding: .unavailable, pairing: status)
         }
     }
 
-    private static func lookup(_ displayID: CGDirectDisplayID, allowAppleDisplay: Bool) -> Lookup {
-        guard CGDisplayIsBuiltin(displayID) == 0 else { return .unavailable }
+    /// Every external DDC channel macOS lists, in registry order — what the user picks from when
+    /// pairing a channel by hand.
+    public static func channels() -> [DDCChannel] {
+        let services = externalServices()
+        for service in services { IOObjectRelease(service.service) }
+        return services.map(\.channel)
+    }
+
+    /// A controller for the channel at `channelPath`, chosen explicitly by the user — only for the
+    /// test flash that precedes confirming a pairing (`DDCChannelTest`), never for ordinary control.
+    /// Nil when there is no such channel, or when the channel's own identity names an Apple display
+    /// and `allowAppleDisplay` (that display's override) isn't set (FB-08).
+    public static func bindForPairingTest(channelPath: String, allowAppleDisplay: Bool) -> ExternalDisplayDDC? {
+        guard !channelPath.isEmpty else { return nil }
+        let services = externalServices()
+        defer { for service in services { IOObjectRelease(service.service) } }
+        guard let chosen = services.first(where: { $0.channel.path == channelPath }) else { return nil }
+        let vendor = chosen.channel.attributes.flatMap {
+            $0.legacyManufacturerID ?? $0.manufacturerID.flatMap(DDCServiceMatcher.vendorNumber(fromPNP:))
+        }
+        if let vendor, !DDCEligibility.allowsGenericDDC(vendorNumber: vendor, appleOverride: allowAppleDisplay) {
+            return nil
+        }
+        guard let spi = spi(), let channel = avChannel(for: chosen.service, spi: spi) else { return nil }
+        return ExternalDisplayDDC(channel: channel, path: channelPath)
+    }
+
+    /// The identity `DDCServiceMatcher` compares a display by: Core Graphics' vendor/model/serial.
+    public static func ddcIdentity(of displayID: CGDirectDisplayID) -> DDCServiceMatcher.Target {
+        identity(of: displayID)
+    }
+
+    private static func lookup(_ displayID: CGDirectDisplayID, allowAppleDisplay: Bool,
+                               recordID: DisplayRecordID? = nil, pairing: DDCChannelMapping? = nil,
+                               otherPairings: [DDCChannelMapping] = []) -> (lookup: Lookup, pairing: DDCChannelMappingPolicy.Status?) {
+        guard CGDisplayIsBuiltin(displayID) == 0 else { return (.unavailable, nil) }
         let vendor = CGDisplayVendorNumber(displayID)
         // OpenDisplay's own virtual screens have no I2C channel; without this they would score zero
         // against the real monitor's service and could only ever borrow it.
-        guard vendor != VirtualDisplaySafetyPolicy.providerVendorID else { return .unavailable }
+        guard vendor != VirtualDisplaySafetyPolicy.providerVendorID else { return (.unavailable, nil) }
         guard DDCEligibility.allowsGenericDDC(vendorNumber: Int(vendor), appleOverride: allowAppleDisplay)
-        else { return .refused(.appleDisplay) }
+        else { return (.refused(.appleDisplay), nil) }
+        guard let spi = spi() else { return (.unavailable, nil) }
+        let svc: io_service_t
+        let path: String
+        let found = avService(for: displayID, recordID: recordID, pairing: pairing, otherPairings: otherPairings)
+        switch found.lookup {
+        case .found(let service, let servicePath): svc = service; path = servicePath
+        case .refused(let reason): return (.refused(reason), found.pairing)
+        case .none: return (.unavailable, found.pairing)
+        }
+        defer { IOObjectRelease(svc) }
+        guard let channel = avChannel(for: svc, spi: spi) else { return (.unavailable, found.pairing) }
+        return (.channel(channel, path: path), found.pairing)
+    }
+
+    /// The IOAVService SPI, or nil when this macOS doesn't export it.
+    private static func spi() -> (create: CreateFn, write: WriteFn, read: ReadFn)? {
         guard let iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW),
               let createPtr = dlsym(iokit, "IOAVServiceCreateWithService"),
               let writePtr = dlsym(iokit, "IOAVServiceWriteI2C"),
               let readPtr = dlsym(iokit, "IOAVServiceReadI2C")
-        else { return .unavailable }
-        let create = unsafeBitCast(createPtr, to: CreateFn.self)
-        let svc: io_service_t
-        switch avService(for: displayID) {
-        case .found(let found): svc = found
-        case .refused(let reason): return .refused(reason)
-        case .none: return .unavailable
-        }
-        defer { IOObjectRelease(svc) }
-        guard let av = create(kCFAllocatorDefault, svc) else { return .unavailable }
-        return .channel(Channel(service: av.takeRetainedValue(),
-                                writeFn: unsafeBitCast(writePtr, to: WriteFn.self),
-                                readFn: unsafeBitCast(readPtr, to: ReadFn.self)))
+        else { return nil }
+        return (unsafeBitCast(createPtr, to: CreateFn.self), unsafeBitCast(writePtr, to: WriteFn.self),
+                unsafeBitCast(readPtr, to: ReadFn.self))
+    }
+
+    /// The I2C channel through one AV service, or nil when the SPI refuses the service.
+    private static func avChannel(for svc: io_service_t,
+                                  spi: (create: CreateFn, write: WriteFn, read: ReadFn)) -> Channel? {
+        guard let av = spi.create(kCFAllocatorDefault, svc) else { return nil }
+        return Channel(service: av.takeRetainedValue(), writeFn: spi.write, readFn: spi.read)
     }
 
     /// Reads a VCP feature: (current, max) in the display's native units (brightness/contrast 0...100
@@ -199,13 +269,45 @@ public actor ExternalDisplayDDC {
     /// attribute-less services next to several displays) the lookup is refused — order is exactly
     /// what changes across a dock replug, so a guess could silently retarget writes. A lone
     /// attribute-less service for a lone external monitor still binds.
-    private enum ServiceLookup { case found(io_service_t), refused(DDCBindingRefusal), none }
+    ///
+    /// A display identity can't single out may still be bound through the channel the user paired with
+    /// it by hand (`DDCChannelMappingPolicy`) — never through order.
+    private enum ServiceLookup { case found(io_service_t, path: String), refused(DDCBindingRefusal), none }
 
-    private static func avService(for displayID: CGDirectDisplayID) -> ServiceLookup {
+    private static func avService(for displayID: CGDirectDisplayID, recordID: DisplayRecordID?,
+                                  pairing: DDCChannelMapping?, otherPairings: [DDCChannelMapping])
+        -> (lookup: ServiceLookup, pairing: DDCChannelMappingPolicy.Status?) {
+        let services = externalServices()
+        guard !services.isEmpty else { return (.none, nil) }
+        let index: Int
+        let online = externalDisplayIDs()
+        let resolved = DDCChannelMappingPolicy.resolve(
+            channels: services.map(\.channel), target: identity(of: displayID),
+            externals: online.map(identity(of:)),
+            displayID: recordID ?? DisplayRecordID(rawValue: ""),
+            mapping: recordID == nil ? nil : pairing, otherMappings: otherPairings,
+            unobservedExternalCount: unobservedExternalCount(online: online))
+        switch resolved.resolution {
+        case .matched(let found), .sole(let found): index = found
+        case .refused(let reason):
+            for kept in services { IOObjectRelease(kept.service) }
+            return (.refused(reason), resolved.status)
+        case .none:
+            for kept in services { IOObjectRelease(kept.service) }
+            return (.none, resolved.status)
+        }
+        let chosen = services[index]
+        for candidate in services where candidate.service != chosen.service { IOObjectRelease(candidate.service) }
+        return (.found(chosen.service, path: chosen.channel.path), resolved.status)
+    }
+
+    /// Every external AV service with its channel description, in registry order. The caller owns
+    /// (and must release) each service.
+    private static func externalServices() -> [(service: io_service_t, channel: DDCChannel)] {
         var iterator = io_iterator_t()
         guard IORegistryCreateIterator(
             kIOMainPortDefault, kIOServicePlane, IOOptionBits(kIORegistryIterateRecursively), &iterator
-        ) == KERN_SUCCESS else { return .none }
+        ) == KERN_SUCCESS else { return [] }
         defer { IOObjectRelease(iterator) }
 
         var externals: [io_service_t] = []
@@ -244,7 +346,14 @@ public actor ExternalDisplayDDC {
             candidates.removeAll()
             IOIteratorReset(iterator)
         }
-        let online = externalDisplayIDs()
+        return zip(externals, candidates).map { service, attributes in
+            (service, DDCChannel(path: registryPath(of: service), attributes: attributes))
+        }
+    }
+
+    /// Managed-offline monitors missing from the online enumeration: their services still exist, so a
+    /// "sole" automatic match must not claim one of them (owner decision #29).
+    private static func unobservedExternalCount(online: [CGDirectDisplayID]) -> Int {
         let observations = online.map { number in
             let uuid: String?
             if let value = CGDisplayCreateUUIDFromDisplayID(number)?.takeRetainedValue() {
@@ -256,20 +365,14 @@ public actor ExternalDisplayDDC {
                                       generation: .initial)
         }
         let ledger = (try? ManagedOfflineStore.defaultDirectory()).map { ManagedOfflineStore(directory: $0).load() } ?? []
-        let offlineCount = DDCBindingPopulation.unobservedExternalCount(observations: observations, ledger: ledger)
-        let index: Int
-        switch DDCServiceMatcher.resolve(candidates, against: identity(of: displayID),
-                                         among: online.map(identity(of:)), unobservedExternalCount: offlineCount) {
-        case .matched(let found), .sole(let found): index = found
-        case .refused(let reason):
-            for kept in externals { IOObjectRelease(kept) }
-            return .refused(reason)
-        case .none:
-            return .none
-        }
-        let chosen = externals[index]
-        for candidate in externals where candidate != chosen { IOObjectRelease(candidate) }
-        return .found(chosen)
+        return DDCBindingPopulation.unobservedExternalCount(observations: observations, ledger: ledger)
+    }
+
+    /// The service-plane path of a registry entry, or "" when IOKit can't report one.
+    private static func registryPath(of entry: io_registry_entry_t) -> String {
+        var buffer = [CChar](repeating: 0, count: 512)
+        guard IORegistryEntryGetPath(entry, kIOServicePlane, &buffer) == KERN_SUCCESS else { return "" }
+        return String(cString: buffer)
     }
 
     private static func identity(of displayID: CGDirectDisplayID) -> DDCServiceMatcher.Target {
