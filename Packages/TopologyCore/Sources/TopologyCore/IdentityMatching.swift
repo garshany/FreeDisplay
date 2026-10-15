@@ -216,7 +216,8 @@ public enum IdentityMatching {
         // model or qualified serial says it is a different display — following its CG UUID index
         // entry or its score would merge two displays and hand this one the other's name.
         let candidates = assessments.filter { $0.conflict == nil && !$0.heldByAnotherDisplay }
-        let indexed = candidates.first(where: \.indexedUnderThisUUID)?.recordID
+        let strategies = Dictionary(uniqueKeysWithValues: records.map { ($0.id, $0.identityStrategy ?? .automatic) })
+        let indexed = candidates.first(where: { $0.indexedUnderThisUUID && strategies[$0.recordID] != .qualifiedSerial })?.recordID
 
         func explained(_ decision: IdentityMatchExplanation.Decision) -> IdentityMatchExplanation {
             IdentityMatchExplanation(decision: decision, observed: fingerprint, cgUUID: cgUUID,
@@ -224,7 +225,7 @@ public enum IdentityMatching {
         }
 
         // 1. Qualified serial.
-        let serialMatches = candidates.filter(\.serialMatches).map(\.recordID)
+        let serialMatches = candidates.filter { $0.serialMatches && strategies[$0.recordID] != .systemUUID }.map(\.recordID)
         if serialMatches.count == 1 {
             return explained(.record(serialMatches[0], indexed == serialMatches[0] ? .serialAndCGUUID : .serial))
         }
@@ -238,7 +239,7 @@ public enum IdentityMatching {
         if let indexed { return explained(.record(indexed, .cgUUID)) }
 
         // 3. The single best score; a tie is an answer of its own.
-        let scored = candidates.filter { $0.confidence.score >= recognitionThreshold }
+        let scored = candidates.filter { strategies[$0.recordID] == .automatic && $0.confidence.score >= recognitionThreshold }
         if let best = scored.map(\.confidence.score).max() {
             let top = scored.filter { $0.confidence.score == best }.map(\.recordID)
             return explained(top.count == 1 ? .record(top[0], .scored) : .ambiguous(top, .tiedScore))

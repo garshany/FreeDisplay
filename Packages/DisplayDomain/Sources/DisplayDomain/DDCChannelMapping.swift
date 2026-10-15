@@ -49,8 +49,8 @@ public struct DDCChannelMapping: Hashable, Sendable, Codable {
 /// confirmed on still holds, the channel names nothing that contradicts the display, no other
 /// connected display is bound to that channel by identity, and no other connected display's pairing
 /// names it too. Otherwise nothing is bound — the fail-closed answer stands — and the status says
-/// why, so the user can choose again. A pairing whose evidence stops matching isn't deleted: it is
-/// inert until exactly that evidence is back, or until the user removes or replaces it.
+/// why, so the user can choose again. The caller revokes a saved pairing on an invalid result;
+/// returning to earlier evidence must not silently revive that consent.
 public enum DDCChannelMappingPolicy {
     public enum Status: Hashable, Sendable {
         /// The pairing bound the display to the channel at this index.
@@ -79,7 +79,7 @@ public enum DDCChannelMappingPolicy {
 
     /// Whether a display can be paired at all: only one with a stable `cg:<uuid>` id.
     public static func canPair(_ displayID: DisplayRecordID) -> Bool {
-        displayID.cgUUID != nil
+        displayID.cgUUID.map { !$0.isEmpty } == true
     }
 
     /// Whether a manual pairing may lift this refusal.
@@ -118,9 +118,13 @@ public enum DDCChannelMappingPolicy {
         let attributes = channels.map(\.attributes)
         let automatic = DDCServiceMatcher.resolve(attributes, against: target, among: externals)
         guard let mapping else { return (automatic, nil) }
+        let validation = validate(mapping, displayID: displayID, target: target, channels: channels,
+                                  externals: externals, otherMappings: otherMappings)
+        // Evidence changes revoke the saved pairing even if automatic matching no longer needs it.
+        // A positively resolved automatic route remains safe to use on its own evidence.
+        if case .failure(let reason) = validation { return (automatic, .invalid(reason)) }
         guard case .refused(let refusal) = automatic, isLiftable(refusal) else { return (automatic, .notNeeded) }
-        switch validate(mapping, displayID: displayID, target: target, channels: channels,
-                        externals: externals, otherMappings: otherMappings) {
+        switch validation {
         case .success(let index): return (.matched(index: index), .inUse(channelIndex: index))
         case .failure(let reason): return (automatic, .invalid(reason))
         }
@@ -134,6 +138,7 @@ public enum DDCChannelMappingPolicy {
         guard canPair(displayID), mapping.displayID == displayID else { return .failure(.unstableDisplayID) }
         guard mapping.displayIdentity == target else { return .failure(.displayIdentityChanged) }
         guard !mapping.channelPath.isEmpty,
+              channels.filter({ $0.path == mapping.channelPath }).count == 1,
               let index = channels.firstIndex(where: { $0.path == mapping.channelPath }) else {
             return .failure(.channelMissing)
         }
@@ -166,6 +171,19 @@ public enum DDCChannelMappingPolicy {
 /// touched — never input or power — and nothing is written unless the channel first answers a
 /// brightness read, because without the current level there is nothing to put back.
 public enum DDCChannelTest {
+    /// Values come from the user; no flash level or duration is chosen by the library.
+    public struct Parameters: Hashable, Sendable {
+        public let levelPercent: Double
+        public let duration: Duration
+
+        public init?(levelPercent: Double, durationSeconds: Double) {
+            guard levelPercent.isFinite, (0...100).contains(levelPercent),
+                  durationSeconds.isFinite, durationSeconds > 0,
+                  durationSeconds < Double(Int64.max) else { return nil }
+            self.levelPercent = levelPercent
+            self.duration = .seconds(durationSeconds)
+        }
+    }
     public enum Outcome: Hashable, Sendable {
         /// The channel flashed from `original` to `flashLevel` and back (`restored` false: the
         /// write putting `original` back failed — the monitor may be left at `flashLevel`).
@@ -177,20 +195,17 @@ public enum DDCChannelTest {
         case flashWriteFailed(original: Int, restored: Bool)
     }
 
-    /// The flash level: the far end of the range from the current level — the minimum from the top
-    /// half, the maximum from the bottom half — so the change is as visible as the panel allows.
-    public static func flashLevel(current: Int, max: Int) -> Int {
-        let top = Swift.max(0, max)
-        return current * 2 >= top ? 0 : top
-    }
-
     /// Runs the flash: read, write the flash level, `hold` (the caller decides how long), write the
     /// original back.
-    public static func run(read: () async -> (current: Int, max: Int)?,
+    public static func run(isolation: isolated (any Swift.Actor)? = #isolation,
+                           parameters: Parameters, read: () async -> (current: Int, max: Int)?,
                            write: (Int) async -> Bool,
                            hold: () async -> Void) async -> Outcome {
-        guard let reading = await read(), reading.max > 0 else { return .noReply }
-        let level = flashLevel(current: reading.current, max: reading.max)
+        guard let reading = await read(), reading.max > 0, reading.current >= 0,
+              reading.current <= reading.max else { return .noReply }
+        let scaled = Double(reading.max) * parameters.levelPercent / 100
+        guard scaled < Double(Int.max) else { return .noReply }
+        let level = Int(scaled.rounded(.down))
         guard await write(level) else {
             return .flashWriteFailed(original: reading.current, restored: await write(reading.current))
         }

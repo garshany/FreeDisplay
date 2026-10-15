@@ -168,6 +168,11 @@ public enum DisplaySettingsTransfer {
         public var destinationRecordID: DisplayRecordID?
         public var source: SavedSettings
         public var destination: SavedSettings
+        /// Full per-identifier values: aliases of one record can hold different group offsets,
+        /// menu preferences or favourites. The preview and stale-plan check must not hide them
+        /// behind the aggregate's first value.
+        public var sourceByID: [DisplayRecordID: SavedSettings]
+        public var destinationByID: [DisplayRecordID: SavedSettings]
         /// One per category that would change, in `Category` order.
         public var changes: [Change]
         /// What the source holds that never moves.
@@ -300,7 +305,10 @@ public enum DisplaySettingsTransfer {
             kind: .transfer, sourceEntryID: source.id, destinationEntryID: destination.id,
             sourceIDs: source.observationIDs, destinationIDs: destinationIDs,
             destinationLiveID: destinationLiveID, sourceRecordID: sourceRecord?.id,
-            destinationRecordID: destination.record?.id, source: from, destination: to, changes: changes,
+            destinationRecordID: destination.record?.id, source: from, destination: to,
+            sourceByID: snapshots(source.observationIDs, settings: settings, favorites: favorites, menuLayout: menuLayout),
+            destinationByID: snapshots(destinationIDs, settings: settings, favorites: favorites, menuLayout: menuLayout),
+            changes: changes,
             retained: Retained.allCases.filter(from.holds), physicalIdentity: identity, sourceCleanup: cleanup)
     }
 
@@ -325,7 +333,7 @@ public enum DisplaySettingsTransfer {
         if let group = from.group {
             if to.group == nil {
                 changes.append(Change(category: .groupMembership, effect: .move))
-            } else if to.group?.groupID != group.groupID {
+            } else if to.group?.groupID != group.groupID || to.group?.offset != group.offset {
                 changes.append(Change(category: .groupMembership, effect: .conflict))
             }
         }
@@ -339,13 +347,24 @@ public enum DisplaySettingsTransfer {
                 changes.append(Change(category: .adaptiveOffset, effect: .conflict))
             }
         }
-        guard changes.contains(where: { $0.effect != .conflict }) else { throw .nothingToMove }
+        guard !changes.isEmpty else { throw .nothingToMove }
         return Plan(
             kind: .migrate, sourceEntryID: entry.id, destinationEntryID: entry.id,
             sourceIDs: earlier, destinationIDs: [liveID], destinationLiveID: liveID,
             sourceRecordID: nil, destinationRecordID: entry.isRegistered ? entry.record?.id : nil,
-            source: from, destination: to, changes: changes,
+            source: from, destination: to,
+            sourceByID: snapshots(earlier, settings: settings, favorites: favorites, menuLayout: menuLayout),
+            destinationByID: snapshots([liveID], settings: settings, favorites: favorites, menuLayout: menuLayout),
+            changes: changes,
             retained: Retained.allCases.filter(from.holds), physicalIdentity: nil, sourceCleanup: nil)
+    }
+
+    private static func snapshots(_ ids: [DisplayRecordID], settings: OpenDisplaySettings,
+                                  favorites: FavoriteResolutions, menuLayout: MenuLayoutSettings)
+        -> [DisplayRecordID: SavedSettings] {
+        Dictionary(uniqueKeysWithValues: ids.map {
+            ($0, saved(under: [$0], record: nil, settings: settings, favorites: favorites, menuLayout: menuLayout))
+        })
     }
 
     private static func validate(source: RememberedDisplay, destination: RememberedDisplay) throws(Refusal) {

@@ -177,6 +177,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// How far one brightness/volume step moves, for the native keys and the custom shortcuts alike
     /// (SO-29). Defaults to macOS's 1/16 and 1/64 steps.
     public var adjustmentSteps: AdjustmentSteps
+    /// New records inherit this strategy; older records keep their existing matching behavior.
+    public var newDisplayIdentityStrategy: DisplayIdentityStrategy
     /// Forget a remembered display automatically once it has gone this many days unseen (SD-09,
     /// FB-13; `RememberedDisplayRetention`). Nil — the default — keeps every record until the user
     /// forgets it: FreeDisplay picks no retention period of its own.
@@ -241,7 +243,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         dockIconPolicy: DockIconPolicy = .whileSettingsOpen,
         adjustmentSteps: AdjustmentSteps = .default,
         rememberedDisplayRetentionDays: Int? = nil,
-        ddcChannelMappings: [DDCChannelMapping] = []
+        ddcChannelMappings: [DDCChannelMapping] = [],
+        newDisplayIdentityStrategy: DisplayIdentityStrategy = .automatic
     ) {
         self.persistencePolicy = persistencePolicy
         self.confirmationCountdownSeconds = confirmationCountdownSeconds
@@ -298,6 +301,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.adjustmentSteps = adjustmentSteps
         self.rememberedDisplayRetentionDays = RememberedDisplayRetention.normalizedDays(rememberedDisplayRetentionDays)
         self.ddcChannelMappings = ddcChannelMappings
+        self.newDisplayIdentityStrategy = newDisplayIdentityStrategy
     }
 
     public static let `default` = OpenDisplaySettings()
@@ -354,6 +358,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case routineProtectionNoticesEnabled
         case dockIconPolicy
         case adjustmentSteps
+        case newDisplayIdentityStrategy
         case rememberedDisplayRetentionDays
         case ddcChannelMappings
     }
@@ -480,6 +485,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             ?? defaults.dockIconPolicy
         adjustmentSteps = container.lenient(AdjustmentSteps.self, forKey: .adjustmentSteps)
             ?? defaults.adjustmentSteps
+        newDisplayIdentityStrategy = container.lenient(DisplayIdentityStrategy.self, forKey: .newDisplayIdentityStrategy)
+            ?? defaults.newDisplayIdentityStrategy
         // A hand-edited zero or negative period reads as off, never as "forget at once".
         rememberedDisplayRetentionDays = RememberedDisplayRetention.normalizedDays(
             container.lenient(Int.self, forKey: .rememberedDisplayRetentionDays))

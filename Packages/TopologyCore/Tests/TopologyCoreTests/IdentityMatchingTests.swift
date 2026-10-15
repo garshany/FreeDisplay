@@ -29,6 +29,56 @@ final class IdentityMatchingTests: XCTestCase {
         return await DisplayRegistry(store: InMemoryRegistryStore(state))
     }
 
+    func testSystemUUIDStrategyRejectsSerialFallbackButStillRejectsConflicts() async {
+        var known = record("disp_a", fingerprint(serial: "A"))
+        known.identityStrategy = .systemUUID
+        let registry = await registry([known], index: ["U1": "disp_a"])
+        let unchanged = await registry.resolveAllExplained([input(fingerprint(serial: "A"), "U1")])
+        XCTAssertEqual(unchanged[0].record.id, known.id)
+        let changed = await registry.resolveAllExplained([input(fingerprint(serial: "A"), "U-new")])
+        XCTAssertNotEqual(changed[0].record.id, known.id)
+        let conflict = await registry.resolveAllExplained([input(fingerprint(serial: "B"), "U1")])
+        XCTAssertNotEqual(conflict[0].record.id, known.id)
+    }
+
+    func testQualifiedSerialStrategyDoesNotFallBackToUUIDOrScore() async {
+        var known = record("disp_a", fingerprint(serial: "A"))
+        known.identityStrategy = .qualifiedSerial
+        let registry = await registry([known], index: ["U1": "disp_a"])
+        let changedUUID = await registry.resolveAllExplained([input(fingerprint(serial: "A"), "U-new")])
+        XCTAssertEqual(changedUUID[0].record.id, known.id)
+        let missing = await registry.resolveAllExplained([input(fingerprint(), "U1")])
+        XCTAssertNotEqual(missing[0].record.id, known.id)
+    }
+
+    func testNewRecordStrategyOnlyAppliesToNewRecordsAndSurvivesCoding() async throws {
+        let known = record("disp_a", fingerprint(serial: "A"))
+        let registry = await registry([known], index: ["U1": "disp_a"])
+        let resolved = await registry.resolveAllExplained(
+            [input(fingerprint(serial: "A"), "U1"), input(fingerprint(serial: "B"), "U2")],
+            newRecordStrategy: .systemUUID)
+        XCTAssertNil(resolved[0].record.identityStrategy)
+        XCTAssertEqual(resolved[1].record.identityStrategy, .systemUUID)
+        let state = await registry.currentState()
+        let decoded = try JSONDecoder().decode(RegistryState.self, from: JSONEncoder().encode(state))
+        XCTAssertEqual(decoded, state)
+        var settings = OpenDisplaySettings()
+        settings.newDisplayIdentityStrategy = .qualifiedSerial
+        XCTAssertEqual(try JSONDecoder().decode(OpenDisplaySettings.self, from: JSONEncoder().encode(settings)), settings)
+        XCTAssertEqual(try JSONDecoder().decode(OpenDisplaySettings.self, from: Data("{}".utf8)).newDisplayIdentityStrategy, .automatic)
+    }
+
+    func testArchiveReportsUnmatchedManualChannelIdentity() {
+        let id = DisplayRecordID.forCGUUID("not-on-this-mac")
+        var settings = OpenDisplaySettings()
+        settings.ddcChannelMappings = [.init(displayID: id,
+            displayIdentity: .init(vendorNumber: 1, productNumber: 2, serialNumber: 0),
+            channelPath: "test-channel", channelAttributes: nil, confirmedAt: Date())]
+        let archive = SettingsArchive(createdAt: Date(), appVersion: nil, settings: settings,
+            favorites: FavoriteResolutions(), registry: RegistryState(), scenes: [], defaults: ArchivedDefaults())
+        XCTAssertEqual(archive.unmatchedDisplays(known: []).map(\.id), [id])
+    }
+
     // MARK: - Decision mirrors resolution
 
     func testANewDisplayIsExplainedAsANewRecord() async {

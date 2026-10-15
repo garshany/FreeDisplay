@@ -68,7 +68,7 @@ final class DDCChannelMappingTests: XCTestCase {
             externals: [.init(vendorNumber: 0x10AC, productNumber: 0xA0B1, serialNumber: 1),
                         .init(vendorNumber: 0x10AC, productNumber: 0xA0B1, serialNumber: 2)],
             displayID: left, mapping: pairing(left, 0), otherMappings: []).status,
-                       .notNeeded, "where identity decides, the pairing isn't consulted")
+                       .invalid(.displayIdentityChanged), "automatic binding cannot retain stale manual consent")
         XCTAssertEqual(status(target: .init(vendorNumber: 0x10AC, productNumber: 0xA0B2, serialNumber: 0)),
                        .invalid(.displayIdentityChanged))
         XCTAssertEqual(status(channels: [channels[0]]), .invalid(.channelMissing))
@@ -122,7 +122,17 @@ final class DDCChannelMappingTests: XCTestCase {
         let result = DDCChannelMappingPolicy.resolve(channels: lone, target: twin, externals: [twin],
                                                      displayID: left, mapping: mapping, otherMappings: [])
         XCTAssertEqual(result.resolution, .refused(.contradictingIdentity))
-        XCTAssertEqual(result.status, .notNeeded)
+        XCTAssertEqual(result.status, .invalid(.channelContradictsDisplay))
+    }
+
+    func testEvidenceChangeInvalidatesPairingEvenWhenAutomaticBindingSucceeds() {
+        let lone = [channels[0]]
+        var stale = pairing(left, 0)
+        stale.displayIdentity.serialNumber = 99
+        let result = DDCChannelMappingPolicy.resolve(channels: lone, target: twin, externals: [twin],
+            displayID: left, mapping: stale, otherMappings: [])
+        XCTAssertEqual(result.status, .invalid(.displayIdentityChanged))
+        XCTAssertEqual(result.resolution, DDCServiceMatcher.resolve(lone.map(\.attributes), against: twin, among: [twin]))
     }
 
     func testSavingReplacesTheDisplaysPairingAndDisplacesTheChannelsOldOwner() {
@@ -138,15 +148,40 @@ final class DDCChannelMappingTests: XCTestCase {
         XCTAssertEqual(decoded, saved)
     }
 
+    func testEmptyUUIDAndDuplicateChannelPathsFailClosed() {
+        XCTAssertFalse(DDCChannelMappingPolicy.canPair(.forCGUUID("")))
+        XCTAssertEqual(DDCChannelMappingPolicy.validate(pairing(left, 0), displayID: left, target: twin,
+            channels: [channels[0], channels[0]], externals: [twin, twin], otherMappings: []), .failure(.channelMissing))
+    }
+
+    func testFlashParametersMustBeExplicitAndRepresentable() {
+        XCTAssertNil(DDCChannelTest.Parameters(levelPercent: .nan, durationSeconds: 1))
+        XCTAssertNil(DDCChannelTest.Parameters(levelPercent: 101, durationSeconds: 1))
+        XCTAssertNil(DDCChannelTest.Parameters(levelPercent: 50, durationSeconds: 0))
+        XCTAssertNil(DDCChannelTest.Parameters(levelPercent: 50, durationSeconds: .infinity))
+        XCTAssertNotNil(DDCChannelTest.Parameters(levelPercent: 0, durationSeconds: 0.001))
+        XCTAssertNotNil(DDCChannelTest.Parameters(levelPercent: 100, durationSeconds: 3600))
+    }
+
+    func testMalformedReadingAndRestoreFailureAreExplicit() async {
+        var writes: [Int] = []
+        let parameters = DDCChannelTest.Parameters(levelPercent: 20, durationSeconds: 1)!
+        let malformed = await DDCChannelTest.run(parameters: parameters, read: { (current: 101, max: 100) },
+            write: { writes.append($0); return true }, hold: {})
+        XCTAssertEqual(malformed, .noReply)
+        XCTAssertTrue(writes.isEmpty)
+        let failedRestore = await DDCChannelTest.run(parameters: parameters, read: { (current: 50, max: 100) },
+            write: { writes.append($0); return $0 == 20 }, hold: {})
+        XCTAssertEqual(failedRestore, .flashed(original: 50, flashLevel: 20, restored: false))
+        XCTAssertEqual(writes, [20, 50])
+    }
+
     // MARK: - Test flash
 
-    func testTheFlashGoesToTheFarEndAndBack() async {
-        XCTAssertEqual(DDCChannelTest.flashLevel(current: 70, max: 100), 0)
-        XCTAssertEqual(DDCChannelTest.flashLevel(current: 50, max: 100), 0)
-        XCTAssertEqual(DDCChannelTest.flashLevel(current: 20, max: 100), 100)
+    func testTheFlashUsesCallerLevelAndRestoresOriginal() async {
         var writes: [Int] = []
         var held = false
-        let outcome = await DDCChannelTest.run(read: { (current: 30, max: 100) },
+        let outcome = await DDCChannelTest.run(parameters: .init(levelPercent: 100, durationSeconds: 1)!, read: { (current: 30, max: 100) },
                                                write: { writes.append($0); return true },
                                                hold: { held = true })
         XCTAssertEqual(outcome, .flashed(original: 30, flashLevel: 100, restored: true))
@@ -156,9 +191,9 @@ final class DDCChannelMappingTests: XCTestCase {
 
     func testNothingIsWrittenWithoutALevelToPutBack() async {
         var writes: [Int] = []
-        let silent = await DDCChannelTest.run(read: { nil }, write: { writes.append($0); return true }, hold: {})
+        let silent = await DDCChannelTest.run(parameters: .init(levelPercent: 100, durationSeconds: 1)!, read: { nil }, write: { writes.append($0); return true }, hold: {})
         XCTAssertEqual(silent, .noReply)
-        let zeroRange = await DDCChannelTest.run(read: { (current: 0, max: 0) },
+        let zeroRange = await DDCChannelTest.run(parameters: .init(levelPercent: 100, durationSeconds: 1)!, read: { (current: 0, max: 0) },
                                                  write: { writes.append($0); return true }, hold: {})
         XCTAssertEqual(zeroRange, .noReply)
         XCTAssertTrue(writes.isEmpty)
@@ -166,10 +201,10 @@ final class DDCChannelMappingTests: XCTestCase {
 
     func testAFailedFlashStillPutsTheLevelBack() async {
         var writes: [Int] = []
-        let outcome = await DDCChannelTest.run(read: { (current: 80, max: 100) },
+        let outcome = await DDCChannelTest.run(parameters: .init(levelPercent: 100, durationSeconds: 1)!, read: { (current: 80, max: 100) },
                                                write: { writes.append($0); return $0 == 80 },
                                                hold: { XCTFail("no hold after a failed flash") })
         XCTAssertEqual(outcome, .flashWriteFailed(original: 80, restored: true))
-        XCTAssertEqual(writes, [0, 80])
+        XCTAssertEqual(writes, [100, 80])
     }
 }

@@ -89,6 +89,23 @@ final class DisplaySettingsTransferTests: XCTestCase {
             settings: settings, favorites: favorites, menuLayout: menu, ledger: [])
     }
 
+    func testPreviewIncludesEveryIdentifierAndDetectsHiddenRelationshipChanges() throws {
+        var (settings, favorites, menu) = populated()
+        var destination = newEntry()
+        let earlier = DisplayRecordID.forCGUUID("another-port")
+        destination.observationIDs.append(earlier)
+        settings.displayGroups[0].memberRecordIDs.append(earlier)
+        menu.setIconSymbol("star", for: [earlier])
+        let first = try DisplaySettingsTransfer.transferPlan(from: oldEntry(), to: destination,
+            destinationLiveID: new, settings: settings, favorites: favorites, menuLayout: menu, ledger: [])
+        XCTAssertEqual(first.destinationByID[earlier]?.group?.groupName, "Desk pair")
+        XCTAssertEqual(first.destinationByID[earlier]?.menuIcon, "star")
+        menu.setIconSymbol("circle", for: [earlier])
+        let changed = try DisplaySettingsTransfer.transferPlan(from: oldEntry(), to: destination,
+            destinationLiveID: new, settings: settings, favorites: favorites, menuLayout: menu, ledger: [])
+        XCTAssertNotEqual(first, changed)
+    }
+
     // MARK: - Transfer: what may be moved where
 
     func testOnlyAnAbsentRemovableRecordCanBeTheSource() {
@@ -337,6 +354,17 @@ final class DisplaySettingsTransferTests: XCTestCase {
         entry.observationIDs = [new]
         XCTAssertThrowsError(try DisplaySettingsTransfer.migrationPlan(for: entry, liveID: new, settings: settings,
                                                                        favorites: favorites, menuLayout: menu))
+    }
+
+    func testConflictOnlyMigrationStillOffersAnInspectionPlan() throws {
+        let (entry, _, _, menu) = migrating()
+        var settings = OpenDisplaySettings()
+        settings.adaptiveBrightnessOffsetByDisplay = [old.rawValue: 0.3, new.rawValue: 0.8]
+        let plan = try DisplaySettingsTransfer.migrationPlan(for: entry, liveID: new,
+            settings: settings, favorites: FavoriteResolutions(), menuLayout: menu)
+        XCTAssertEqual(plan.changes, [.init(category: .adaptiveOffset, effect: .conflict)])
+        XCTAssertTrue(plan.selectable.isEmpty)
+        XCTAssertEqual(DisplaySettingsTransfer.applying(plan, selection: Set(DisplaySettingsTransfer.Category.allCases), to: settings), settings)
     }
 
     func testNothingToMigrateIsSaidSo() {

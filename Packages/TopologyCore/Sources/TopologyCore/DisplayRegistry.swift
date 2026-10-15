@@ -153,9 +153,10 @@ public actor DisplayRegistry {
     /// the decision was taken from, including a record lost to another present display.
     public func resolveAllExplained(
         _ inputs: [(fingerprint: DisplayFingerprint, cgUUID: String?, displayClass: DisplayClass)],
-        now: Date = Date()
+        now: Date = Date(),
+        newRecordStrategy: DisplayIdentityStrategy = .automatic
     ) async -> [(record: DisplayRecord, explanation: IdentityMatchExplanation)] {
-        let resolved = resolveLocked(inputs, now: now)
+        let resolved = resolveLocked(inputs, now: now, newRecordStrategy: newRecordStrategy)
         if !inputs.isEmpty { await persist() }
         return resolved
     }
@@ -170,7 +171,8 @@ public actor DisplayRegistry {
     /// persist once after applying every mutation they intend to (see `resolve` / `resolveAll`).
     private func resolveLocked(
         _ inputs: [(fingerprint: DisplayFingerprint, cgUUID: String?, displayClass: DisplayClass)],
-        now: Date
+        now: Date,
+        newRecordStrategy: DisplayIdentityStrategy = .automatic
     ) -> [(record: DisplayRecord, explanation: IdentityMatchExplanation)] {
         var explanations = inputs.map { explain($0.fingerprint, cgUUID: $0.cgUUID, excluding: []) }
         var claims = explanations.map(Self.claim(from:))
@@ -234,7 +236,7 @@ public actor DisplayRegistry {
             case .mint:
                 let record = DisplayRecord(
                     id: .generate(now: now), fingerprint: input.fingerprint,
-                    displayClass: input.displayClass, lastSeen: now)
+                    displayClass: input.displayClass, lastSeen: now, identityStrategy: newRecordStrategy)
                 state.records.append(record)
                 if let cgUUID = input.cgUUID { state.cgUUIDIndex[cgUUID] = record.id }
                 resolved.append((record, explanations[index]))
@@ -245,7 +247,8 @@ public actor DisplayRegistry {
                 if handedOut[id] != nil { id = DisplayRecordID(rawValue: "\(id.rawValue)#\(index)") }
                 let record = DisplayRecord(
                     id: id, fingerprint: input.fingerprint, displayClass: input.displayClass,
-                    lastSeen: now, unresolvedCandidates: candidates.sorted { $0.rawValue < $1.rawValue })
+                    lastSeen: now, unresolvedCandidates: candidates.sorted { $0.rawValue < $1.rawValue },
+                    identityStrategy: newRecordStrategy)
                 handedOut[id] = (record, input.cgUUID)
                 resolved.append((record, explanations[index]))
             }
@@ -293,6 +296,11 @@ public actor DisplayRegistry {
 
     public func removeTag(_ tag: String, from id: DisplayRecordID) async {
         try? await mutate(id) { $0.tags.remove(tag) }
+    }
+
+    /// Changing policy never transfers preferences or rewrites UUID routing.
+    public func setIdentityStrategy(_ strategy: DisplayIdentityStrategy, for id: DisplayRecordID) async {
+        try? await mutate(id) { $0.identityStrategy = strategy }
     }
 
     /// Marks a record as an explicit user pairing, lifting its identity confidence (REG-004).

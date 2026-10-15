@@ -175,9 +175,17 @@ public struct DisplayObservation: Hashable, Sendable, Codable {
     }
 }
 
-/// The persistent record that user intent (alias, tags, pairing, policies) attaches to. It is
-/// linked to observations through scored identity evidence (PRD §10.5). Persists across the
-/// active/offline lifecycle (REG-006).
+/// Safe matching strategies restrict the existing evidence stages; none weaken conflict or tie rejection.
+public enum DisplayIdentityStrategy: String, Hashable, Sendable, Codable, CaseIterable {
+    /// Existing fail-closed qualified serial / UUID / unique-score matching.
+    case automatic
+    /// Match only a previously indexed UUID; positive identity conflicts still reject it.
+    case systemUUID
+    /// Require qualified vendor/model/serial evidence; a shared serial remains ambiguous.
+    case qualifiedSerial
+}
+
+/// The persistent record that user intent attaches to across the active/offline lifecycle.
 public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
     public var id: DisplayRecordID
     public var alias: String?
@@ -197,6 +205,8 @@ public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
     /// (and absent from the file) for a record nothing was ever moved to, so older registries read
     /// unchanged and records written before the field existed encode exactly as they did.
     public var provenance: [DisplayRecordProvenance]?
+    /// Nil in older registries preserves the existing automatic strategy.
+    public var identityStrategy: DisplayIdentityStrategy?
 
     public init(
         id: DisplayRecordID,
@@ -207,7 +217,8 @@ public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
         lastSeen: Date? = nil,
         pairingConfirmed: Bool = false,
         unresolvedCandidates: [DisplayRecordID]? = nil,
-        provenance: [DisplayRecordProvenance]? = nil
+        provenance: [DisplayRecordProvenance]? = nil,
+        identityStrategy: DisplayIdentityStrategy? = nil
     ) {
         self.id = id
         self.alias = alias
@@ -218,6 +229,7 @@ public struct DisplayRecord: Hashable, Sendable, Codable, Identifiable {
         self.pairingConfirmed = pairingConfirmed
         self.unresolvedCandidates = unresolvedCandidates
         self.provenance = provenance
+        self.identityStrategy = identityStrategy
     }
 
     /// True when automatic recognition was ambiguous and this record is the registry's explicit
