@@ -615,3 +615,18 @@ public struct SettingsStore: Sendable {
         try encoder.encode(settings).write(to: fileURL, options: .atomic)
     }
 }
+
+// The feedback and keyboard branches stored the same volume-HUD choice independently. Honour
+// either old opt-out on read; an explicit edit resolves both, without changing persisted keys.
+extension OpenDisplaySettings {
+    public func showsVolumeFeedback(for id: DisplayRecordID) -> Bool {
+        keyboardAudioPreferences(for: id).showsVolumeOSD && !osdFeedback.volumeHiddenDisplayIDs.contains(id.rawValue)
+    }
+
+    public mutating func setShowsVolumeFeedback(_ show: Bool, for id: DisplayRecordID) {
+        var preferences = keyboardAudioPreferences(for: id)
+        preferences.showsVolumeOSD = show
+        keyboardAudioByDisplay[id.rawValue] = preferences.isDefault ? nil : preferences
+        osdFeedback.volumeHiddenDisplayIDs.remove(id.rawValue)
+    }
+}

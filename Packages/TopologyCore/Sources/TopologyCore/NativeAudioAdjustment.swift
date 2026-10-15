@@ -1,3 +1,4 @@
+import DisplayDomain
 import Foundation
 
 /// Public audio glue implements these operations by persistent UID. There is deliberately no
@@ -10,6 +11,14 @@ public protocol NativeAudioControlling {
 }
 
 public enum NativeAudioAdjustment {
+    /// Only observed state is feedback. Mute-only outputs can confirm mute without inventing a
+    /// volume level; an unreadable unmuted output has no level to report.
+    public static func feedback(_ after: AudioOutputDevice) -> OSDContent? {
+        if after.isMuted == true { return OSDContent(kind: .mute, value: 0, assurance: .verified) }
+        guard let level = after.volumeLevel, level.isFinite, (0...1).contains(level) else { return nil }
+        return OSDContent(kind: .volume, value: level, assurance: .verified)
+    }
+
     public enum Outcome: Equatable, Sendable {
         case unavailable
         /// A setter rejected the command. A previous command may already have been accepted.

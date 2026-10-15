@@ -363,4 +363,46 @@ final class OSDGroupFollowerEventTests: XCTestCase {
                                  source: OSDBroadcast.Source.groupSync.rawValue, timestamp: 1)
         XCTAssertEqual(OSDBroadcast(userInfo: event.userInfo)?.source, "groupSync")
     }
+    func testNativeFallbackFeedbackHonoursMenuSuppressionAndExternalOnly() {
+        var settings = OpenDisplaySettings()
+        settings.publishOSDEventsEnabled = true
+        settings.osdPosition = .underMenuBarIcon
+        let volume = OSDFeedbackPolicy.Context(kind: .volume, localHUDWanted: true, menuOpen: true)
+        let muted = OSDFeedbackPolicy.Context(kind: .mute, localHUDWanted: true, menuOpen: true)
+        for context in [volume, muted] {
+            XCTAssertFalse(OSDFeedbackPolicy.route(context, settings: settings).drawsLocalHUD)
+            settings.osdPosition = .center
+            XCTAssertTrue(OSDFeedbackPolicy.route(context, settings: settings).drawsLocalHUD)
+            settings.osdStyle = .external
+            XCTAssertFalse(OSDFeedbackPolicy.route(context, settings: settings).drawsLocalHUD)
+            settings.osdStyle = .native
+            settings.osdPosition = .underMenuBarIcon
+        }
+    }
+
+    func testBothLegacyVolumeFeedbackOptOutsUseOneEffectivePreference() {
+        let id = DisplayRecordID.forCGUUID("desk")
+        for keyboardHidden in [true, false] {
+            for feedbackHidden in [true, false] {
+                var settings = OpenDisplaySettings()
+                settings.keyboardAudioByDisplay[id.rawValue] = .init(keyboardControl: false,
+                    nativeAudioEnabled: true, nativeAudioDevice: "USB", showsVolumeOSD: !keyboardHidden)
+                if feedbackHidden { settings.osdFeedback.volumeHiddenDisplayIDs.insert(id.rawValue) }
+                XCTAssertEqual(settings.showsVolumeFeedback(for: id), !keyboardHidden && !feedbackHidden)
+                for kind in [OSDContent.Kind.volume, .mute] {
+                    let context = OSDFeedbackPolicy.Context(kind: kind, displayID: id.rawValue, localHUDWanted: true)
+                    XCTAssertEqual(OSDFeedbackPolicy.route(context, settings: settings).drawsLocalHUD,
+                                   !keyboardHidden && !feedbackHidden)
+                }
+                settings.setShowsVolumeFeedback(true, for: id)
+                XCTAssertTrue(settings.showsVolumeFeedback(for: id))
+                settings.setShowsVolumeFeedback(false, for: id)
+                XCTAssertFalse(settings.showsVolumeFeedback(for: id))
+                XCTAssertFalse(settings.osdFeedback.volumeHiddenDisplayIDs.contains(id.rawValue))
+                XCTAssertEqual(settings.keyboardAudioByDisplay[id.rawValue]?.nativeAudioDevice, "USB")
+                XCTAssertEqual(settings.keyboardAudioByDisplay[id.rawValue]?.keyboardControl, false)
+            }
+        }
+    }
+
 }

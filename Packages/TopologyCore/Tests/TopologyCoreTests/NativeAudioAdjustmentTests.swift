@@ -112,4 +112,19 @@ final class NativeAudioAdjustmentTests: XCTestCase {
         XCTAssertEqual(audio.writes.count, 1, "no unmute follows a partial volume failure")
     }
 
+    func testFeedbackUsesObservedNativeStateWithoutInventingVolume() {
+        var output = AudioOutputDevice(uid: "USB", name: "Speaker", transport: .usb, isMuted: true)
+        XCTAssertEqual(NativeAudioAdjustment.feedback(output)?.kind, .mute)
+        XCTAssertEqual(NativeAudioAdjustment.feedback(output)?.assurance, .verified)
+        output.isMuted = false
+        XCTAssertNil(NativeAudioAdjustment.feedback(output))
+        output.volumeLevel = 0.4
+        XCTAssertEqual(NativeAudioAdjustment.feedback(output)?.kind, .volume)
+        XCTAssertEqual(NativeAudioAdjustment.feedback(output)?.value, 0.4)
+        for invalid in [Float.nan, .infinity, -0.1, 1.1] {
+            output.volumeLevel = invalid
+            XCTAssertNil(NativeAudioAdjustment.feedback(output))
+        }
+    }
+
 }

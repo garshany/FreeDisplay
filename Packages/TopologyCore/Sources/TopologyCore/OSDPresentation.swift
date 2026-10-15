@@ -143,7 +143,7 @@ public enum OSDFeedbackPolicy {
         guard switchedOn else { return false }
         // The per-display volume switch covers mute too: both report that display's sound.
         if context.kind == .volume || context.kind == .mute, let id = context.displayID,
-           settings.osdFeedback.volumeHiddenDisplayIDs.contains(id) { return false }
+           !settings.showsVolumeFeedback(for: DisplayRecordID(rawValue: id)) { return false }
         if context.menuOpen, settings.osdPosition.isMenuBarAnchored { return false }
         return true
     }

@@ -161,13 +161,10 @@ struct OSDSettingsRows: View {
         if model.settings.osdEnabled, drawsLocally, !soundDisplays.isEmpty {
             Text("Volume feedback per display").font(.headline)
             ForEach(soundDisplays, id: \.recordID) { display in
-                let id = display.recordID.rawValue
                 Toggle(String(localized: "Show volume and mute for \(model.displayName(for: display))"), isOn: Binding(
-                    get: { !feedback.volumeHiddenDisplayIDs.contains(id) },
+                    get: { model.settings.showsVolumeFeedback(for: display.recordID) },
                     set: { show in
-                        model.updateOSDFeedback { feedback in
-                            if show { feedback.volumeHiddenDisplayIDs.remove(id) } else { feedback.volumeHiddenDisplayIDs.insert(id) }
-                        }
+                        model.setShowsVolumeFeedback(show, for: display.recordID)
                     }))
             }
             Text("Off hides FreeDisplay’s HUD for that monitor’s volume and mute only; the keys still work and the change is still published.")

@@ -6730,6 +6730,7 @@ final class AppModel: ObservableObject {
     func pauseHotkeys() {
         guard !hotkeysPaused else { return }
         hotkeysPaused = true
+        releaseFeedback.cancel()
         registerHotkeys()
     }
 
@@ -6825,17 +6826,30 @@ final class AppModel: ObservableObject {
         #else
         verificationTarget = nil
         #endif
+        deliverOSD(content, for: observation, affected: observation.cgDisplayID, source: source,
+                   showsLocalHUD: showsLocalHUD, control: control, verificationTarget: verificationTarget,
+                   adjustable: osdAdjustable(kind, observation))
+    }
+
+    /// Native fallback audio has no display identity: it shares local feedback policy and placement,
+    /// but must not publish a display event or offer a bar that adjusts an unrelated monitor.
+    private func deliverOSD(_ content: OSDContent, for observation: DisplayObservation?,
+                            affected: CGDirectDisplayID?, source: OSDBroadcast.Source,
+                            showsLocalHUD: Bool, control: String?, verificationTarget: Int? = nil,
+                            adjustable: Bool = false) {
         let route = OSDFeedbackPolicy.route(
-            .init(kind: kind, displayID: observation.recordID.rawValue, localHUDWanted: showsLocalHUD,
+            .init(kind: content.kind, displayID: observation?.recordID.rawValue, localHUDWanted: showsLocalHUD,
                   menuOpen: osdHUD.environment().menuOpen), settings: settings)
         if route.drawsLocalHUD {
-            osdHUD.present(content, display: observation.recordID,
-                           affected: observation.cgDisplayID, appearance: osdAppearance,
-                           verificationTarget: verificationTarget, adjustable: osdAdjustable(kind, observation))
-        } else if source == .osd {
+            osdHUD.present(content, display: observation?.recordID,
+                           affected: affected, appearance: osdAppearance,
+                           verificationTarget: verificationTarget, adjustable: adjustable)
+        } else if source == .osd, let observation {
             osdHUD.noteAdjustment(content, display: observation.recordID, verificationTarget: verificationTarget)
         }
-        if route.publishesEvent { publishOSDEvent(content, for: observation, source: source, control: control) }
+        if route.publishesEvent, let observation {
+            publishOSDEvent(content, for: observation, source: source, control: control)
+        }
     }
 
     /// Posts one change's event, with the screen OpenDisplay would draw feedback on as a hint.
@@ -6859,13 +6873,11 @@ final class AppModel: ObservableObject {
                                 step: settings.adjustmentSteps.fraction(fine: false))
     }
 
-    /// Whether the interactive HUD may adjust this change's display: brightness always (it goes
-    /// through the same funnel as the slider), volume only where DDC volume is confirmed — the
-    /// only sound the bar can set.
+    /// The HUD uses the same volume sink as the display's slider, including native audio bindings.
     private func osdAdjustable(_ kind: OSDContent.Kind, _ observation: DisplayObservation) -> Bool {
         switch kind {
         case .brightness: return true
-        case .volume: return DDCAudioPolicy.volumeKeysUsable(audioCapability(for: observation))
+        case .volume: return displayVolumeAdjustable(for: observation)
         case .mute, .input: return false
         }
     }
@@ -6879,7 +6891,7 @@ final class AppModel: ObservableObject {
         case .brightness:
             setBrightness(level, for: observation, origin: .slider, eventSource: .osd, syncBypass: bypassSync)
         case .volume:
-            setHardwareControl(.volume, level, for: observation, showsOSD: false, eventSource: .osd)
+            setDisplayVolume(level, for: observation, eventSource: .osd)
         case .mute, .input:
             break
         }
@@ -6926,6 +6938,8 @@ final class AppModel: ObservableObject {
     /// A release arrives only for a press that was taken; it plays the owed volume feedback.
     @discardableResult
     func handleNativeKey(_ event: NativeKeyEvent) -> Bool {
+        // The recorder must see F14/F15 before the native brightness mapping can consume them.
+        guard !hotkeysPaused else { return false }
         let keys = settings.nativeKeys
         guard event.isDown else {
             if event.action == .volumeUp || event.action == .volumeDown,
@@ -7013,7 +7027,7 @@ final class AppModel: ObservableObject {
             let macOSControllable = method == .native
             #endif
             // A mirror member shows its source's picture: an overlay window drawn for it is never seen.
-            let invisible = observation.mirrorSourceID != nil && method == .software && effectiveDimmingMethod == .overlay
+            let invisible = observation.mirrorSourceID != nil && method == .software && effectiveDimmingMethod(for: id) == .overlay
             // Safe startup (FA-09) syncs no group, so every display must then be written itself.
             let group = safeStartup ? nil
                 : brightnessSyncGroup(containing: id).flatMap { $0.syncBrightness ? $0.id : nil }
@@ -7122,19 +7136,22 @@ final class AppModel: ObservableObject {
             statusText = String(localized: "FreeDisplay couldn’t change the sound output. Check its volume and mute controls in Sound settings.")
         }
         guard case .accepted(let after?) = outcome else { return outcome.handled }
-        // No success HUD is fabricated when readback is unavailable.
-        guard let level = after.volumeLevel else { return true }
-        let kind: OSDContent.Kind = after.isMuted == true ? .mute : .volume
-        let value = after.isMuted == true ? 0 : level
-        if let feedbackDisplay {
-            presentOSD(kind: kind, value: value, for: feedbackDisplay, source: .mediaKey, showsLocalHUD: showsOSD)
-        } else if OSDFeedbackPolicy.route(localHUDWanted: showsOSD, settings: settings).drawsLocalHUD,
-                  let place = cursorInCGCoordinates().flatMap({ PointerScreen.display(at: $0, in: displays) })
-                    ?? displays.first(where: { $0.isActive && $0.isMain }) {
-            osdHUD.present(OSDContent(kind: kind, value: value), cgDisplayID: place.cgDisplayID,
-                           style: settings.osdStyle, position: settings.osdPosition)
-        }
+        reportNativeAudio(after, for: feedbackDisplay, source: .mediaKey, showsOSD: showsOSD)
         return true
+    }
+
+    private func reportNativeAudio(_ after: AudioOutputDevice, for observation: DisplayObservation?,
+                                   source: OSDBroadcast.Source, showsOSD: Bool) {
+        guard let content = NativeAudioAdjustment.feedback(after) else { return }
+        if let observation {
+            presentOSD(kind: content.kind, value: content.value, for: observation, source: source,
+                       showsLocalHUD: showsOSD, assurance: content.assurance, control: "nativeAudio")
+        } else {
+            let place = cursorInCGCoordinates().flatMap { PointerScreen.display(at: $0, in: displays) }
+                ?? displays.first(where: { $0.isActive && $0.isMain })
+            deliverOSD(content, for: nil, affected: place?.cgDisplayID, source: source,
+                       showsLocalHUD: showsOSD, control: "nativeAudio")
+        }
     }
 
     /// Accessibility supplies the actual focused window, including dialogs; frontmost window-list
@@ -7180,7 +7197,7 @@ final class AppModel: ObservableObject {
             // The monitor's own mute changes no level, so it had no feedback at all (SO-35): mute
             // shows as muted, unmute as the volume it returns to — both requested, not confirmed.
             presentOSD(kind: mute ? .mute : .volume, value: mute ? 0 : ddcControl(.volume, for: observation) ?? 0,
-                       for: observation, source: eventSource, control: "ddc")
+                       for: observation, source: eventSource, showsLocalHUD: showsOSD, control: "ddc")
         case .zeroVolume(let level):
             preMuteVolume[id] = level
             setHardwareControl(.volume, 0, for: observation, showsOSD: showsOSD, eventSource: eventSource)
@@ -7393,6 +7410,11 @@ final class AppModel: ObservableObject {
 
     // MARK: - Display audio and keyboard preferences (SD-11, SD-16, TB-08, TR-16)
 
+    func setShowsVolumeFeedback(_ show: Bool, for id: DisplayRecordID) {
+        settings.setShowsVolumeFeedback(show, for: id)
+        persistSettings()
+    }
+
     /// Where this display's volume and mute go right now, against the outputs last read.
     func audioSink(for observation: DisplayObservation) -> DisplayAudioSink {
         audioSink(for: observation, preferences: settings.keyboardAudioPreferences(for: observation.recordID),
@@ -7457,7 +7479,8 @@ final class AppModel: ObservableObject {
 
     /// Slider/menu volume for a display, through its own route. A bound output is unmuted when
     /// raised above its minimum, as macOS's own slider does.
-    func setDisplayVolume(_ value: Float, for observation: DisplayObservation) {
+    func setDisplayVolume(_ value: Float, for observation: DisplayObservation,
+                          eventSource: OSDBroadcast.Source = .menu) {
         switch audioSink(for: observation) {
         case .native(let device):
             let outcome = NativeAudioAdjustment.setLevel(value, uid: device.uid, controller: audioOutputs)
@@ -7465,13 +7488,13 @@ final class AppModel: ObservableObject {
             if case .failed = outcome {
                 statusText = String(localized: "FreeDisplay couldn’t change the sound output. Check its volume and mute controls in Sound settings.")
             }
-            if case .accepted(let after?) = outcome, let level = after.volumeLevel {
-                presentOSD(kind: .volume, value: level, for: observation, source: .menu, showsLocalHUD: false)
+            if case .accepted(let after?) = outcome {
+                reportNativeAudio(after, for: observation, source: eventSource, showsOSD: false)
             }
         case .unresolvedNative, .none:
             return
         case .hardware:
-            setHardwareControl(.volume, value, for: observation, showsOSD: false)
+            setHardwareControl(.volume, value, for: observation, showsOSD: false, eventSource: eventSource)
         }
     }
 
@@ -7484,6 +7507,9 @@ final class AppModel: ObservableObject {
             refreshAudioOutputs()
             if case .failed = outcome {
                 statusText = String(localized: "FreeDisplay couldn’t change the sound output. Check its volume and mute controls in Sound settings.")
+            }
+            if case .accepted(let after?) = outcome {
+                reportNativeAudio(after, for: observation, source: .menu, showsOSD: false)
             }
             return outcome.handled
         case .unresolvedNative, .none:

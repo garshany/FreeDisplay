@@ -62,8 +62,8 @@ struct KeyboardAndSoundCard: View {
                                            text: preferences.audioMatch, binding: false))
                 ODDivider()
                 ODRow(String(localized: "Show the HUD for this display’s volume keys")) {
-                    Toggle("", isOn: Binding(get: { preferences.showsVolumeOSD },
-                                             set: { value in update { $0.showsVolumeOSD = value } }))
+                    Toggle("", isOn: Binding(get: { model.settings.showsVolumeFeedback(for: display.recordID) },
+                                             set: { value in model.setShowsVolumeFeedback(value, for: display.recordID) }))
                         .toggleStyle(.switch).labelsHidden()
                 }
             }
