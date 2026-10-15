@@ -7,9 +7,9 @@ final class DiagnosticPrivacyTests: XCTestCase {
 
     func testEveryAuthorizationSchemeIsRemovedFromTextSinks() throws {
         let policy = DiagnosticPrivacy(removeSerials: false, removeUUIDs: false, removeRegistryPaths: false)
-        let source = "Authorization: Basic dXNlcjpwYXNz\r\nProxy-Authorization: Digest username=alice, response=private\nAUTHORIZATION = Custom arbitrary credential text\nkeep=value"
+        let source = "Authorization: Basic dXNlcjpwYXNz\r\nProxy-Authorization: Digest username=alice, response=private\nAUTHORIZATION = Custom arbitrary credential text\nAuthorization: Custom\r\n folded-secret\nkeep=value"
         let result = policy.redact(source)
-        for secret in ["dXNlcjpwYXNz", "alice", "private", "arbitrary", "credential text"] {
+        for secret in ["dXNlcjpwYXNz", "alice", "private", "arbitrary", "credential text", "folded-secret"] {
             XCTAssertFalse(result.contains(secret))
             let artifact = try XCTUnwrap(policy.redactedArtifact(Data(source.utf8), pathExtension: "txt"))
             XCTAssertFalse(String(decoding: artifact, as: UTF8.self).contains(secret))
