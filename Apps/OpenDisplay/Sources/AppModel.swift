@@ -297,6 +297,8 @@ final class AppModel: ObservableObject {
     private var ddcBindingTokens = DDCBindingTokens()
     private var brightnessMax: [DisplayRecordID: Int] = [:]
     private var ddcTarget: [DisplayRecordID: Int] = [:]
+    private var brightnessBeforeDDCWrite: [DisplayRecordID: Float] = [:]
+    private var presetBeforeDDCWrite: [DisplayRecordID: Int] = [:]
     private var ddcWriters: [DisplayRecordID: Task<Void, Never>] = [:]
     private struct DDCControlKey: Hashable { let id: DisplayRecordID; let vcp: UInt8 }
     private var ddcControlMax: [DDCControlKey: Int] = [:]
@@ -414,14 +416,16 @@ final class AppModel: ObservableObject {
     /// Whether a Core Graphics display transaction is in flight or a keep/revert window is open.
     /// They run one at a time: a second transaction would race the first one's readback, and a
     /// change written under an open window would be undone by its rollback.
-    private var displayConfigurationBusy: Bool {
+    var displayConfigurationBusy: Bool {
         displayTransactionInFlight || pendingRevert != nil
     }
+    @Published private(set) var revertRecordPresentation: RevertRecordPresentation?
+    @Published private(set) var revertRecordError: String?
     @Published private(set) var pendingRevert: PendingRevert?
     /// UI state for the timed auto-revert banner. `kind` says what the window protects, so the prompt
     /// names it and a further canvas move knows whether it may keep the previous step.
     struct PendingRevert: Equatable {
-        enum Kind: Equatable { case mode, arrangement }
+        enum Kind: Equatable { case mode, arrangement, mainDisplay }
         var message: String
         var secondsRemaining: Int
         var kind: Kind = .mode
@@ -566,7 +570,7 @@ final class AppModel: ObservableObject {
             if !safeStartup { await restoreOwedAppPresetState() }  // crash-safe: relaunch mid-app-preset restores the baseline
             reconcileAppPresetObserver()  // observe the frontmost app if App Presets is enabled
             #endif
-            autoDisconnectPolicy.seed(externalPresent: hasExternalDisplay)  // don't treat a pre-attached external as an arrival
+            autoDisconnectPolicy.seed(externalPresent: AutoDisconnectBuiltInPolicy.eligibleExternalPresent(in: displays))  // don't treat a pre-attached external as an arrival
             await evaluateLayoutProtection(trigger: .launch)  // Batch-4 #A: check the launch arrangement
             await writeBaselineCheckpoint()
             if let marker = Self.readRotationMarker() {
@@ -587,8 +591,10 @@ final class AppModel: ObservableObject {
                 let outcome = await restoreArrangement(priorArrangement)
                 if RevertMarkerPolicy.mayClearMarker(after: outcome) {
                     Self.clearRevertMarker()
+                    refreshRevertRecord()
                 } else {
                     Self.retainRevertMarker(after: outcome)
+                    refreshRevertRecord()
                     reportUnverifiedRestore(kind: .mode, after: outcome)
                 }
             }
@@ -905,6 +911,7 @@ final class AppModel: ObservableObject {
         // Persist the original arrangement BEFORE the write so a crash during verification can
         // recover. It replaces a record an earlier rollback couldn't confirm (`RevertMarkerPolicy`).
         Self.writeRevertMarker(before)
+        refreshRevertRecord()
         let observer = self.observer
         let warnings = await Task.detached(priority: .userInitiated) {
             observer.applyArrangement(targets)
@@ -935,11 +942,13 @@ final class AppModel: ObservableObject {
             switch RevertMarkerPolicy.disposition(after: restoreOutcome) {
             case .clear:
                 Self.clearRevertMarker()
+                refreshRevertRecord()
                 arrangementError = String(localized: "macOS didn’t accept the new arrangement, so the previous one is in effect.")
             case .awaitingDisplays:
                 // Not a success: a recorded display isn't connected, so what it is owed stays on
                 // record for the next launch.
                 Self.retainRevertMarker(after: restoreOutcome)
+                refreshRevertRecord()
                 arrangementError = String(localized: "macOS didn’t accept the new arrangement. Not every display in the previous one is connected, so it can’t be confirmed as restored yet; a record of it was saved and is restored at the next launch.")
             case .unverified:
                 arrangementError = String(localized: "macOS didn’t accept the new arrangement, and the previous one couldn’t be confirmed. The canvas shows the arrangement in effect; a record of the previous one was saved for recovery.")
@@ -2114,6 +2123,8 @@ final class AppModel: ObservableObject {
         for (key, task) in ddcControlWriter where !ids.contains(key.id) { task.cancel(); ddcControlWriter[key] = nil }
         for (id, task) in muteWriter where !ids.contains(id) { task.cancel(); muteWriter[id] = nil }
         muteTarget = muteTarget.filter { ids.contains($0.key) }
+        brightnessBeforeDDCWrite = brightnessBeforeDDCWrite.filter { ids.contains($0.key) }
+        presetBeforeDDCWrite = presetBeforeDDCWrite.filter { ids.contains($0.key) }
         // The bind itself can't be interrupted: forgetting its token is what keeps its result — and
         // every caller still awaiting it — from being used (see `ddcController`).
         for (id, builder) in ddcBuilders where !ids.contains(id) { builder.task.cancel(); ddcBuilders[id] = nil }
@@ -2148,6 +2159,7 @@ final class AppModel: ObservableObject {
             attempts += 1
         }
         displays = snapshot.observations.sorted { $0.recordID.rawValue < $1.recordID.rawValue }
+        refreshRevertRecord()
         pruneControlCaches(to: Set(displays.map(\.recordID)))
         #if !PUBLIC_API_ONLY
         reconcileGroupBrightnessLoop()
@@ -2380,6 +2392,7 @@ final class AppModel: ObservableObject {
             // adaptive yields instead of fighting the slider. The adaptive loop's own writes go
             // through `applyAdaptiveBrightness`, never here.
             noteManualBrightnessForAdaptive(value, id: id)
+            if ddcWriters[id] == nil { brightnessBeforeDDCWrite[id] = previous }
             ddcTarget[id] = Int((value * Float(brightnessMax[id] ?? 100)).rounded())
             if ddcWriters[id] == nil {
                 ddcWriters[id] = Task { [weak self] in await self?.drainDDCWrites(id, observation) }
@@ -2768,15 +2781,24 @@ final class AppModel: ObservableObject {
     }
 
     private func drainDDCWrites(_ id: DisplayRecordID, _ observation: DisplayObservation) async {
-        guard let controller = await ddcController(for: observation) else { ddcWriters[id] = nil; return }
+        guard let controller = await ddcController(for: observation) else {
+            guard !Task.isCancelled else { return }
+            brightness[id] = brightnessBeforeDDCWrite.removeValue(forKey: id)
+            ddcWriteFailed[id, default: []].insert(0x10)
+            ddcTarget[id] = nil
+            ddcWriters[id] = nil
+            return
+        }
+        defer { brightnessBeforeDDCWrite[id] = nil }
         let vcp = ExternalDisplayDDC.Feature.brightness.rawValue
         while !Task.isCancelled && !settings.softwareBrightnessDisplayIDs.contains(id.rawValue) {
             var lastTarget: Int?
+            var lastSent = true
             while !Task.isCancelled, !settings.softwareBrightnessDisplayIDs.contains(id.rawValue), let target = ddcTarget[id] {
                 guard ddcBindingIsCurrent(controller, for: id) else { return }
                 ddcTarget[id] = nil
                 lastTarget = target
-                await controller.write(.brightness, target)
+                lastSent = await controller.write(.brightness, target)
             }
             guard let lastTarget else { break }
             switch await readBackAfterDrain(controller, vcp: vcp, settleNanos: Self.continuousSettleNanos,
@@ -2787,6 +2809,9 @@ final class AppModel: ObservableObject {
                 let outcome = DDCWriteVerification.outcome(
                     target: lastTarget, readback: reading?.current, tolerance: 1)
                 noteWriteVerification(outcome, vcp: vcp, id: id)
+                noteWriteTransport(sent: lastSent, outcome: outcome, vcp: vcp, id: id)
+                // No reply after a rejected transport write cannot support the optimistic value.
+                if !lastSent, outcome == .unknown { brightness[id] = brightnessBeforeDDCWrite[id] }
                 if case .ignored(let actual) = outcome, let reading, reading.max > 0,
                    brightnessMethod[id] == .hardware {
                     brightness[id] = Float(actual) / Float(reading.max)
@@ -3419,6 +3444,7 @@ final class AppModel: ObservableObject {
             adaptiveStates[id] = AdaptiveDisplayPolicy.noteManualPreset(
                 state: adaptiveStates[id] ?? seededAdaptiveState(for: id))
         }
+        if colorPresetWriter[id] == nil { presetBeforeDDCWrite[id] = colorPreset[id] }
         colorPreset[id] = code
         colorPresetTarget[id] = code
         if colorPresetWriter[id] == nil {
@@ -3502,15 +3528,24 @@ final class AppModel: ObservableObject {
 
     #if !PUBLIC_API_ONLY
     private func drainColorPresetWrites(_ id: DisplayRecordID, _ observation: DisplayObservation) async {
-        guard let controller = await ddcController(for: observation) else { colorPresetWriter[id] = nil; return }
+        guard let controller = await ddcController(for: observation) else {
+            guard !Task.isCancelled else { return }
+            colorPreset[id] = presetBeforeDDCWrite.removeValue(forKey: id)
+            ddcWriteFailed[id, default: []].insert(0x14)
+            colorPresetTarget[id] = nil
+            colorPresetWriter[id] = nil
+            return
+        }
+        defer { presetBeforeDDCWrite[id] = nil }
         let vcp = ExternalDisplayDDC.Feature.colorPreset.rawValue
         while true {
             var lastTarget: Int?
+            var lastSent = true
             while let target = colorPresetTarget[id] {
                 guard ddcBindingIsCurrent(controller, for: id) else { return }
                 colorPresetTarget[id] = nil
                 lastTarget = target
-                await controller.write(.colorPreset, target)
+                lastSent = await controller.write(.colorPreset, target)
             }
             guard let lastTarget else { break }
             switch await readBackAfterDrain(controller, vcp: vcp, settleNanos: Self.presetSettleNanos,
@@ -3524,6 +3559,9 @@ final class AppModel: ObservableObject {
                 // preset as drift — it stops re-sending a write the panel will never take.
                 let outcome = DDCWriteVerification.outcome(target: lastTarget, readback: reading?.current)
                 noteWriteVerification(outcome, vcp: vcp, id: id)
+                noteWriteTransport(sent: lastSent, outcome: outcome, vcp: vcp, id: id)
+                // No reply after a rejected transport write cannot support the optimistic value.
+                if !lastSent, outcome == .unknown { colorPreset[id] = presetBeforeDDCWrite[id] }
                 if case .ignored(let actual) = outcome { colorPreset[id] = actual }
             }
             break
@@ -3693,6 +3731,7 @@ final class AppModel: ObservableObject {
     /// user funnel and does both.)
     private func applyAdaptiveBrightness(_ value: Float, for observation: DisplayObservation) {
         let id = observation.recordID
+        if ddcWriters[id] == nil { brightnessBeforeDDCWrite[id] = brightness[id] }
         brightness[id] = value  // keep the visible slider honest
         ddcTarget[id] = Int((value * Float(brightnessMax[id] ?? 100)).rounded())
         if ddcWriters[id] == nil {
@@ -3704,6 +3743,7 @@ final class AppModel: ObservableObject {
     /// doesn't mistake our own write for a monitor-button change on the next tick.
     private func applyAdaptivePreset(_ code: Int, for observation: DisplayObservation) {
         let id = observation.recordID
+        if colorPresetWriter[id] == nil { presetBeforeDDCWrite[id] = colorPreset[id] }
         colorPreset[id] = code
         colorPresetTarget[id] = code
         if colorPresetWriter[id] == nil {
@@ -4446,6 +4486,7 @@ final class AppModel: ObservableObject {
         // Persist the original arrangement BEFORE the write so a crash during verification can
         // recover. It replaces a record an earlier rollback couldn't confirm (`RevertMarkerPolicy`).
         Self.writeRevertMarker(before)
+        refreshRevertRecord()
         // CGCompleteDisplayConfiguration blocks until the displays are reconfigured (often 1–3 s on
         // HDMI). Off the main actor, so the menu and the rest of the app stay responsive meanwhile.
         let observer = self.observer
@@ -4460,11 +4501,13 @@ final class AppModel: ObservableObject {
             switch RevertMarkerPolicy.disposition(after: restoreOutcome) {
             case .clear:
                 Self.clearRevertMarker()
+                refreshRevertRecord()
                 modeChangeError = String(localized: "macOS did not confirm the selected mode. The previous mode was restored.")
             case .awaitingDisplays:
                 // The display can drop out under a mode it can't show: its restore is unconfirmed,
                 // not done, and what it is owed stays on record for the next launch.
                 Self.retainRevertMarker(after: restoreOutcome)
+                refreshRevertRecord()
                 modeChangeError = String(localized: "macOS did not confirm the selected mode. Not every display in the previous settings is connected, so they can’t be confirmed as restored yet; a record of them was saved and is restored at the next launch.")
             case .unverified:
                 modeChangeError = String(localized: "macOS confirmed neither the selected mode nor the restore. Use emergency recovery; a record of the previous settings was saved.")
@@ -4522,40 +4565,54 @@ final class AppModel: ObservableObject {
         await setMode(candidate, for: observation)
     }
 
-    /// Makes a display the main display by re-anchoring every origin so this one sits at (0,0) — Core
-    /// Graphics treats the display at the origin as main, and accepts the negative origins this gives
-    /// the other displays, so the physical arrangement is preserved.
-    ///
-    /// Applies immediately and sticks — no timed auto-revert. Changing the main display never leaves a
-    /// display unreadable (both stay usable), so the revert gate (which is for bad resolutions) would
-    /// only undo the user's intended change and bounce the menu bar back.
-    ///
-    /// The shift is computed from a **fresh** snapshot, re-resolving the target by display id: the
-    /// observation handed in by the menu can carry a stale origin (cached from before the last
-    /// arrangement change), which would compute a zero/wrong shift and silently no-op — exactly the
-    /// "set-main does nothing / the other screen stays main" symptom.
-    func setMain(for observation: DisplayObservation) async {
-        guard let cgID = observation.cgDisplayID else { return }
-        let snapshot = await observer.currentSnapshot()
-        guard let target = snapshot.observations.first(where: { $0.cgDisplayID == cgID }),
-              !target.isMain else { return }
-        let dx = -target.origin.x
-        let dy = -target.origin.y
-        let targets = snapshot.observations.compactMap { obs -> CoreGraphicsProvider.ArrangementTarget? in
-            guard let id = obs.cgDisplayID else { return nil }
+    /// Re-anchor a fresh, identity-matched topology off the main actor. Every entry point shares
+    /// this keep/revert transaction, so automation cannot bypass the owner's confirmation rule.
+    @discardableResult
+    func setMain(for observation: DisplayObservation) async -> Bool {
+        guard !displayConfigurationBusy else {
+            modeChangeError = String(localized: "Confirm or revert the previous change first.")
+            return false
+        }
+        modeChangeError = nil
+        modeChangeInProgress = true
+        defer { modeChangeInProgress = false }
+        let before = await observer.currentSnapshot().observations
+        guard let target = before.first(where: { $0.recordID == observation.recordID }),
+              target.isActive, target.mirrorSourceID == nil, target.cgDisplayID != nil else {
+            modeChangeError = String(localized: "The display is no longer active. Refresh the display list.")
+            return false
+        }
+        if target.isMain { return true }
+        let targets = before.compactMap { obs -> CoreGraphicsProvider.ArrangementTarget? in
+            guard let id = obs.cgDisplayID, obs.mirrorSourceID == nil else { return nil }
             return .init(displayID: id,
-                         origin: DisplayOrigin(x: obs.origin.x + dx, y: obs.origin.y + dy),
+                         origin: DisplayOrigin(x: obs.origin.x - target.origin.x, y: obs.origin.y - target.origin.y),
                          mode: nil)
         }
-        // Judged after the last suspension point: a scene, mode or canvas transaction now runs off
-        // the main actor, and this one must not land in the middle of it.
-        guard !displayTransactionInFlight else {
-            modeChangeError = String(localized: "Another display change is still being applied. Try again when it’s done.")
-            return
-        }
-        _ = observer.applyArrangement(targets)
+        Self.writeRevertMarker(before)
+        refreshRevertRecord()
+        let observer = self.observer
+        let warnings = await Task.detached(priority: .userInitiated) { observer.applyArrangement(targets) }.value
         await refresh()
+        let after = await observer.currentSnapshot().observations
+        guard !Task.isCancelled, warnings.isEmpty,
+              after.first(where: { $0.recordID == target.recordID })?.isMain == true else {
+            let outcome = await restoreArrangement(before)
+            if RevertMarkerPolicy.mayClearMarker(after: outcome) {
+                Self.clearRevertMarker()
+                refreshRevertRecord()
+                modeChangeError = String(localized: "macOS did not confirm the main display change. The previous settings were restored.")
+            } else {
+                Self.retainRevertMarker(after: outcome)
+                refreshRevertRecord()
+                reportUnverifiedRestore(kind: .mainDisplay, after: outcome)
+            }
+            return false
+        }
         await noteLayoutSelfChange()
+        beginRevertWindow(before: before, message: String(localized: "Main display changed to \(displayName(for: target))"),
+                          kind: .mainDisplay)
+        return true
     }
 
     // MARK: - Timed auto-revert safety gate (Issue 6)
@@ -4572,6 +4629,7 @@ final class AppModel: ObservableObject {
         // Crash recovery: a marker (same Application Support dir the checkpoints/rotation marker use)
         // lets the next launch restore the prior arrangement if the app dies mid-window.
         Self.writeRevertMarker(before)
+        refreshRevertRecord()
         pendingRevert = PendingRevert(message: message, secondsRemaining: seconds, kind: kind)
         // The confirmation renders in-context (menu-bar pop-out and the Settings window), both of which
         // observe `pendingRevert`. The AppKit status item ensures the pop-out is on the right screen.
@@ -4623,10 +4681,12 @@ final class AppModel: ObservableObject {
         pendingRevert = nil
         guard RevertMarkerPolicy.mayClearMarker(after: outcome) else {
             Self.retainRevertMarker(after: outcome)
+            refreshRevertRecord()
             reportUnverifiedRestore(kind: revertKind, after: outcome)
             return
         }
         Self.clearRevertMarker()
+        refreshRevertRecord()
     }
 
     /// Says that a rollback couldn't be confirmed and its record was kept, where the change came
@@ -4689,25 +4749,47 @@ final class AppModel: ObservableObject {
         (try? DiskCheckpointStore.defaultDirectory())?.appendingPathComponent("revert.pending")
     }
     private static func writeRevertMarker(_ observations: [DisplayObservation]) {
-        guard let url = revertMarkerURL(), let data = try? JSONEncoder().encode(observations) else { return }
+        if let previous = readRevertRecord(), previous.observations == observations {
+            writeRevertRecord(previous)
+        } else {
+            writeRevertRecord(RevertRecord(observations: observations, createdAt: Date()))
+        }
+    }
+    private static func writeRevertRecord(_ record: RevertRecord) {
+        guard let url = revertMarkerURL(), let data = try? JSONEncoder().encode(record) else { return }
         try? data.write(to: url, options: .atomic)
     }
-    private static func readRevertMarker() -> [DisplayObservation]? {
+    private static func readRevertRecord() -> RevertRecord? {
         guard let url = revertMarkerURL(), let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode([DisplayObservation].self, from: data)
+        let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        return RevertRecord.decode(data, legacyDate: date)
     }
+    private static func readRevertMarker() -> [DisplayObservation]? { readRevertRecord()?.observations }
     private static func clearRevertMarker() {
         if let url = revertMarkerURL() { try? FileManager.default.removeItem(at: url) }
     }
-    /// After a restore of the record on disk that didn't verify: keeps it whole, or — when all it
-    /// lacks is displays that aren't connected — narrows it to what they are owed
-    /// (`RevertMarkerPolicy.recordToKeep`), so the next launch doesn't put the connected displays'
-    /// old settings back over whatever was changed since. Called straight after the restore, on the
-    /// main actor, before anything else can write a record of its own.
     private static func retainRevertMarker(after outcome: RevertMarkerPolicy.Outcome) {
-        guard let recorded = readRevertMarker(),
-              let kept = RevertMarkerPolicy.recordToKeep(recorded, after: outcome), kept != recorded else { return }
-        writeRevertMarker(kept)
+        guard let record = readRevertRecord(), let kept = record.retaining(after: outcome) else { return }
+        writeRevertRecord(kept)
+    }
+
+    private func refreshRevertRecord() {
+        guard let url = Self.revertMarkerURL(), FileManager.default.fileExists(atPath: url.path) else {
+            if revertRecordPresentation != nil { revertRecordPresentation = nil }
+            return
+        }
+        let presentation = RevertRecordPresentation(record: Self.readRevertRecord(), current: displays)
+        if presentation != revertRecordPresentation { revertRecordPresentation = presentation }
+    }
+
+    /// Called only after Diagnostics confirms. A live keep/revert transaction owns its record and
+    /// must finish first; forgetting deletes no settings and performs no display write.
+    func forgetPendingRevert() {
+        guard !displayConfigurationBusy, let url = Self.revertMarkerURL() else { return }
+        revertRecordError = nil
+        do { try FileManager.default.removeItem(at: url) }
+        catch { revertRecordError = String(localized: "Couldn’t forget the pending revert record.") }
+        refreshRevertRecord()
     }
 
     /// Turns a live display off (flagship). Routes through the coordinator, which preflights and
@@ -4973,14 +5055,8 @@ final class AppModel: ObservableObject {
         persistSettings()
     }
 
-    /// True when at least one REAL external display is currently present. The `.virtual` exclusion
-    /// matters: macOS's placeholder is not a monitor arriving, and treating it as one would make
-    /// auto-disconnect turn the built-in off at the exact moment it is the only screen left.
-    ///
-    /// Deliberately class-based, not `physicalPresence`-based: it also drives the keep-awake guard
-    /// (a DisplayLink monitor is an external to keep awake), and an arrival edge raised by a
-    /// virtual or unverified screen is still refused by `SafetyEngine`, which does require a
-    /// physical surface. Presence can flicker while IORegistry settles; an edge detector must not.
+    /// Keep-awake includes DisplayLink and wireless endpoints, while excluding macOS's virtual
+    /// placeholder. Automatic disconnect uses stricter shared PhysicalPresence evidence instead.
     var hasExternalDisplay: Bool {
         displays.contains { $0.displayClass != .builtIn && $0.displayClass != .virtual }
     }
@@ -4992,7 +5068,7 @@ final class AppModel: ObservableObject {
     private func applyAutoDisconnectBuiltInIfNeeded() async -> Bool {
         let fire = autoDisconnectPolicy.onTopologyChange(
             enabled: settings.autoDisconnectBuiltInOnExternal,
-            externalPresent: hasExternalDisplay
+            externalPresent: AutoDisconnectBuiltInPolicy.eligibleExternalPresent(in: displays)
         )
         // The edge detector above still runs in safe startup (FA-09), so its view of "an external
         // just arrived" stays right; only the action is held back.

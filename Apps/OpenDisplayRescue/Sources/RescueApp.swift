@@ -63,16 +63,45 @@ final class RescueModel: ObservableObject {
         status = "Loaded the last-known-safe checkpoint. This runs independently of the main app."
     }
 
-    /// Restores the recorded arrangement. Runs both recovery paths best-effort — re-enabling a
-    /// privately-disabled display (SkyLight transaction) and un-mirroring a mirrored one (public
-    /// Core Graphics). Each is a no-op when not applicable, so it's safe to run unconditionally.
+    /// Each write resolves a persistent identity afresh. A checkpoint's old number alone never
+    /// authorizes either recovery path, and an accepted request is verified from a fresh snapshot.
     func reconnectAll() async {
-        guard let checkpoint else { return }
+        guard !busy, let checkpoint else { return }
         busy = true
         defer { busy = false }
-        try? await reEnable.recover(to: checkpoint)   // undo a private logical disconnect
-        try? await observer.recover(to: checkpoint)   // undo the mirroring fallback
-        status = "Reconnect All complete — restored the recorded arrangement."
+        let ledger = (try? ManagedOfflineStore.defaultDirectory()).map { ManagedOfflineStore(directory: $0).load() } ?? []
+        var failures: [String] = []
+        for recorded in checkpoint.observations where recorded.isActive {
+            do {
+                let target = try ReconnectIdentity.recoveryTarget(
+                    for: recorded, ledger: ledger,
+                    numberForUUID: { CoreGraphicsProvider.displayID(for: .forCGUUID($0)) },
+                    uuidForNumber: { CoreGraphicsProvider.persistentUUID(for: $0) })
+                // One path may be unsupported; only the final observed result establishes success.
+                try? await reEnable.reconnect(target, deadline: Date())
+                // Revalidate after the suspension too: a hotplug may have reassigned the number.
+                let publicTarget = try ReconnectIdentity.recoveryTarget(
+                    for: recorded, ledger: ledger,
+                    numberForUUID: { CoreGraphicsProvider.displayID(for: .forCGUUID($0)) },
+                    uuidForNumber: { CoreGraphicsProvider.persistentUUID(for: $0) })
+                try await observer.reconnect(publicTarget, deadline: Date())
+                let entry = ManagedOfflineDisplay(recordID: recorded.cgUUID.map(DisplayRecordID.forCGUUID) ?? recorded.recordID,
+                                                  cgID: 0, name: recorded.recordID.rawValue, displayClass: recorded.displayClass)
+                let current = await observer.currentSnapshot().observations
+                if !ReconnectVerification.isLit(entry, in: current) {
+                    failures.append(recorded.recordID.rawValue)
+                }
+            } catch {
+                let id = recorded.recordID.rawValue
+                failures.append(String(localized: "Couldn’t confirm identity or complete recovery for \(id)."))
+            }
+        }
+        if failures.isEmpty {
+            status = String(localized: "Reconnect All confirmed: the recorded displays are active and independent.")
+        } else {
+            let details = failures.joined(separator: "\n")
+            status = String(localized: "Recovery was refused or could not be confirmed for these displays: \(details)")
+        }
     }
 
     #if DEBUG

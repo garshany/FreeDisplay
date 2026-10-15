@@ -117,7 +117,8 @@ struct TrayConfirmBar: View {
                 Image(systemName: "clock.arrow.circlepath").font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(ODColor.caution)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(pending.kind == .arrangement ? String(localized: "Keep the new arrangement?")
+                    Text(pending.kind == .mainDisplay ? String(localized: "Keep the new main display?")
+                         : pending.kind == .arrangement ? String(localized: "Keep the new arrangement?")
                                                       : String(localized: "Keep the new mode?"))
                         .font(.system(size: 12, weight: .semibold))
                     Text("\(pending.message) · reverting in \(pending.secondsRemaining)s")
@@ -338,6 +339,8 @@ private struct TrayOfflineSection: View {
                     // macOS accepted the reconnect but no display appeared — keep the way out visible.
                     Text(failedStatus).font(.system(size: 11)).foregroundStyle(ODColor.caution)
                     HStack(spacing: 8) {
+                        Button("Reconnect") { Task { await model.reconnectOffline(offline) } }
+                            .buttonStyle(.link).font(.system(size: 11)).disabled(model.busy)
                         Button("Recovery steps…") { NSWorkspace.shared.open(ReconnectVerification.recoveryGuideURL) }
                             .buttonStyle(.link).font(.system(size: 11))
                         // A monitor unplugged while it was off never comes back to clear its card;
@@ -392,7 +395,9 @@ private struct TrayBrightnessControl: View {
                 if model.xdrCapable(display) { xdrButton }
             }
             let captions = [model.brightnessCaption(for: display), model.groupSyncCaption(for: display)].compactMap { $0 }
-            if !captions.isEmpty || model.ddcWriteWasIgnored(0x10, for: display) {
+            if model.ddcWriteDidFail(0x10, for: display) {
+                Text(DDCStatusText.writeFailed).font(.system(size: 10)).foregroundStyle(ODColor.caution)
+            } else if !captions.isEmpty || model.ddcWriteWasIgnored(0x10, for: display) {
                 Text((captions + (model.ddcWriteWasIgnored(0x10, for: display) ? [String(localized: "the monitor ignored the value")] : []))
                         .joined(separator: " · "))
                     .font(.system(size: 10)).foregroundStyle(.tertiary).padding(.leading, 4)
@@ -858,9 +863,10 @@ private struct TrayToggles: View {
                 }
             }
             TraySwitchRow(title: String(localized: "Main display"), detail: String(localized: "menu bar and Dock"),
-                          isOn: display.isMain, enabled: !display.isMain && !model.busy) { on in
+                          isOn: display.isMain, enabled: !display.isMain && !model.busy && !model.displayConfigurationBusy) { on in
                 if on { Task { await model.setMain(for: display) } }
             }
+            if let error = model.modeChangeError { TrayNote(error, tint: ODColor.caution) }
             // Black Out on the last screen the user can be left on would leave nothing to click —
             // offer it only while another lit physical screen stays visible (the model's own rule).
             let otherLit = model.canBlackOut(display)
@@ -1139,7 +1145,8 @@ private struct TrayColorPresetList: View {
                     Text(model.presetName(code)).font(.system(size: 12))
                 }
             }
-            if model.ddcWriteWasIgnored(0x14, for: display), let current = model.colorPreset[display.recordID] {
+            if model.ddcWriteDidFail(0x14, for: display) { TrayNote(DDCStatusText.writeFailed, tint: ODColor.caution) }
+            else if model.ddcWriteWasIgnored(0x14, for: display), let current = model.colorPreset[display.recordID] {
                 TrayNote(String(localized: "The monitor kept the “\(model.presetName(current))” preset."), tint: ODColor.caution)
             }
             if model.ddcCapabilities[display.recordID] == nil {
