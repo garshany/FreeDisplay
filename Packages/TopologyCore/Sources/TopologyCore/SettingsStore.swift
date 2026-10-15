@@ -177,6 +177,13 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// How far one brightness/volume step moves, for the native keys and the custom shortcuts alike
     /// (SO-29). Defaults to macOS's 1/16 and 1/64 steps.
     public var adjustmentSteps: AdjustmentSteps
+    /// Displays (by `DisplayRecordID.rawValue`) that keep the displays awake while they are
+    /// connected and lit (AM-42) — the per-display counterpart of `preventDisplaySleepWithExternal`.
+    /// Empty by default. `DisplaySleepPrevention` decides who holds the assertion.
+    public var preventDisplaySleepDisplayIDs: Set<String>
+    /// Configuration and wake delays and the menu's animation duration (SO-10). Every field is
+    /// blank (automatic) by default, which is the app's behaviour from before they existed.
+    public var applicationTiming: ApplicationTimingPreferences
 
     public init(
         persistencePolicy: PersistencePolicy = .reconnectOnQuit,
@@ -231,7 +238,9 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         notificationStyle: NotificationStyle = .notificationCenter,
         routineProtectionNoticesEnabled: Bool = true,
         dockIconPolicy: DockIconPolicy = .whileSettingsOpen,
-        adjustmentSteps: AdjustmentSteps = .default
+        adjustmentSteps: AdjustmentSteps = .default,
+        preventDisplaySleepDisplayIDs: Set<String> = [],
+        applicationTiming: ApplicationTimingPreferences = .default
     ) {
         self.persistencePolicy = persistencePolicy
         self.confirmationCountdownSeconds = confirmationCountdownSeconds
@@ -286,6 +295,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.routineProtectionNoticesEnabled = routineProtectionNoticesEnabled
         self.dockIconPolicy = dockIconPolicy
         self.adjustmentSteps = adjustmentSteps
+        self.preventDisplaySleepDisplayIDs = preventDisplaySleepDisplayIDs
+        self.applicationTiming = applicationTiming
     }
 
     public static let `default` = OpenDisplaySettings()
@@ -342,6 +353,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case routineProtectionNoticesEnabled
         case dockIconPolicy
         case adjustmentSteps
+        case preventDisplaySleepDisplayIDs
+        case applicationTiming
     }
 
     /// Tolerant decoder: every missing OR undecodable key falls back to its default and unknown
@@ -466,6 +479,10 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             ?? defaults.dockIconPolicy
         adjustmentSteps = container.lenient(AdjustmentSteps.self, forKey: .adjustmentSteps)
             ?? defaults.adjustmentSteps
+        preventDisplaySleepDisplayIDs = container.lenient(Set<String>.self, forKey: .preventDisplaySleepDisplayIDs)
+            ?? defaults.preventDisplaySleepDisplayIDs
+        applicationTiming = container.lenient(ApplicationTimingPreferences.self, forKey: .applicationTiming)
+            ?? defaults.applicationTiming
     }
 }
 

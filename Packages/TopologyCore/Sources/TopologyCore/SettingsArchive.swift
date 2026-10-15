@@ -272,6 +272,9 @@ extension OpenDisplaySettings {
         if !Self.isLevel(adaptiveFallbackDayLevel) { return "adaptiveFallbackDayLevel" }
         if !Self.isLevel(adaptiveFallbackNightLevel) { return "adaptiveFallbackNightLevel" }
         if let percent = xdrLowBatteryCutoffPercent, !(0...100).contains(percent) { return "xdrLowBatteryCutoffPercent" }
+        // Delays and durations are scheduled in nanoseconds: negative, non-finite or overflowing
+        // seconds can't be. Names the invalid key on import; application falls back to automatic.
+        if let field = applicationTiming.unusableFieldKey { return "applicationTiming.\(field)" }
         return nil
     }
 
