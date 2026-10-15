@@ -179,4 +179,78 @@ final class SceneApplicationTests: XCTestCase {
         XCTAssertEqual(report.entries.first?.observed, "display disappeared")
         XCTAssertEqual(report.status, .failed)
     }
+
+    // MARK: - Hostile numbers (a hand-edited scenes.json or settings archive)
+
+    /// Reporting must never trap on a number from the file: these went through `Int(...)` and
+    /// crashed the CLI after the arrangement had already been written.
+    func testReportingHostileNumbersDoesNotTrap() {
+        let huge = DisplayMode(pixelWidth: 2560, pixelHeight: 1440, pointWidth: 2560, pointHeight: 1440,
+                               refreshHz: 1e30, isHiDPI: false)
+        let before = snapshot(observation(desk, origin: .zero, mode: small, main: true))
+        let scene = Scene(id: "s", name: "Hostile", members: [
+            .init(selector: "id:cg:desk", required: false, desired: DesiredState(mode: huge, brightness: 1e30)),
+        ])
+        let resolution: ScenePlanner.Resolution = ["id:cg:desk": desk]
+        let prep = SceneApplication.Preparation(writes: [], missingRequired: [], missingOptional: [])
+        let report = SceneApplication.report(scene: scene, preparation: prep, resolution: resolution,
+                                             before: before, after: before, providerWarnings: [])
+        XCTAssertEqual(report.entries.first { $0.field == .mode }?.requested, "2560x1440@1000000000000000019884624838656.00")
+        XCTAssertNotNil(report.entries.first { $0.field == .brightness })
+        let plan = ScenePlanner().plan(scene: scene, snapshot: before, resolution: resolution)
+        XCTAssertEqual(plan.operations.count, 2)
+    }
+
+    func testValuesThatCantBeUsedAreFound() {
+        func member(_ selector: String, _ desired: DesiredState) -> Scene.Member {
+            .init(selector: selector, required: false, desired: desired)
+        }
+        func mode(_ hz: Double) -> DisplayMode {
+            DisplayMode(pixelWidth: 1920, pixelHeight: 1080, pointWidth: 1920, pointHeight: 1080,
+                        refreshHz: hz, isHiDPI: false)
+        }
+        let hostile = Scene(id: "s", name: "Hostile", members: [
+            member("a", DesiredState(brightness: 1e30)),
+            member("b", DesiredState(brightness: .nan)),
+            member("c", DesiredState(brightness: -0.01)),
+            member("d", DesiredState(mode: mode(.infinity))),
+            member("e", DesiredState(mode: mode(.nan))),
+            member("f", DesiredState(mode: mode(-1))),
+            member("g", DesiredState(position: DisplayOrigin(x: Int(Int32.max) + 1, y: 0))),
+            member("h", DesiredState(position: DisplayOrigin(x: 0, y: Int.min))),
+        ])
+        XCTAssertEqual(hostile.invalidValues.map { "\($0.selector) \($0.field.rawValue)" },
+                       ["a brightness", "b brightness", "c brightness", "d mode", "e mode", "f mode",
+                        "g position", "h position"])
+        let fine = Scene(id: "s", name: "Fine", members: [
+            member("a", DesiredState(brightness: 0)),
+            member("b", DesiredState(brightness: 1)),
+            member("c", DesiredState(mode: mode(0))),
+            member("d", DesiredState(mode: mode(1e300))),
+            member("e", DesiredState(position: DisplayOrigin(x: Int(Int32.min), y: Int(Int32.max)))),
+        ])
+        XCTAssertEqual(fine.invalidValues, [])
+    }
+
+    /// A scene carrying a value that can't be used is refused whole, before any write — scene apply
+    /// used to write the arrangement and only then trap while reporting.
+    func testAValueThatCantBeUsedBlocksTheApplyBeforeAnyWrite() {
+        let before = snapshot(observation(desk, origin: .zero, mode: small, main: true),
+                              observation(laptop, origin: DisplayOrigin(x: -1512, y: 0), mode: small))
+        let scene = Scene(id: "s", name: "Hostile", members: [
+            .init(selector: "id:cg:desk", required: true, desired: DesiredState(mode: wide)),
+            .init(selector: "id:cg:laptop", required: false, desired: DesiredState(brightness: 1e30)),
+        ])
+        let resolution: ScenePlanner.Resolution = ["id:cg:desk": desk, "id:cg:laptop": laptop]
+        let prep = SceneApplication.prepare(scene: scene, resolution: resolution, before: before)
+        XCTAssertTrue(prep.isBlocked)
+        XCTAssertEqual(prep.writes, [])
+        XCTAssertEqual(prep.invalidValues, [.init(selector: "id:cg:laptop", field: .brightness)])
+        let report = SceneApplication.report(scene: scene, preparation: prep, resolution: resolution,
+                                             before: before, after: before, providerWarnings: [])
+        XCTAssertEqual(report.status, .blocked)
+        XCTAssertEqual(report.entries, [])
+        XCTAssertEqual(report.invalidValues, prep.invalidValues)
+        XCTAssertEqual(report.missingRequired, [])
+    }
 }

@@ -370,6 +370,9 @@ final class AppModel: ObservableObject {
     private let favoritesStore: FavoritesStore?
     /// On-disk managed-offline list, shared with the CLI (see `ManagedOfflineStore`).
     private let managedOfflineStore: ManagedOfflineStore?
+    /// The launch-time load of the registry, the scenes and the managed-offline ledger
+    /// (`awaitStartupLoad`). Set once, in `init`.
+    private var startupLoad: Task<Void, Never>?
     /// How the tray is laid out (Settings → Menu): item placement, per-display visibility, icon and
     /// order. Kept in its own file so "Reset menu layout" can't reach a display setting.
     @Published private(set) var menuLayout: MenuLayoutSettings
@@ -511,10 +514,16 @@ final class AppModel: ObservableObject {
         #if DEBUG
         FileHandle.standardError.write(Data("Global hotkeys registered: \(hotKeys.count)\n".utf8))
         #endif
-        Task {
+        // Its own task so anything that needs the ledger can wait for exactly this part of launch
+        // (`awaitStartupLoad`); the rest of the launch sequence below runs after it, as before.
+        let startupLoad = Task {
             await setUpRegistry()
             await setUpScenes()
             await loadManagedOffline()
+        }
+        self.startupLoad = startupLoad
+        Task {
+            await startupLoad.value
             logDisplayEvent("launch")
             await refresh()
             // Safe startup (FA-09) leaves owed restores in their ledgers rather than writing to the
@@ -1567,6 +1576,11 @@ final class AppModel: ObservableObject {
         switch report.status {
         case .applied, .noChange:
             return nil
+        case .blocked where !report.invalidValues.isEmpty:
+            var fields: [SceneApplyReport.Field] = []
+            for invalid in report.invalidValues where !fields.contains(invalid.field) { fields.append(invalid.field) }
+            let list = fields.map(Self.sceneFieldName).formatted(.list(type: .and))
+            return String(localized: "Not applied: this scene holds a value OpenDisplay can’t use (\(list)). Nothing was changed.")
         case .blocked:
             let missing = report.missingRequired.formatted(.list(type: .and))
             return String(localized: "Not applied: required displays aren’t connected (\(missing)). Nothing was changed.")
@@ -4897,8 +4911,12 @@ final class AppModel: ObservableObject {
     /// Reconnect All intent — comes here, because only this model holds the live ledger: a fresh
     /// `CommandGateway` sees nothing to reconnect. Returns the shared reconnect-all envelope (a
     /// display counts only once it was seen lit) and audits it under the calling surface's actor.
+    ///
+    /// Waits for the launch-time ledger load first: an intent or a link can launch the app and
+    /// arrive before it, and against the still-empty ledger this answered "nothing to reconnect".
     @discardableResult
     func reconnectAll(actor: Actor = .ui) async -> ResultEnvelope {
+        await awaitStartupLoad()
         busy = true
         defer { busy = false }
         let requestedAt = Date()
@@ -5447,6 +5465,10 @@ final class AppModel: ObservableObject {
     /// still owed its values. The caller relaunches afterwards, which is what re-arms hotkeys,
     /// loops and observers from the new settings — and, being a quit, reconnects the displays the
     /// app turned off, as every quit does.
+    ///
+    /// A store that can't be written fails the whole replacement (`installFailed`), never a
+    /// silent success: the stores written up to that point are put back to the current state,
+    /// and the error says whether that worked, so the caller doesn't relaunch onto half an import.
     func replaceSettings(with incoming: SettingsArchive) async throws -> URL {
         let current = await currentSettingsArchive()
         let replacement: SettingsBackupStore.Replacement
@@ -5456,19 +5478,27 @@ final class AppModel: ObservableObject {
         } catch {
             throw SettingsReplaceError.backupFailed(underlying: error)
         }
+        // What a failed install puts back: the live state, restore ledgers included (an archive
+        // never carries them, so `current` has them stripped).
+        var previous = current
+        previous.settings = settings
+        var reached: [InstallStep] = []
         do {
-            try await install(replacement.archive)
+            try await install(replacement.archive, reached: &reached)
         } catch {
-            throw SettingsReplaceError.installFailed(underlying: error, backup: replacement.backupURL)
+            let restored = await restore(previous, afterFailedInstallOf: reached)
+            throw SettingsReplaceError.installFailed(underlying: error, backup: replacement.backupURL,
+                                                     restored: restored)
         }
         return replacement.backupURL
     }
 
     /// Which half of `replaceSettings` failed: before anything changed, or part-way through
-    /// writing — when the backup is the way back.
+    /// writing. `restored` says whether every store the install had reached was put back; when it
+    /// is false, some of them hold the incoming state and the backup is the way back.
     enum SettingsReplaceError: Error {
         case backupFailed(underlying: Error)
-        case installFailed(underlying: Error, backup: URL)
+        case installFailed(underlying: Error, backup: URL, restored: Bool)
     }
 
     /// The archive used for "Reset to Defaults".
@@ -5476,10 +5506,17 @@ final class AppModel: ObservableObject {
         .factoryDefaults(createdAt: Date(), appVersion: Self.archiveAppVersion)
     }
 
+    /// The stores an archive installs into, in the order `install` writes them.
+    private enum InstallStep: CaseIterable {
+        case settings, favorites, registry, scenes, defaults
+    }
+
     /// Puts `archive` into memory and on disk together. The in-memory half matters as much as the
     /// files: anything that saves before the relaunch (the quit-time group flush, a topology event
-    /// re-resolving the registry) must save the new state, not write the old one back.
-    private func install(_ archive: SettingsArchive) async throws {
+    /// re-resolving the registry) must save the new state, not write the old one back. Stops at
+    /// the first store that can't be written; `reached` lists the steps it got to, the failing one
+    /// included — what a rollback has to put back.
+    private func install(_ archive: SettingsArchive, reached: inout [InstallStep]) async throws {
         groupPersistTask?.cancel()
         groupPersistTask = nil
         // The loops and observers were armed from the old settings; stop them rather than let one
@@ -5493,24 +5530,71 @@ final class AppModel: ObservableObject {
         groupBrightnessLoop?.cancel()
         groupBrightnessLoop = nil
         #endif
-        settings = archive.settings
-        NotificationDelivery.style = settings.notificationStyle
-        try settingsStore?.save(settings)
-        favorites = archive.favorites
-        try favoritesStore?.save(favorites)
-        if let registry {
-            await registry.replaceState(archive.registry)
-        } else if let directory = try? DiskRegistryStore.defaultDirectory() {
-            await DiskRegistryStore(directory: directory).save(archive.registry)
+        for step in InstallStep.allCases {
+            reached.append(step)
+            try await write(step, from: archive)
         }
-        if let sceneLibrary {
-            await sceneLibrary.replaceAll(with: archive.scenes)
-            scenes = await sceneLibrary.all()
-        } else if let directory = try? DiskSceneStore.defaultDirectory() {
-            await DiskSceneStore(directory: directory).save(archive.scenes)
-        }
-        experimentalRotationEnabled = archive.defaults.experimentalRotationEnabled
         await refreshRegistryKnownRecords()
+    }
+
+    /// Writes one store of `archive`, memory first. Every disk store is written atomically, so a
+    /// write that throws has left that store's file as it was.
+    private func write(_ step: InstallStep, from archive: SettingsArchive) async throws {
+        switch step {
+        case .settings:
+            settings = archive.settings
+            NotificationDelivery.style = settings.notificationStyle
+            try settingsStore?.save(settings)
+        case .favorites:
+            favorites = archive.favorites
+            try favoritesStore?.save(favorites)
+        case .registry:
+            if let registry {
+                try await registry.replaceState(archive.registry)
+            } else if let directory = try? DiskRegistryStore.defaultDirectory() {
+                try await DiskRegistryStore(directory: directory).save(archive.registry)
+            }
+        case .scenes:
+            if let sceneLibrary {
+                do {
+                    try await sceneLibrary.replaceAll(with: archive.scenes)
+                } catch {
+                    scenes = await sceneLibrary.all()  // the library's memory moved either way
+                    throw error
+                }
+                scenes = await sceneLibrary.all()
+            } else if let directory = try? DiskSceneStore.defaultDirectory() {
+                try await DiskSceneStore(directory: directory).save(archive.scenes)
+            }
+        case .defaults:
+            experimentalRotationEnabled = archive.defaults.experimentalRotationEnabled
+        }
+    }
+
+    /// After an install failed part-way: writes `previous` back into every store it reached (the
+    /// one that failed too — its memory already holds the incoming state), each independently, so
+    /// one store that still can't be written doesn't stop the rest. Returns whether every store is
+    /// back. When it is, the app carries on with its previous settings, so the loops and observers
+    /// `install` stopped for the relaunch are re-armed.
+    private func restore(_ previous: SettingsArchive, afterFailedInstallOf steps: [InstallStep]) async -> Bool {
+        var restored = true
+        for (index, step) in steps.enumerated().reversed() {
+            do { try await write(step, from: previous) } catch {
+                // The store that failed the install never changed its file (atomic writes) and
+                // `write` puts its memory back before touching the disk, so a second failure there
+                // leaves it as it was. Any earlier store did take the incoming state on disk.
+                if index != steps.count - 1 { restored = false }
+            }
+        }
+        await refreshRegistryKnownRecords()
+        if restored {
+            #if !PUBLIC_API_ONLY
+            reconcileAdaptiveLoop()
+            reconcileAppPresetObserver()
+            reconcileGroupBrightnessLoop()
+            #endif
+        }
+        return restored
     }
 
     /// "0.11.5 (24)" — the version an archive records as its writer.
@@ -6266,7 +6350,17 @@ extension AppModel {
     /// Lets the launch-time display read finish before automation looks at the displays: an intent
     /// that starts the app would otherwise see an empty list and call every display missing.
     func prepareForAutomation() async {
+        await awaitStartupLoad()
         if phase == .scanning { await refresh() }
+    }
+
+    /// Returns once launch has loaded the registry, the scenes and the managed-offline ledger —
+    /// at once after that. The readiness barrier every recovery and automation entry shares: what
+    /// the app turned off is only known from the ledger, and until it is loaded there is nothing
+    /// to reconnect. No deadline of its own: the load is three small local files and one display
+    /// snapshot.
+    func awaitStartupLoad() async {
+        await startupLoad?.value
     }
 
     /// The display's brightness as read back once every write already queued for it has run (TB-05):

@@ -467,7 +467,12 @@ struct ManageAppSettingsSheet: View {
                 status = Status(text: String(localized: "Couldn’t back up the current settings, so nothing was changed: \(underlying.localizedDescription)"),
                                 isError: true)
                 working = false
-            } catch AppModel.SettingsReplaceError.installFailed(let underlying, let backup) {
+            } catch AppModel.SettingsReplaceError.installFailed(let underlying, _, true) {
+                // Every store was put back: the app keeps running on its previous settings.
+                status = Status(text: String(localized: "Couldn’t write the new settings: \(underlying.localizedDescription) Your previous settings were put back, so nothing changed."),
+                                isError: true)
+                working = false
+            } catch AppModel.SettingsReplaceError.installFailed(let underlying, let backup, false) {
                 status = Status(text: String(localized: "Some settings couldn’t be written: \(underlying.localizedDescription) Your previous settings are in \(backup.lastPathComponent) — import it to go back."),
                                 isError: true, revealURL: backup)
                 working = false
@@ -500,6 +505,8 @@ struct ManageAppSettingsSheet: View {
             return String(localized: "This settings file has a format OpenDisplay doesn’t know (\(version)). Nothing was changed.")
         case .damaged(let section):
             return String(localized: "Part of this settings file is damaged (\(section)). Nothing was changed.")
+        case .invalidValue(let section, let item):
+            return String(localized: "This settings file holds a value OpenDisplay can’t use (\(section): \(item)). Nothing was changed.")
         }
     }
 }

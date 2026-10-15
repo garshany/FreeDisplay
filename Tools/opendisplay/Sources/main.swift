@@ -818,6 +818,11 @@ func sceneSkipReason(_ field: SceneApplyReport.Field) -> String {
 
 func printSceneReport(_ report: SceneApplyReport) {
     switch report.status {
+    case .blocked where !report.invalidValues.isEmpty:
+        let values = report.invalidValues.map { "\($0.selector) \($0.field.rawValue)" }.joined(separator: ", ")
+        FileHandle.standardError.write(Data(
+            "scene \"\(report.sceneName)\": BLOCKED — values that can't be used: \(values). Nothing was changed.\n".utf8))
+        return
     case .blocked:
         FileHandle.standardError.write(Data(
             "scene \"\(report.sceneName)\": BLOCKED — missing required: \(report.missingRequired.joined(separator: ", ")). Nothing was changed.\n".utf8))
@@ -875,7 +880,10 @@ func sceneEnvelope(_ report: SceneApplyReport, generation: UInt64) -> ResultEnve
             warnings: entry.outcome == .skipped ? [sceneSkipReason(entry.field)] : [],
             outcome: outcome))
     }
-    var errors = report.missingRequired.map {
+    var errors = report.invalidValues.map {
+        ResultEnvelope.ErrorInfo(code: "invalidValue", message: "\($0.selector) \($0.field.rawValue) holds a value that can't be used")
+    }
+    errors += report.missingRequired.map {
         ResultEnvelope.ErrorInfo(code: "missingRequired", message: "required member \($0) is not present")
     }
     errors += report.missingOptional.map {

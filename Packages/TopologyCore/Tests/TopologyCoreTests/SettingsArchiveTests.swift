@@ -211,6 +211,78 @@ final class SettingsArchiveTests: XCTestCase {
         }
     }
 
+    // MARK: - Values that can't be used
+
+    private func archive(revertSeconds value: Int) throws -> Data {
+        var object = try archiveObject()
+        var settings = try XCTUnwrap(object["settings"] as? [String: Any])
+        settings["arrangementAutoRevertSeconds"] = value
+        object["settings"] = settings
+        return try json(object)
+    }
+
+    /// Int.max passed every check and then trapped in the keep-or-revert countdown, which goes
+    /// through `Double` (where it rounds up to 2^63) and back to `Int`.
+    func testUnrepresentableRevertSecondsAreRefused() throws {
+        for value in [Int.max, Int.max - 1, (1 << 53) + 1, -1, Int.min] {
+            XCTAssertThrowsError(try SettingsArchive.decode(archive(revertSeconds: value)), "\(value)") { error in
+                XCTAssertEqual(error as? SettingsArchiveError,
+                               .invalidValue(section: "settings", item: "arrangementAutoRevertSeconds"))
+            }
+        }
+    }
+
+    /// Validity, not a product range: any count the countdown can represent imports as it is.
+    func testRepresentableRevertSecondsImportUnchanged() throws {
+        for value in [0, 3, 10, 86_400 * 365, 1 << 53, 1 << 62] {
+            XCTAssertEqual(try SettingsArchive.decode(archive(revertSeconds: value)).settings.arrangementAutoRevertSeconds,
+                           value)
+        }
+    }
+
+    private func archive(sceneDesired desired: [String: Any]) throws -> Data {
+        var object = try archiveObject()
+        var scenes = try XCTUnwrap(object["scenes"] as? [[String: Any]])
+        var members = try XCTUnwrap(scenes[0]["members"] as? [[String: Any]])
+        members[0]["desired"] = desired
+        scenes[0]["members"] = members
+        object["scenes"] = scenes
+        return try json(object)
+    }
+
+    func testSceneValuesThatCantBeUsedAreRefused() throws {
+        let mode: [String: Any] = ["pixelWidth": 2560, "pixelHeight": 1440, "pointWidth": 2560,
+                                   "pointHeight": 1440, "isHiDPI": false]
+        // (JSON can't spell NaN or infinity — the decoder refuses 1e400 — so the finite checks
+        // behind these are covered in SceneEngine's own tests.)
+        let cases: [(desired: [String: Any], field: String)] = [
+            (["brightness": 1e30], "brightness"),
+            (["brightness": -0.1], "brightness"),
+            (["mode": mode.merging(["refreshHz": -60]) { $1 }], "mode"),
+            (["position": ["x": Int.max, "y": 0]], "position"),
+            (["position": ["x": 0, "y": -2_147_483_649]], "position"),
+        ]
+        for (desired, field) in cases {
+            XCTAssertThrowsError(try SettingsArchive.decode(archive(sceneDesired: desired)), field) { error in
+                XCTAssertEqual(error as? SettingsArchiveError,
+                               .invalidValue(section: "scenes", item: "Docked › id:\(desk.rawValue) › \(field)"))
+            }
+        }
+    }
+
+    /// The edges of each domain import, and so does a refresh rate no display offers: it is still a
+    /// number, and scene apply reports it as not applied (no product maximum is invented here).
+    func testUsableSceneValuesImport() throws {
+        let decoded = try SettingsArchive.decode(archive(sceneDesired: [
+            "brightness": 1, "position": ["x": -2_147_483_648, "y": 2_147_483_647],
+            "mode": ["pixelWidth": 2560, "pixelHeight": 1440, "pointWidth": 2560, "pointHeight": 1440,
+                     "isHiDPI": false, "refreshHz": 1e300]]))
+        let desired = try XCTUnwrap(decoded.scenes.first?.members.first?.desired)
+        XCTAssertEqual(desired.brightness, 1)
+        XCTAssertEqual(desired.mode?.refreshHz, 1e300)
+        XCTAssertEqual(desired.position, DisplayOrigin(x: -2_147_483_648, y: 2_147_483_647))
+    }
+
     func testMissingFileIsUnreadable() {
         let url = directory.appendingPathComponent("absent.json")
         XCTAssertThrowsError(try SettingsArchive.read(from: url)) { error in
@@ -302,14 +374,14 @@ final class SettingsArchiveTests: XCTestCase {
 
     // MARK: - Installing an archive into the live stores
 
-    func testRegistryReplaceStateReplacesMemoryAndStore() async {
+    func testRegistryReplaceStateReplacesMemoryAndStore() async throws {
         let store = InMemoryRegistryStore()
         let live = await DisplayRegistry(store: store)
         _ = await live.resolve(fingerprint: DisplayFingerprint(vendorID: 1, productID: 2, serialNumber: "OLD"),
                                cgUUID: "OLD-UUID")
         let imported = registry()
 
-        await live.replaceState(imported)
+        try await live.replaceState(imported)
 
         let current = await live.currentState()
         let persisted = await store.load()
@@ -322,17 +394,72 @@ final class SettingsArchiveTests: XCTestCase {
         XCTAssertNil(forgotten)
     }
 
-    func testSceneLibraryReplaceAllReplacesMemoryAndStore() async {
+    func testSceneLibraryReplaceAllReplacesMemoryAndStore() async throws {
         let store = InMemorySceneStore([Scene(id: "old", name: "Old", members: [])])
         let library = await SceneLibrary(store: store)
         let replacement = [Scene(id: "new", name: "New", members: [])]
 
-        await library.replaceAll(with: replacement)
+        try await library.replaceAll(with: replacement)
 
         let all = await library.all()
         let persisted = await store.load()
         XCTAssertEqual(all, replacement)
         XCTAssertEqual(persisted, replacement)
+    }
+
+    /// A directory the stores can't write into: registry.json / scenes.json stay as they were.
+    private func lockedDirectory() throws -> URL {
+        let locked = directory.appendingPathComponent("locked", isDirectory: true)
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        addTeardownBlock {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+        }
+        return locked
+    }
+
+    /// The import used to "succeed" here: both disk stores swallowed the write error, so the app
+    /// relaunched onto the old registry and scenes while settings and favourites were replaced.
+    func testRegistryReplaceStateReportsAFailedWrite() async throws {
+        let locked = try lockedDirectory()
+        let live = await DisplayRegistry(store: DiskRegistryStore(directory: locked))
+        do {
+            try await live.replaceState(registry())
+            XCTFail("a write into a read-only folder must throw")
+        } catch {}
+        XCTAssertFalse(FileManager.default.fileExists(atPath: locked.appendingPathComponent("registry.json").path))
+        // Ordinary resolves stay best-effort: they don't throw, and the registry keeps working.
+        let record = await live.resolve(fingerprint: DisplayFingerprint(vendorID: 1, productID: 2), cgUUID: "U")
+        XCTAssertEqual(record.fingerprint.vendorID, 1)
+    }
+
+    func testSceneLibraryReplaceAllReportsAFailedWrite() async throws {
+        let locked = try lockedDirectory()
+        let library = await SceneLibrary(store: DiskSceneStore(directory: locked))
+        do {
+            try await library.replaceAll(with: [Scene(id: "new", name: "New", members: [])])
+            XCTFail("a write into a read-only folder must throw")
+        } catch {}
+        XCTAssertFalse(FileManager.default.fileExists(atPath: locked.appendingPathComponent("scenes.json").path))
+        await library.save(Scene(id: "other", name: "Other", members: []))  // still best-effort
+    }
+
+    func testDiskStoresReportFailedWritesAndKeepThePreviousFile() async throws {
+        let folder = directory.appendingPathComponent("stores", isDirectory: true)
+        let registryStore = DiskRegistryStore(directory: folder)
+        let sceneStore = DiskSceneStore(directory: folder)
+        try await registryStore.save(registry())
+        try await sceneStore.save([Scene(id: "old", name: "Old", members: [])])
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+
+        do { try await registryStore.save(RegistryState()); XCTFail("registry write must throw") } catch {}
+        do { try await sceneStore.save([]); XCTFail("scene write must throw") } catch {}
+
+        let keptRegistry = await registryStore.load()
+        let keptScenes = await sceneStore.load()
+        XCTAssertEqual(keptRegistry, registry())
+        XCTAssertEqual(keptScenes.map(\.id), ["old"])
     }
 
     func testFactoryDefaultsAreFirstRunState() {

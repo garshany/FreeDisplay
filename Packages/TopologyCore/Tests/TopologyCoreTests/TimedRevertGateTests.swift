@@ -74,6 +74,17 @@ final class TimedRevertGateTests: XCTestCase {
         XCTAssertEqual(g.secondsRemaining(now: t0.addingTimeInterval(99)), 0)
     }
 
+    /// The app builds the deadline as `now + Double(seconds)`: for Int.max that is 2^63 seconds
+    /// away, one past what `Int` holds, and converting it back used to trap.
+    func testSecondsRemainingBeyondIntRangeDoesNotTrap() {
+        for seconds in [Double(Int.max), 1e300, .greatestFiniteMagnitude] {
+            XCTAssertEqual(gate(seconds: seconds).secondsRemaining(now: t0), Int.max, "\(seconds)")
+        }
+        // Still an ordinary count below that (to Double's precision at this magnitude).
+        let large = gate(seconds: Double(1 << 62)).secondsRemaining(now: t0)
+        XCTAssertLessThan(abs(large - (1 << 62)), 2048)
+    }
+
     func testRestoredStateEqualsExactBefore() {
         // The gate hands back precisely the captured before-state (mode/origin/mirror/main, modeled
         // here as an opaque Equatable payload), so the host can restore the exact prior arrangement.

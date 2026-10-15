@@ -31,14 +31,22 @@ public enum SceneApplication {
         public var missingRequired: [String]
         /// Optional members with no present display; the rest of the scene still applies.
         public var missingOptional: [String]
+        /// Member values that can't be used as they are (`Scene.invalidValues`). Any of these
+        /// blocks the whole apply, before anything is written.
+        public var invalidValues: [Scene.InvalidValue] = []
 
-        public var isBlocked: Bool { !missingRequired.isEmpty }
+        public var isBlocked: Bool { !missingRequired.isEmpty || !invalidValues.isEmpty }
     }
 
     /// Resolves members against the topology before the write. A member resolved to a record the
-    /// snapshot doesn't contain (a display that is off or unplugged) counts as missing.
+    /// snapshot doesn't contain (a display that is off or unplugged) counts as missing. A scene
+    /// carrying a value that can't be used (a hand-edited file) is refused whole, writing nothing.
     public static func prepare(scene: Scene, resolution: ScenePlanner.Resolution,
                                before: TopologySnapshot) -> Preparation {
+        let invalid = scene.invalidValues
+        guard invalid.isEmpty else {
+            return Preparation(writes: [], missingRequired: [], missingOptional: [], invalidValues: invalid)
+        }
         var writes: [ArrangementWrite] = []
         var missingRequired: [String] = []
         var missingOptional: [String] = []
@@ -76,7 +84,8 @@ public enum SceneApplication {
             missingRequired: preparation.missingRequired, missingOptional: preparation.missingOptional,
             providerWarnings: providerWarnings,
             status: status(blocked: preparation.isBlocked, hadMembers: !scene.members.isEmpty,
-                           presentMembers: presentMembers, entries: entries))
+                           presentMembers: presentMembers, entries: entries),
+            invalidValues: preparation.invalidValues)
     }
 
     // MARK: - Judging
@@ -144,7 +153,7 @@ public enum SceneApplication {
         }
         // The topology doesn't carry brightness, so there is nothing to compare against either.
         if let brightness = desired.brightness {
-            add(.brightness, .skipped, requested: "\(Int((brightness * 100).rounded()))%")
+            add(.brightness, .skipped, requested: SceneValueText.percent(brightness))
         }
         return entries
     }
@@ -171,9 +180,7 @@ public enum SceneApplication {
     private static func describe(_ origin: DisplayOrigin) -> String { "(\(origin.x), \(origin.y))" }
 
     private static func describe(_ mode: DisplayMode) -> String {
-        let hz = mode.refreshHz.rounded() == mode.refreshHz
-            ? String(Int(mode.refreshHz)) : String(format: "%.2f", mode.refreshHz)
-        return "\(mode.pixelWidth)x\(mode.pixelHeight)@\(hz)\(mode.isHiDPI ? " HiDPI" : "")"
+        "\(mode.pixelWidth)x\(mode.pixelHeight)@\(SceneValueText.refresh(mode.refreshHz))\(mode.isHiDPI ? " HiDPI" : "")"
     }
 }
 
@@ -224,7 +231,8 @@ public struct SceneApplyReport: Hashable, Sendable, Codable {
         case partial
         /// Nothing the scene needed was achieved (or no member was present).
         case failed
-        /// A required member is missing, so nothing was written.
+        /// A required member is missing, or the scene carries a value that can't be used
+        /// (`invalidValues`), so nothing was written.
         case blocked
     }
 
@@ -235,9 +243,12 @@ public struct SceneApplyReport: Hashable, Sendable, Codable {
     public var missingOptional: [String]
     public var providerWarnings: [String]
     public var status: Status
+    /// The member values that blocked the apply because they can't be used (`Scene.invalidValues`).
+    public var invalidValues: [Scene.InvalidValue]
 
     public init(sceneID: String, sceneName: String, entries: [Entry], missingRequired: [String],
-                missingOptional: [String], providerWarnings: [String], status: Status) {
+                missingOptional: [String], providerWarnings: [String], status: Status,
+                invalidValues: [Scene.InvalidValue] = []) {
         self.sceneID = sceneID
         self.sceneName = sceneName
         self.entries = entries
@@ -245,6 +256,7 @@ public struct SceneApplyReport: Hashable, Sendable, Codable {
         self.missingOptional = missingOptional
         self.providerWarnings = providerWarnings
         self.status = status
+        self.invalidValues = invalidValues
     }
 
     /// Entries that didn't end up as the scene asked, in report order.

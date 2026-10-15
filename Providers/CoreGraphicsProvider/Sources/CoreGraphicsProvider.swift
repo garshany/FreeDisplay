@@ -409,13 +409,21 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
                         warnings.append("could not set mode for \(target.displayID)")
                     }
                 } else {
-                    warnings.append("no matching mode for \(target.displayID) (\(mode.pixelWidth)x\(mode.pixelHeight)@\(Int(mode.refreshHz.rounded())))")
+                    // Range-safe: the requested mode may come from a hand-edited scene file.
+                    let hz = Int(exactly: mode.refreshHz.rounded()).map(String.init)
+                        ?? String(format: "%.2f", mode.refreshHz)
+                    warnings.append("no matching mode for \(target.displayID) (\(mode.pixelWidth)x\(mode.pixelHeight)@\(hz))")
                 }
             }
             if let origin = target.origin {
                 let current = CGDisplayBounds(target.displayID).origin
                 if Int(current.x.rounded()) != origin.x || Int(current.y.rounded()) != origin.y {
-                    if CGConfigureDisplayOrigin(config, target.displayID, Int32(origin.x), Int32(origin.y)) == .success {
+                    // Core Graphics origins are 32-bit; a position past that is refused, not trapped on.
+                    guard let x = Int32(exactly: origin.x), let y = Int32(exactly: origin.y) else {
+                        warnings.append("position (\(origin.x), \(origin.y)) is outside the display coordinate range for \(target.displayID)")
+                        continue
+                    }
+                    if CGConfigureDisplayOrigin(config, target.displayID, x, y) == .success {
                         changed = true
                     } else {
                         warnings.append("could not move \(target.displayID)")
