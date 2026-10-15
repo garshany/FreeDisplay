@@ -244,6 +244,12 @@ public enum FocusedWindowScreen {
     }
 }
 
+/// Explicit shortcuts do not inherit the per-display native-key participation switch.
+public enum KeyRoutingSource: Hashable, Sendable {
+    case nativeKey
+    case recordedShortcut
+}
+
 /// Chooses which displays a brightness key changes (SO-27, FA-19, T27). Pure: the app supplies each
 /// display's eligibility and controller facts and applies the result.
 ///
@@ -282,10 +288,12 @@ public enum BrightnessKeyRouter {
         public var pointer: DisplayOrigin?
         public var focusedDisplay: DisplayRecordID?
         public var streamTargets: [DisplayRelationships.StreamTarget]
+        public var source: KeyRoutingSource
 
         public init(mode: MediaKeyTargetMode, takeover: BrightnessKeyTakeover = .anyControllableDisplay,
                     pointer: DisplayOrigin? = nil, focusedDisplay: DisplayRecordID? = nil,
-                    streamTargets: [DisplayRelationships.StreamTarget] = []) {
+                    streamTargets: [DisplayRelationships.StreamTarget] = [], source: KeyRoutingSource = .nativeKey) {
+            self.source = source
             self.streamTargets = streamTargets
             self.mode = mode
             self.takeover = takeover
@@ -340,7 +348,7 @@ public enum BrightnessKeyRouter {
 
         var primary: DisplayRecordID?
         var chosen: [DisplayRecordID]
-        var respectsKeyboardPreference = true
+        var respectsKeyboardPreference = context.source == .nativeKey
         var bypass = intent.bypassesSync
         let allMode = context.mode == .allDisplays
 

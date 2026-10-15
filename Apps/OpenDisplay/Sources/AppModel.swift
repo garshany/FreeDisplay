@@ -6828,8 +6828,16 @@ final class AppModel: ObservableObject {
     }
 
     private func shortcutVideoTargets() -> [DisplayObservation] {
-        let ids = brightnessKeyDecision(intent: .plain, takeover: .anyControllableDisplay).targets.map(\.display)
+        let ids = shortcutBrightnessDecision(softwareImage: true).targets.map(\.display)
         return ids.compactMap { id in displays.first { $0.recordID == id } }
+    }
+
+    private func shortcutBrightnessDecision(softwareImage: Bool = false) -> BrightnessKeyRouter.Decision {
+        let mode = settings.mediaKeyTargetMode
+        return ShortcutActionPolicy.videoDecision(candidates: brightnessKeyCandidates(softwareImage: softwareImage),
+            context: .init(mode: mode, pointer: cursorInCGCoordinates(),
+                           focusedDisplay: mode == .focusedWindow ? focusedWindowDisplayID() : nil),
+            softwareImage: softwareImage)
     }
 
     private func performShortcutAdjustment(_ action: HotkeyAction, adjustment: ShortcutActionPolicy.Adjustment) {
@@ -7048,7 +7056,7 @@ final class AppModel: ObservableObject {
     /// their displays exactly as a plain brightness key does (SO-27), but never hand the press to
     /// macOS: a recorded shortcut is OpenDisplay's own.
     func adjustMainBrightness(fine: Bool, sign: Float) async {
-        let decision = brightnessKeyDecision(intent: .plain, takeover: .anyControllableDisplay)
+        let decision = shortcutBrightnessDecision()
         let delta = sign * settings.adjustmentSteps.fraction(fine: fine)
         for target in decision.targets {
             guard let observation = displays.first(where: { $0.recordID == target.display }) else { continue }
@@ -7273,7 +7281,7 @@ final class AppModel: ObservableObject {
 
     /// What the brightness keys may do with each display: its keyboard preference, whether a
     /// route shows on it, whether macOS adjusts it natively, and the sync group carrying its changes.
-    private func brightnessKeyCandidates() -> [BrightnessKeyRouter.Candidate] {
+    private func brightnessKeyCandidates(softwareImage: Bool = false) -> [BrightnessKeyRouter.Candidate] {
         displays.map { observation in
             let id = observation.recordID
             #if PUBLIC_API_ONLY
@@ -7293,7 +7301,7 @@ final class AppModel: ObservableObject {
             return BrightnessKeyRouter.Candidate(
                 observation: observation,
                 keyboardEnabled: settings.keyboardAudioPreferences(for: id).keyboardControl,
-                controllable: observation.cgDisplayID != nil && !invisible,
+                controllable: observation.cgDisplayID != nil && (softwareImage || !invisible),
                 macOSControllable: macOSControllable, syncGroup: group)
         }
     }
