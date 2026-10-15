@@ -23,12 +23,14 @@ extension HotkeyAction {
     }
 }
 
-/// Settings → Keyboard: the global shortcut recorder (SO-30, with the app actions of SO-38), the
-/// shared adjustment steps (SO-29) and the input hotkeys.
+/// Settings → Keyboard: the native brightness/volume keys (SO-25–SO-28), the global shortcut recorder
+/// (SO-30, with the app actions of SO-38), the shared adjustment steps (SO-29) and the input hotkeys.
 struct KeyboardSettingsSection: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: ODSpacing.md) {
+                NativeKeyboardControlCard()  // SO-25–SO-28 (NativeKeyboardSettingsView.swift)
+                Divider()
                 KeyboardShortcutsCard()
                 Divider()
                 AdjustmentStepsCard()

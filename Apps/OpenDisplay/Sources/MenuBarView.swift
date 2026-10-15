@@ -423,16 +423,25 @@ private struct TrayVolumeControl: View {
     let display: DisplayObservation
 
     var body: some View {
-        let level = Double(model.ddcControl(.volume, for: display) ?? 0)
-        let muted = model.ddcAudioMuted[display.recordID] == true || level <= 0
+        // The display's own route (SD-16): its bound macOS output when native association is on,
+        // otherwise the monitor's DDC audio.
+        let level = Double(model.displayVolumeLevel(for: display) ?? 0)
+        let muted = model.displayIsMuted(for: display)
         // TB-03: the icon is a button only when a mute toggle has something truthful to do.
-        let mute = model.muteAction(for: display)
-        TraySlider(value: level, icon: muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                   valueText: "\(Int((level * 100).rounded()))%", accessibilityLabel: String(localized: "Volume"),
-                   leadingAction: mute == .unavailable ? nil : { model.toggleMute(for: display) }) {
-            model.setHardwareControl(.volume, Float($0), for: display, showsOSD: false)
+        let canMute = model.displayMuteAvailable(for: display)
+        let slider = TraySlider(value: level, icon: muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                                valueText: "\(Int((level * 100).rounded()))%",
+                                accessibilityLabel: String(localized: "Volume"),
+                                isAdjustable: model.displayVolumeAdjustable(for: display),
+                                leadingAction: canMute ? { model.toggleDisplayMute(for: display) } : nil,
+                                onEnded: { model.volumeSliderReleased(for: display) }) {
+            model.setDisplayVolume(Float($0), for: display)
         }
-        .help(DDCStatusText.volumeHelp(mute))
+        if case .native(let device) = model.audioSink(for: display) {
+            slider.help(String(localized: "Volume of “\(device.name)”, the sound output this display uses."))
+        } else {
+            slider.help(DDCStatusText.volumeHelp(model.muteAction(for: display)))
+        }
     }
 }
 
@@ -558,7 +567,7 @@ private enum TrayItems {
             let stops = TrayModeCatalog.sliderStops(modes, current: mode)
             return stops.count > 1 && DisplayModeCatalog.index(of: mode, in: stops) != nil
         case .volume:
-            return isExternal && model.ddcControl(.volume, for: display) != nil
+            return isExternal && model.displayVolumeLevel(for: display) != nil
         case .refreshRate:
             return TrayModeCatalog.refreshRates(modes, current: display.mode).count > 1
         case .monitorControls, .inputSource, .monitorColorPreset:
@@ -1006,7 +1015,10 @@ private struct TrayDeviceControl: View {
     }
 
     var body: some View {
-        let controls = HardwareControl.allCases.filter { model.ddcControl($0, for: display) != nil }
+        let controls = HardwareControl.allCases.filter {
+                model.ddcControl($0, for: display) != nil
+                    && ($0 != .volume || !model.settings.keyboardAudioPreferences(for: display.recordID).nativeAudioEnabled)
+            }
         VStack(alignment: .leading, spacing: 8) {
             if let refusal = model.ddcBindingRefusal[display.recordID] {
                 // Deliberately not talking DDC (TR-06/FB-08) — "didn't respond" would send the user
@@ -1025,7 +1037,8 @@ private struct TrayDeviceControl: View {
                     TraySlider(value: value, icon: control.icon, valueText: "", accessibilityLabel: control.label,
                                showsValue: false,
                                leadingAction: control == .volume && model.muteAction(for: display) != .unavailable
-                                   ? { model.toggleMute(for: display) } : nil) {
+                                   ? { model.toggleMute(for: display) } : nil,
+                               onEnded: control == .volume ? { model.volumeSliderReleased(for: display) } : nil) {
                         model.setHardwareControl(control, Float($0), for: display, showsOSD: false)
                     }
                 }
@@ -1841,15 +1854,19 @@ private struct TraySlider: View {
     let valueText: String
     let accessibilityLabel: String
     var showsValue = true
+    var isAdjustable = true
     var leadingAction: (() -> Void)?
+    /// Runs once when a drag ends (FA-20: the volume feedback sound plays after dragging).
+    var onEnded: (() -> Void)?
     let onChange: (Double) -> Void
     @State private var dragValue: Double?
 
     init(value: Double, icon: String, valueText: String, accessibilityLabel: String, showsValue: Bool = true,
-         leadingAction: (() -> Void)? = nil, onChange: @escaping (Double) -> Void) {
+         isAdjustable: Bool = true, leadingAction: (() -> Void)? = nil, onEnded: (() -> Void)? = nil, onChange: @escaping (Double) -> Void) {
         self.value = value; self.icon = icon; self.valueText = valueText
         self.accessibilityLabel = accessibilityLabel; self.showsValue = showsValue
-        self.leadingAction = leadingAction; self.onChange = onChange
+        self.isAdjustable = isAdjustable
+        self.leadingAction = leadingAction; self.onEnded = onEnded; self.onChange = onChange
     }
 
     @Environment(\.traySliderLabels) private var labels
@@ -1889,9 +1906,13 @@ private struct TraySlider: View {
                         dragValue = next
                         onChange(next)
                     }
-                    .onEnded { _ in dragValue = nil })
+                    .onEnded { _ in
+                        dragValue = nil
+                        onEnded?()
+                    })
             }
             .frame(height: 22)
+            .allowsHitTesting(isAdjustable)
             if showsValue && labels.values {
                 Text(valueText).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
                     .frame(width: 36, alignment: .trailing)
@@ -1899,6 +1920,7 @@ private struct TraySlider: View {
         }
         .accessibilityRepresentation {
             Slider(value: Binding(get: { value }, set: { onChange($0) }), in: 0...1) { Text(accessibilityLabel) }
+                .disabled(!isAdjustable)
         }
         .accessibilityIdentifier("tray.slider")
     }

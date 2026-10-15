@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import ApplicationServices
 import AutomationSchema
 import CoreGraphicsProvider
 import DisplayDomain
@@ -311,7 +312,7 @@ final class AppModel: ObservableObject {
     private var muteWriter: [DisplayRecordID: Task<Void, Never>] = [:]
     /// Displays whose audio controls are being probed because a volume key arrived before their
     /// DDC volume was confirmed (TB-02) — one probe at a time per display.
-    private var audioProbes: Set<DisplayRecordID> = []
+    private var audioProbes: [DisplayRecordID: (token: UUID, task: Task<Void, Never>)] = [:]
     /// Per-display negative cache of VCP features that repeatedly failed to read, so refresh passes
     /// stop spending ~0.7s of retried I2C on every control the panel doesn't implement (with a
     /// periodic recheck baked into the tracker — see `DDCProbeTracker`). Dropped on disconnect.
@@ -446,6 +447,12 @@ final class AppModel: ObservableObject {
     /// One system Accessibility prompt per launch, max — reconcile runs on every toggle change and at
     /// init, and re-prompting each time would nag.
     private var promptedForAccessibility = false
+    /// macOS's sound outputs through public CoreAudio (TR-16): identities, controls and writes.
+    private let audioOutputs = CoreAudioOutputs()
+    /// The outputs as last read, for Settings and the menu; a key press reads CoreAudio afresh.
+    @Published private(set) var audioSnapshot = AudioOutputSnapshot()
+    /// The feedback sound owed for a held volume key, played once on its release (FA-20).
+    private var releaseFeedback = KeyReleaseFeedback()
     /// Remembered pre-mute DDC volume per display, so a zero-volume mute (monitors without a readable
     /// discrete mute) can restore the prior level. Cleared on unmute and when the user picks a new
     /// level; absent means unmute has nothing truthful to restore (TB-03).
@@ -535,6 +542,13 @@ final class AppModel: ObservableObject {
         registerHotkeys()
         observeSleepAndWake()  // re-assert what the user turned off once macOS has woken the desk
         reconcileMediaKeyTap()  // Batch-3 #3: arm the media-key tap if enabled + Accessibility granted
+        // TR-16: read-only CoreAudio listeners keep Settings' picture of the outputs current.
+        audioOutputs.onChange = { [weak self] snapshot in
+            guard let self, self.audioSnapshot != snapshot else { return }
+            self.audioSnapshot = snapshot
+        }
+        audioOutputs.startListening()
+        audioSnapshot = audioOutputs.snapshot()
         reconcileXDRPowerAutomation()  // Issue #35: watch power only if an XDR battery rule is armed
         NotificationDelivery.style = settings.notificationStyle  // SO-12: where notices go
         if settings.displayNotificationsEnabled, settings.notificationStyle == .notificationCenter {
@@ -2106,6 +2120,10 @@ final class AppModel: ObservableObject {
         for (id, task) in colorPresetWriter where !ids.contains(id) { task.cancel(); colorPresetWriter[id] = nil }
         for (key, task) in ddcControlWriter where !ids.contains(key.id) { task.cancel(); ddcControlWriter[key] = nil }
         for (id, task) in muteWriter where !ids.contains(id) { task.cancel(); muteWriter[id] = nil }
+        for (id, probe) in audioProbes where !ids.contains(id) {
+            probe.task.cancel()
+            audioProbes[id] = nil
+        }
         muteTarget = muteTarget.filter { ids.contains($0.key) }
         // The bind itself can't be interrupted: forgetting its token is what keeps its result — and
         // every caller still awaiting it — from being used (see `ddcController`).
@@ -2142,6 +2160,8 @@ final class AppModel: ObservableObject {
         }
         displays = snapshot.observations.sorted { $0.recordID.rawValue < $1.recordID.rawValue }
         pruneControlCaches(to: Set(displays.map(\.recordID)))
+        // Owner #6: establish audio eligibility during discovery, before diagnostics/UI work.
+        await confirmDisplayAudioForKeys()
         #if !PUBLIC_API_ONLY
         reconcileGroupBrightnessLoop()
         #endif
@@ -2346,7 +2366,8 @@ final class AppModel: ObservableObject {
                        syncToken: GroupSyncPolicy.SyncEcho.Token? = nil,
                        origin: GroupSyncPolicy.ManualWrite.Origin = .slider,
                        eventSource: OSDBroadcast.Source? = nil,
-                       syncBypass: Bool = false) {
+                       syncBypass: Bool = false,
+                       keyboardEligible: Set<DisplayRecordID>? = nil) {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
         // What a delta-mode group measures this change from: the level before this write.
@@ -2401,7 +2422,8 @@ final class AppModel: ObservableObject {
                        showsLocalHUD: origin != .slider)
         }
         syncGroupBrightness(value, applied: brightness[id], previous: previous, from: observation,
-                            token: syncToken, origin: origin, bypass: syncBypass)  // Issue #39
+                            token: syncToken, origin: origin, bypass: syncBypass,
+                            keyboardEligible: keyboardEligible)  // Issue #39
     }
 
     // MARK: - Display Groups (Issue #39): brightness/contrast fan-out
@@ -2507,14 +2529,17 @@ final class AppModel: ObservableObject {
     private func syncGroupBrightness(_ value: Float, applied: Float?, previous: Float?,
                                      from observation: DisplayObservation,
                                      token: GroupSyncPolicy.SyncEcho.Token?,
-                                     origin: GroupSyncPolicy.ManualWrite.Origin, bypass: Bool) {
+                                     origin: GroupSyncPolicy.ManualWrite.Origin, bypass: Bool,
+                                     keyboardEligible: Set<DisplayRecordID>? = nil) {
         // Safe startup (FA-09): the display the user (or macOS) changed changes; the rest of its
         // group is left alone, and no offset is learned from it.
         guard !safeStartup else { return }
         let leader = observation.recordID
         guard let group = brightnessSyncGroup(containing: leader) else { return }
+        var world = groupSyncWorld()
+        if let keyboardEligible { world.present.formIntersection(keyboardEligible) }
         let write = GroupSyncPolicy.ManualWrite(value: value, display: leader, token: token,
-                                                now: Date(), world: groupSyncWorld(), origin: origin,
+                                                now: Date(), world: world, origin: origin,
                                                 appliedValue: applied, previousValue: previous,
                                                 bypass: bypass)
         let result = GroupSyncPolicy.classify(write, group: group,
@@ -6103,16 +6128,20 @@ final class AppModel: ObservableObject {
         await setMain(for: actives[(idx + 1) % actives.count])
     }
 
-    /// Nudges the configured brightness-key target one standard or fine step (SO-29: the steps the
-    /// native keys use), clamped to 0...1. `sign` is +1 to brighten, -1 to dim.
+    /// Nudges the brightness-key targets one standard or fine step (SO-29: the steps the native keys
+    /// use), clamped to 0...1. `sign` is +1 to brighten, -1 to dim. The custom shortcuts choose
+    /// their displays exactly as a plain brightness key does (SO-27), but never hand the press to
+    /// macOS: a recorded shortcut is OpenDisplay's own.
     func adjustMainBrightness(fine: Bool, sign: Float) async {
-        guard let main = MediaKeyTargetPolicy.target(
-            for: .brightnessUp, in: displays, cursor: cursorInCGCoordinates(),
-            mode: settings.mediaKeyTargetMode, volumeCapable: [], audioTarget: nil) else { return }
-        if brightnessMethod[main.recordID] == nil { await refreshBrightness(for: main) }
-        let current = brightness[main.recordID] ?? 0.5
+        let decision = brightnessKeyDecision(intent: .plain, takeover: .anyControllableDisplay)
         let delta = sign * settings.adjustmentSteps.fraction(fine: fine)
-        setBrightness(max(0, min(1, current + delta)), for: main, origin: .keys, eventSource: .hotkey)
+        for target in decision.targets {
+            guard let observation = displays.first(where: { $0.recordID == target.display }) else { continue }
+            if brightnessMethod[target.display] == nil { await refreshBrightness(for: observation) }
+            let current = brightness[target.display] ?? 0.5
+            setBrightness(max(0, min(1, current + delta)), for: observation, origin: .keys, eventSource: .hotkey,
+                          syncBypass: target.bypassesSync)
+        }
     }
 
     // MARK: - OSD HUD + media keys (Batch-3)
@@ -6146,43 +6175,246 @@ final class AppModel: ObservableObject {
                        style: settings.osdStyle, position: settings.osdPosition)
     }
 
-    /// Handle a captured media key (Batch-3 #1/#3). Resolves the target display via the pure
-    /// `MediaKeyTargetPolicy`, applies the change through the existing brightness/volume sinks (which
-    /// raise the OSD), and returns whether it acted — so the tap can swallow handled keys and let
-    /// others (e.g. volume on the built-in) pass through to macOS.
+    /// Handle a captured native key event (Batch-3 #1/#3, SO-25–SO-28, FA-19, FA-20). Resolves the
+    /// chord, then the displays through the pure `BrightnessKeyRouter` / `AudioKeyRouter`, applies
+    /// the change through the existing brightness/volume sinks (which raise the OSD), and returns
+    /// whether it acted — so the tap swallows handled keys and lets every other one reach macOS.
+    /// A release arrives only for a press that was taken; it plays the owed volume feedback.
     @discardableResult
-    func handleMediaKey(_ action: MediaKeyAction, fineStep: Bool, shiftPressed: Bool = false) -> Bool {
-        guard action.acceptsModifiers(shiftPressed: shiftPressed,
-            brightnessRequiresShift: settings.brightnessMediaKeysRequireShift) else { return false }
-        // Volume/mute follow the system's default audio output (resolved at keypress); brightness
-        // follows the configured target mode and ignores this.
-        let audioTarget = action.isVolume ? audioOutputDisplayID() : nil
-        guard let target = MediaKeyTargetPolicy.target(
-            for: action, in: displays, cursor: cursorInCGCoordinates(),
-            mode: settings.mediaKeyTargetMode, volumeCapable: volumeCapableDisplayIDs(for: action),
-            audioTarget: audioTarget)
-        else {
-            // The sound goes to a display whose DDC audio isn't confirmed: macOS handles this key,
-            // and a background read establishes whether the next one can be taken (TB-02).
-            if let audioTarget { probeAudioControls(for: audioTarget) }
-            return false
+    func handleNativeKey(_ event: NativeKeyEvent) -> Bool {
+        let keys = settings.nativeKeys
+        guard event.isDown else {
+            if event.action == .volumeUp || event.action == .volumeDown,
+               let request = releaseFeedback.released(event.action) {
+                VolumeFeedbackSoundPlayer.play(on: request.outputUID)
+            }
+            return true
         }
-        let id = target.recordID
+        if event.action.isBrightness {
+            guard keys.brightnessKeysEnabled else { return false }
+            if let keyCode = event.functionKeyCode {
+                let registry = effectiveHotkeyRegistry
+                guard AlternativeBrightnessKey.isMapped(
+                    keyCode: keyCode, carbonModifiers: event.carbonModifiers, enabled: keys.alternativeBrightnessKeys,
+                    shortcutInUse: { registry.slot(using: $0) != nil }) else { return false }
+            }
+        } else {
+            guard keys.volumeKeysEnabled else { return false }
+        }
+        if let auxiliary = NativeKeyChordPolicy.auxiliaryAction(
+            for: event.action, modifiers: event.modifiers,
+            brightnessRequiresShift: settings.brightnessMediaKeysRequireShift) {
+            guard !event.isRepeat else { return true }
+            switch auxiliary {
+            case .displaysSettings, .soundSettings:
+                let pane = auxiliary == .displaysSettings ? "com.apple.preference.displays" : "com.apple.preference.sound"
+                guard let url = URL(string: "x-apple.systempreferences:\(pane)") else { return false }
+                return NSWorkspace.shared.open(url)
+            case .startMirroring, .stopMirroring:
+                let ids = NativeKeyChordPolicy.mirrorTargets(for: auxiliary, in: displays)
+                let targets = ids.compactMap { id in displays.first { $0.recordID == id } }
+                guard !targets.isEmpty else { return false }
+                Task { [weak self] in
+                    for target in targets { await self?.setMirrored(auxiliary == .startMirroring, for: target) }
+                }
+                return true
+            }
+        }
+        guard let intent = NativeKeyChordPolicy.intent(
+            for: event.action, modifiers: event.modifiers,
+            brightnessRequiresShift: settings.brightnessMediaKeysRequireShift) else { return false }
+        return event.action.isBrightness
+            ? handleBrightnessKey(event.action, intent: intent)
+            : handleAudioKey(event.action, intent: intent)
+    }
 
-        switch action {
-        case .brightnessUp, .brightnessDown:
-            let current = brightness[id] ?? 0.5
-            let delta = action.signedDelta(fineStep: fineStep, steps: settings.adjustmentSteps)
-            setBrightness(min(1, max(0, current + delta)), for: target, origin: .keys, eventSource: .mediaKey)
-        case .volumeUp, .volumeDown:
-            // Eligibility guarantees a read-back level; nothing is invented here.
-            guard let current = ddcControl(.volume, for: target) else { return false }
-            let delta = action.signedDelta(fineStep: fineStep, steps: settings.adjustmentSteps)
-            setHardwareControl(.volume, min(1, max(0, current + delta)), for: target, eventSource: .mediaKey)
-        case .muteToggle:
-            return toggleMute(for: target, eventSource: .mediaKey)
+    private func handleBrightnessKey(_ action: MediaKeyAction, intent: NativeKeyIntent) -> Bool {
+        let candidates = brightnessKeyCandidates()
+        let decision = brightnessKeyDecision(intent: intent, takeover: settings.nativeKeys.brightnessTakeover)
+        guard case .adjust(let targets) = decision else { return false }
+        let eligible = BrightnessKeyRouter.syncEligibleDisplays(candidates)
+        let delta = action.sign * settings.nativeKeys.stepFraction(for: action, modifierRequestsFine: intent.modifierRequestsFine,
+                                                              steps: settings.adjustmentSteps)
+        for target in targets {
+            guard let observation = displays.first(where: { $0.recordID == target.display }) else { continue }
+            let current = brightness[target.display] ?? 0.5
+            setBrightness(min(1, max(0, current + delta)), for: observation, origin: .keys, eventSource: .mediaKey,
+                          syncBypass: target.bypassesSync, keyboardEligible: eligible)
         }
         return true
+    }
+
+    /// The displays a brightness press would change right now.
+    private func brightnessKeyDecision(intent: NativeKeyIntent,
+                                       takeover: BrightnessKeyTakeover) -> BrightnessKeyRouter.Decision {
+        let mode = settings.mediaKeyTargetMode
+        return BrightnessKeyRouter.decide(
+            intent: intent, candidates: brightnessKeyCandidates(),
+            context: .init(mode: mode, takeover: takeover, pointer: cursorInCGCoordinates(),
+                           focusedDisplay: mode == .focusedWindow ? focusedWindowDisplayID() : nil))
+    }
+
+    /// What the brightness keys may do with each display: its keyboard preference, whether a
+    /// route shows on it, whether macOS adjusts it natively, and the sync group carrying its changes.
+    private func brightnessKeyCandidates() -> [BrightnessKeyRouter.Candidate] {
+        displays.map { observation in
+            let id = observation.recordID
+            #if PUBLIC_API_ONLY
+            let method = BrightnessMethod.software
+            let macOSControllable = observation.displayClass == .builtIn
+            #else
+            let method = settings.softwareBrightnessDisplayIDs.contains(id.rawValue)
+                ? BrightnessMethod.software
+                : brightnessMethod[id] ?? (observation.displayClass == .builtIn ? .native : .hardware)
+            let macOSControllable = method == .native
+            #endif
+            // A mirror member shows its source's picture: an overlay window drawn for it is never seen.
+            let invisible = observation.mirrorSourceID != nil && method == .software && effectiveDimmingMethod == .overlay
+            // Safe startup (FA-09) syncs no group, so every display must then be written itself.
+            let group = safeStartup ? nil
+                : brightnessSyncGroup(containing: id).flatMap { $0.syncBrightness ? $0.id : nil }
+            return BrightnessKeyRouter.Candidate(
+                observation: observation,
+                keyboardEnabled: settings.keyboardAudioPreferences(for: id).keyboardControl,
+                controllable: observation.cgDisplayID != nil && !invisible,
+                macOSControllable: macOSControllable, syncGroup: group)
+        }
+    }
+
+    private func handleAudioKey(_ action: MediaKeyAction, intent: NativeKeyIntent) -> Bool {
+        // CoreAudio is read at the press: an output switch a moment ago must count.
+        let snapshot = audioOutputs.snapshot()
+        if audioSnapshot != snapshot { audioSnapshot = snapshot }
+        let candidates = audioKeyCandidates(devices: snapshot.devices)
+        let decision = audioKeyDecision(action, intent: intent, candidates: candidates, snapshot: snapshot)
+        guard case .adjust(let recipients, let feedbackOutputUID) = decision else {
+            // A display the output belongs to whose DDC audio isn't confirmed: macOS handles this
+            // key, and a background read establishes whether the next one can be taken (TB-02).
+            let match = AudioOutputAssociation.displays(matching: snapshot.currentOutput, candidates: candidates)
+            for id in match.displays { probeAudioControls(for: id) }
+            return false
+        }
+        let delta = action.sign * settings.nativeKeys.stepFraction(for: action, modifierRequestsFine: intent.modifierRequestsFine,
+                                                              steps: settings.adjustmentSteps)
+        var handled = false
+        for recipient in recipients {
+            switch recipient {
+            case .hardware(let id):
+                guard let observation = displays.first(where: { $0.recordID == id }) else { continue }
+                let showsOSD = settings.keyboardAudioPreferences(for: id).showsVolumeOSD
+                if action == .muteToggle {
+                    handled = toggleMute(for: observation, eventSource: .mediaKey, showsOSD: showsOSD) || handled
+                } else if let current = ddcControl(.volume, for: observation) {
+                    // Eligibility guarantees a read-back level; nothing is invented here.
+                    setHardwareControl(.volume, min(1, max(0, current + delta)), for: observation,
+                                       showsOSD: showsOSD, eventSource: .mediaKey)
+                    handled = true
+                }
+            case .native(let id, let device):
+                let observation = displays.first { $0.recordID == id }
+                handled = applyNativeAudio(action, to: device, delta: delta, feedbackDisplay: observation,
+                                           showsOSD: settings.keyboardAudioPreferences(for: id).showsVolumeOSD) || handled
+            case .currentOutput(let device):
+                handled = applyNativeAudio(action, to: device, delta: delta, feedbackDisplay: nil, showsOSD: true) || handled
+            }
+        }
+        if handled, action != .muteToggle {
+            let plays = VolumeFeedbackPolicy.plays(settings.nativeKeys.volumeFeedbackSound,
+                                                   systemPreference: VolumeFeedbackSoundPlayer.systemPreference,
+                                                   inverted: intent.invertsFeedbackSound)
+            releaseFeedback.pressHandled(action, request: plays ? .init(outputUID: feedbackOutputUID) : nil)
+        }
+        return handled
+    }
+
+    private func audioKeyDecision(_ action: MediaKeyAction, intent: NativeKeyIntent,
+                                  candidates: [AudioKeyCandidate], snapshot: AudioOutputSnapshot) -> AudioKeyRouter.Decision {
+        let target = settings.nativeKeys.audioTarget
+        return AudioKeyRouter.decide(
+            action, intent: intent, candidates: candidates,
+            context: .init(settings.nativeKeys, currentOutput: snapshot.currentOutput,
+                           pointer: cursorInCGCoordinates(),
+                           focusedDisplay: target == .focusedWindow ? focusedWindowDisplayID() : nil))
+    }
+
+    /// Every display as the volume keys see it, against the outputs in `devices`.
+    private func audioKeyCandidates(devices: [AudioOutputDevice]) -> [AudioKeyCandidate] {
+        displays.map { observation in
+            let preferences = settings.keyboardAudioPreferences(for: observation.recordID)
+            let matchOverride = observation.displayClass == .builtIn ? AudioDeviceResolution.unset
+                : AudioDeviceSelector.resolve(preferences.audioMatch, in: devices, strictness: .allowsFragment)
+            return AudioKeyCandidate(observation: observation, productName: osDisplayName(for: observation),
+                                     keyboardEnabled: preferences.keyboardControl,
+                                     sink: audioSink(for: observation, preferences: preferences, devices: devices),
+                                     matchOverride: matchOverride)
+        }
+    }
+
+    /// Where a display's volume and mute go (SD-16): its bound macOS output when native association
+    /// is on — and nowhere when that binding names no single present output — otherwise the
+    /// monitor's own DDC audio, with what has been confirmed of it. The built-in display has neither:
+    /// its speakers are macOS's.
+    private func audioSink(for observation: DisplayObservation, preferences: DisplayKeyboardAudioPreferences,
+                           devices: [AudioOutputDevice]) -> DisplayAudioSink {
+        guard observation.displayClass != .builtIn else { return .none }
+        if preferences.nativeAudioEnabled {
+            let resolution = AudioDeviceSelector.resolve(preferences.nativeAudioDevice, in: devices, strictness: .exact)
+            return resolution.device.map(DisplayAudioSink.native) ?? .unresolvedNative(resolution)
+        }
+        let capability = audioCapability(for: observation)
+        return .hardware(volume: DDCAudioPolicy.volumeKeysUsable(capability),
+                         mute: DDCAudioPolicy.muteKeyUsable(capability, remembered: preMuteVolume[observation.recordID]))
+    }
+
+    /// Steps or toggles a macOS output through CoreAudio, then reports what the output reads back —
+    /// not the request — on the display it belongs to, or (the native fallback, which belongs to no
+    /// display) as a local HUD under the pointer without a display event.
+    @discardableResult
+    private func applyNativeAudio(_ action: MediaKeyAction, to device: AudioOutputDevice, delta: Float,
+                                  feedbackDisplay: DisplayObservation?, showsOSD: Bool) -> Bool {
+        let outcome = NativeAudioAdjustment.apply(action, uid: device.uid, delta: delta, controller: audioOutputs)
+        refreshAudioOutputs()
+        if case .failed = outcome {
+            statusText = String(localized: "FreeDisplay couldn’t change the sound output. Check its volume and mute controls in Sound settings.")
+        }
+        guard case .accepted(let after?) = outcome else { return outcome.handled }
+        // No success HUD is fabricated when readback is unavailable.
+        guard let level = after.volumeLevel else { return true }
+        let kind: OSDContent.Kind = after.isMuted == true ? .mute : .volume
+        let value = after.isMuted == true ? 0 : level
+        if let feedbackDisplay {
+            presentOSD(kind: kind, value: value, for: feedbackDisplay, source: .mediaKey, showsLocalHUD: showsOSD)
+        } else if OSDFeedbackPolicy.route(localHUDWanted: showsOSD, settings: settings).drawsLocalHUD,
+                  let place = cursorInCGCoordinates().flatMap({ PointerScreen.display(at: $0, in: displays) })
+                    ?? displays.first(where: { $0.isActive && $0.isMain }) {
+            osdHUD.present(OSDContent(kind: kind, value: value), cgDisplayID: place.cgDisplayID,
+                           style: settings.osdStyle, position: settings.osdPosition)
+        }
+        return true
+    }
+
+    /// Accessibility supplies the actual focused window, including dialogs; frontmost window-list
+    /// order is not focus and could silently select an unrelated display.
+    private func focusedWindowDisplayID() -> DisplayRecordID? {
+        guard MediaKeyTap.isAccessibilityTrusted,
+              let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return nil }
+        let application = AXUIElementCreateApplication(pid)
+        var window: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(application, kAXFocusedWindowAttribute as CFString, &window) == .success,
+              let window, CFGetTypeID(window) == AXUIElementGetTypeID() else { return nil }
+        let element = unsafeDowncast(window, to: AXUIElement.self)
+        var position: CFTypeRef?
+        var size: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &position) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &size) == .success,
+              let position, let size, CFGetTypeID(position) == AXValueGetTypeID(),
+              CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero
+        var dimensions = CGSize.zero
+        guard AXValueGetValue(unsafeDowncast(position, to: AXValue.self), .cgPoint, &point),
+              AXValueGetValue(unsafeDowncast(size, to: AXValue.self), .cgSize, &dimensions) else { return nil }
+        return FocusedWindowScreen.display(
+            for: .init(x: point.x, y: point.y, width: dimensions.width, height: dimensions.height), in: displays)
     }
 
     /// How a mute toggle would be carried out on this display right now (TB-03): the monitor's own
@@ -6195,16 +6427,18 @@ final class AppModel: ObservableObject {
     /// done, so the key passes to macOS when there is nothing truthful to do (TB-03): no working
     /// audio control, or volume already 0 with no remembered level — an unmute never invents one.
     @discardableResult
-    func toggleMute(for observation: DisplayObservation, eventSource: OSDBroadcast.Source = .menu) -> Bool {
+    func toggleMute(for observation: DisplayObservation, eventSource: OSDBroadcast.Source = .menu,
+                    showsOSD: Bool = true) -> Bool {
         let id = observation.recordID
         switch muteAction(for: observation) {
         case .discrete(let mute):
             setDiscreteMute(mute, for: observation)
         case .zeroVolume(let level):
             preMuteVolume[id] = level
-            setHardwareControl(.volume, 0, for: observation, eventSource: eventSource)
+            setHardwareControl(.volume, 0, for: observation, showsOSD: showsOSD, eventSource: eventSource)
         case .restore(let level):
-            setHardwareControl(.volume, level, for: observation, eventSource: eventSource)  // clears `preMuteVolume`
+            // clears `preMuteVolume`
+            setHardwareControl(.volume, level, for: observation, showsOSD: showsOSD, eventSource: eventSource)
             preMuteVolume[id] = nil
         case .unavailable:
             return false
@@ -6224,40 +6458,49 @@ final class AppModel: ObservableObject {
             muteWriteFailed: ddcWriteFailed[id]?.contains(Self.ddcAudioMuteVCP) == true)
     }
 
-    /// External displays the volume/mute keys may be consumed for (TB-02). Requires a CONFIRMED DDC
-    /// audio control — a read-back volume (or discrete mute, for the mute key) whose last write didn't
-    /// fail — not merely "capabilities unread, so maybe": the tap swallows a consumed key, so a
-    /// guessed target would leave the user with no volume control at all. The built-in is never
-    /// included, so its keys always reach macOS.
-    private func volumeCapableDisplayIDs(for action: MediaKeyAction) -> Set<DisplayRecordID> {
-        Set(displays.filter { observation in
-            guard observation.displayClass != .builtIn else { return false }
-            let capability = audioCapability(for: observation)
-            return action == .muteToggle
-                ? DDCAudioPolicy.muteKeyUsable(capability, remembered: preMuteVolume[observation.recordID])
-                : DDCAudioPolicy.volumeKeysUsable(capability)
-        }.map(\.recordID))
+    /// Confirms the DDC volume of every monitor the volume keys could take, as soon as that can
+    /// matter — at launch, when a display connects, and when volume-key capture is switched on —
+    /// so the first press already finds a confirmed control instead of going to macOS while a
+    /// background read catches up (owner decision #6). Reuses the per-key probe: one at a time per
+    /// display, through the probe tracker, never for a display OpenDisplay refuses DDC to. Not in a
+    /// safe startup (FA-09), which starts no DDC traffic of its own accord.
+    private func confirmDisplayAudioForKeys() async {
+        #if !PUBLIC_API_ONLY
+        let candidates = audioKeyCandidates(devices: audioSnapshot.devices)
+        let confirmed = Set(displays.filter { ddcControl(.volume, for: $0) != nil }.map(\.recordID))
+        let targets = DisplayAudioInitialRead.targets(
+            candidates: candidates, confirmedVolume: confirmed,
+            captureEnabled: settings.mediaKeyInterceptionEnabled && settings.nativeKeys.volumeKeysEnabled,
+            safeStartup: safeStartup)
+        for id in targets { await probeAudioControls(for: id)?.value }
+        #endif
     }
 
     /// Starts a background read of a display's volume and mute when a key arrived for it before
     /// they were confirmed. Goes through the probe tracker, so a monitor without DDC audio is not
     /// re-read on every key press, and skips displays OpenDisplay refuses to talk DDC to.
-    private func probeAudioControls(for id: DisplayRecordID) {
+    @discardableResult
+    private func probeAudioControls(for id: DisplayRecordID) -> Task<Void, Never>? {
         #if !PUBLIC_API_ONLY
-        guard !audioProbes.contains(id), ddcBindingRefusal[id] == nil,
+        if let probe = audioProbes[id] { return probe.task }
+        guard ddcBindingRefusal[id] == nil,
               ddcProbe[id]?.unsupportedCodes.contains(HardwareControl.volume.vcp) != true,
               let observation = displays.first(where: {
                   $0.recordID == id && $0.isActive && $0.displayClass != .builtIn
-              }) else { return }
-        audioProbes.insert(id)
-        Task { [weak self] in
+              }) else { return nil }
+        let token = UUID()
+        let task = Task { [weak self] in
             guard let self else { return }
             if let controller = await self.ddcController(for: observation) {
                 await self.readHardwareControl(.volume, controller: controller, observation: observation)
                 await self.refreshDiscreteMute(controller, observation: observation)
             }
-            self.audioProbes.remove(id)
+            if self.audioProbes[id]?.token == token { self.audioProbes[id] = nil }
         }
+        audioProbes[id] = (token, task)
+        return task
+        #else
+        return nil
         #endif
     }
 
@@ -6273,6 +6516,7 @@ final class AppModel: ObservableObject {
         }
         #endif
     }
+
 
     #if !PUBLIC_API_ONLY
     private func drainMuteWrites(_ id: DisplayRecordID, _ observation: DisplayObservation) async {
@@ -6315,19 +6559,6 @@ final class AppModel: ObservableObject {
     }
     #endif
 
-    /// The display the system's default audio output is routing through, or nil when the sound isn't
-    /// going to a display (built-in speakers, AirPods, USB DAC, aggregate) or can't be matched to one.
-    /// Reads CoreAudio at call time and resolves the device→display via the pure matcher, using each
-    /// display's OS/hardware name. Volume keys pass through unless this returns a real display.
-    private func audioOutputDisplayID() -> DisplayRecordID? {
-        guard let output = AudioOutputInfo.currentDefaultOutput() else { return nil }
-        // Match on the hardware/OS name, not the alias — the CoreAudio device name carries the product
-        // name, so an aliased display would otherwise never match.
-        let names = Dictionary(uniqueKeysWithValues: displays.map { ($0.recordID, osDisplayName(for: $0)) })
-        return AudioOutputDisplayMatcher.match(
-            deviceName: output.name, transport: output.transport, displays: displays, names: names)
-    }
-
     /// The pointer location in Core Graphics (top-left origin) coordinates, to match `observation.origin`
     /// (which comes from `CGDisplayBounds`). `NSEvent.mouseLocation` is bottom-left, so flip about the
     /// primary display's height.
@@ -6345,20 +6576,35 @@ final class AppModel: ObservableObject {
     /// tap the moment it does — the user grants in System Settings and the keys just start working,
     /// no relaunch. (The Debug build is adhoc-signed, so a rebuild can invalidate a previous grant;
     /// this same path recovers that case at next launch.)
+    ///
+    /// The tap exists only while some key is captured (SO-25): with both brightness and volume
+    /// capture off the feature needs no permission and nothing is prompted. Ordinary key events are
+    /// watched only while F14/F15 are mapped.
     private func reconcileMediaKeyTap() {
-        if settings.mediaKeyInterceptionEnabled {
-            guard mediaKeyTap == nil else { return }
-            let tap = MediaKeyTap { [weak self] action, fineStep, shiftPressed in
-                self?.handleMediaKey(action, fineStep: fineStep, shiftPressed: shiftPressed) ?? false
+        if NativeKeyListening.needsCapture(featureEnabled: settings.mediaKeyInterceptionEnabled,
+                                           preferences: settings.nativeKeys) {
+            let wantsFunctionKeys = settings.nativeKeys.brightnessKeysEnabled
+                && settings.nativeKeys.alternativeBrightnessKeys
+            if let mediaKeyTap {
+                mediaKeyTap.brightnessWanted = settings.nativeKeys.brightnessKeysEnabled
+                mediaKeyTap.volumeWanted = settings.nativeKeys.volumeKeysEnabled
+                mediaKeyTap.functionKeysWanted = wantsFunctionKeys
+                if !mediaKeyTap.isActive { armMediaKeyTapWhenTrusted(mediaKeyTap) }
+                return
             }
+            let tap = MediaKeyTap { [weak self] event in self?.handleNativeKey(event) ?? false }
+            tap.brightnessWanted = settings.nativeKeys.brightnessKeysEnabled
+            tap.volumeWanted = settings.nativeKeys.volumeKeysEnabled
+            tap.functionKeysWanted = wantsFunctionKeys
+            tap.onCancel = { [weak self] in self?.releaseFeedback.cancel() }
             mediaKeyTap = tap
             if !tap.start() {
                 if !promptedForAccessibility {
                     promptedForAccessibility = true
                     MediaKeyTap.promptForAccessibility()
                 }
-                armMediaKeyTapWhenTrusted(tap)
             }
+            armMediaKeyTapWhenTrusted(tap)
         } else {
             mediaKeyTapRetry?.cancel()
             mediaKeyTapRetry = nil
@@ -6373,11 +6619,13 @@ final class AppModel: ObservableObject {
         mediaKeyTapRetry?.cancel()
         mediaKeyTapRetry = Task { [weak self] in
             while !Task.isCancelled {
-                guard let self, self.settings.mediaKeyInterceptionEnabled else { return }
-                if MediaKeyTap.isAccessibilityTrusted && tap.start() && tap.isActive {
-                    self.mediaKeyTapRetry = nil
-                    self.objectWillChange.send()
-                    return
+                guard let self, NativeKeyListening.needsCapture(
+                    featureEnabled: self.settings.mediaKeyInterceptionEnabled,
+                    preferences: self.settings.nativeKeys) else { return }
+                if MediaKeyTap.isAccessibilityTrusted {
+                    _ = tap.start()
+                } else {
+                    tap.stop()
                 }
                 self.objectWillChange.send()
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -6393,6 +6641,173 @@ final class AppModel: ObservableObject {
         mediaKeyTap?.stop()
         mediaKeyTap = nil
         reconcileMediaKeyTap()
+    }
+
+    // MARK: - Display audio and keyboard preferences (SD-11, SD-16, TB-08, TR-16)
+
+    /// Where this display's volume and mute go right now, against the outputs last read.
+    func audioSink(for observation: DisplayObservation) -> DisplayAudioSink {
+        audioSink(for: observation, preferences: settings.keyboardAudioPreferences(for: observation.recordID),
+                  devices: audioSnapshot.devices)
+    }
+
+    /// What the display's native-association text names among the present outputs.
+    func nativeAudioResolution(for observation: DisplayObservation) -> AudioDeviceResolution {
+        AudioDeviceSelector.resolve(settings.keyboardAudioPreferences(for: observation.recordID).nativeAudioDevice,
+                                    in: audioSnapshot.devices, strictness: .exact)
+    }
+
+    /// What the display's volume-key matching text names among the present outputs.
+    func audioMatchResolution(for observation: DisplayObservation) -> AudioDeviceResolution {
+        AudioDeviceSelector.resolve(settings.keyboardAudioPreferences(for: observation.recordID).audioMatch,
+                                    in: audioSnapshot.devices, strictness: .allowsFragment)
+    }
+
+    /// Re-reads CoreAudio for Settings (the listeners keep it current afterwards).
+    func refreshAudioOutputs() {
+        let snapshot = audioOutputs.snapshot()
+        if audioSnapshot != snapshot { audioSnapshot = snapshot }
+    }
+
+    /// The display's volume level for its slider: the bound output's when native association is on,
+    /// else the monitor's DDC volume. Nil = no level to show.
+    func displayVolumeLevel(for observation: DisplayObservation) -> Float? {
+        switch audioSink(for: observation) {
+        case .native(let device): return device.volume == .absent ? nil : device.volumeLevel
+        case .unresolvedNative, .none: return nil
+        case .hardware: return ddcControl(.volume, for: observation)
+        }
+    }
+
+    /// Whether the display's audio is muted as far as is known.
+    func displayIsMuted(for observation: DisplayObservation) -> Bool {
+        switch audioSink(for: observation) {
+        case .native(let device): return device.isMuted == true
+        case .unresolvedNative, .none: return false
+        case .hardware:
+            return ddcAudioMuted[observation.recordID] == true || (ddcControl(.volume, for: observation) ?? 1) <= 0
+        }
+    }
+
+    /// Whether a mute toggle has something truthful to do on this display.
+    func displayMuteAvailable(for observation: DisplayObservation) -> Bool {
+        switch audioSink(for: observation) {
+        case .native(let device): return device.muteIsToggleable
+        case .unresolvedNative, .none: return false
+        case .hardware: return muteAction(for: observation) != .unavailable
+        }
+    }
+
+    /// Whether the display's volume slider can be moved.
+    func displayVolumeAdjustable(for observation: DisplayObservation) -> Bool {
+        switch audioSink(for: observation) {
+        case .native(let device): return device.volume.isSettable
+        case .unresolvedNative, .none: return false
+        case .hardware: return ddcControl(.volume, for: observation) != nil
+        }
+    }
+
+    /// Slider/menu volume for a display, through its own route. A bound output is unmuted when
+    /// raised above its minimum, as macOS's own slider does.
+    func setDisplayVolume(_ value: Float, for observation: DisplayObservation) {
+        switch audioSink(for: observation) {
+        case .native(let device):
+            let outcome = NativeAudioAdjustment.setLevel(value, uid: device.uid, controller: audioOutputs)
+            refreshAudioOutputs()
+            if case .failed = outcome {
+                statusText = String(localized: "FreeDisplay couldn’t change the sound output. Check its volume and mute controls in Sound settings.")
+            }
+            if case .accepted(let after?) = outcome, let level = after.volumeLevel {
+                presentOSD(kind: .volume, value: level, for: observation, source: .menu, showsLocalHUD: false)
+            }
+        case .unresolvedNative, .none:
+            return
+        case .hardware:
+            setHardwareControl(.volume, value, for: observation, showsOSD: false)
+        }
+    }
+
+    /// Menu/slider mute toggle for a display, through its own route.
+    @discardableResult
+    func toggleDisplayMute(for observation: DisplayObservation) -> Bool {
+        switch audioSink(for: observation) {
+        case .native(let device):
+            let outcome = NativeAudioAdjustment.apply(.muteToggle, uid: device.uid, delta: 0, controller: audioOutputs)
+            refreshAudioOutputs()
+            if case .failed = outcome {
+                statusText = String(localized: "FreeDisplay couldn’t change the sound output. Check its volume and mute controls in Sound settings.")
+            }
+            return outcome.handled
+        case .unresolvedNative, .none:
+            return false
+        case .hardware:
+            return toggleMute(for: observation)
+        }
+    }
+
+    /// A volume slider drag ended (FA-20): one feedback sound, on the display's own output when it
+    /// is known, following the preference — inverted while ⇧ (without ⌥) is held.
+    func volumeSliderReleased(for observation: DisplayObservation) {
+        let flags = NSEvent.modifierFlags
+        let inverted = flags.contains(.shift) && !flags.contains(.option)
+        guard VolumeFeedbackPolicy.plays(settings.nativeKeys.volumeFeedbackSound,
+                                         systemPreference: VolumeFeedbackSoundPlayer.systemPreference,
+                                         inverted: inverted) else { return }
+        var outputUID: String?
+        switch audioSink(for: observation) {
+        case .native(let device):
+            outputUID = device.uid
+        case .hardware:
+            let match = AudioOutputAssociation.displays(matching: audioSnapshot.currentOutput,
+                                                        candidates: audioKeyCandidates(devices: audioSnapshot.devices))
+            if match.displays == [observation.recordID] { outputUID = audioSnapshot.currentOutput?.uid }
+        case .unresolvedNative, .none:
+            return
+        }
+        VolumeFeedbackSoundPlayer.play(on: outputUID)
+    }
+
+    /// Updates one display's keyboard/audio preferences (saved at once, like every display setting).
+    func updateKeyboardAudioPreferences(for observation: DisplayObservation,
+                                        _ change: (inout DisplayKeyboardAudioPreferences) -> Void) {
+        var preferences = settings.keyboardAudioPreferences(for: observation.recordID)
+        change(&preferences)
+        guard preferences.normalized != settings.keyboardAudioPreferences(for: observation.recordID).normalized else { return }
+        settings.setKeyboardAudioPreferences(preferences, for: observation.recordID)
+        persistSettings()
+        Task { [weak self] in await self?.confirmDisplayAudioForKeys() }
+    }
+
+    // MARK: - Native keyboard control state (SO-25)
+
+    /// Permission, tap and capture as separate facts, for the Settings status line.
+    var nativeKeyListeningState: NativeKeyListening.State {
+        NativeKeyListening.state(featureEnabled: settings.mediaKeyInterceptionEnabled, preferences: settings.nativeKeys,
+                                 permissionGranted: MediaKeyTap.isAccessibilityTrusted, tapActive: mediaKeysActive)
+    }
+
+    /// What the volume and mute keys would do right now, against the outputs last read.
+    var audioKeyStatus: AudioKeyStatus {
+        let captureOn = settings.mediaKeyInterceptionEnabled && settings.nativeKeys.volumeKeysEnabled
+        guard captureOn else { return .off }
+        guard nativeKeyListeningState == .listening else { return .disengaged }
+        let candidates = audioKeyCandidates(devices: audioSnapshot.devices)
+        return AudioKeyStatus.evaluate(
+            captureEnabled: captureOn,
+            volume: audioKeyDecision(.volumeUp, intent: .plain, candidates: candidates, snapshot: audioSnapshot),
+            mute: audioKeyDecision(.muteToggle, intent: .plain, candidates: candidates, snapshot: audioSnapshot))
+    }
+
+    /// Updates the native-key policies, then re-arms the tap for what they now need.
+    func updateNativeKeyPreferences(_ change: (inout NativeKeyPreferences) -> Void) {
+        var updated = settings.nativeKeys
+        change(&updated)
+        guard updated != settings.nativeKeys else { return }
+        settings.nativeKeys = updated
+        releaseFeedback.cancel()
+        persistSettings()
+        reconcileMediaKeyTap()
+        Task { [weak self] in await self?.confirmDisplayAudioForKeys() }
     }
 
     func setBrightnessMediaKeysRequireShift(_ required: Bool) {
@@ -6461,6 +6876,7 @@ final class AppModel: ObservableObject {
         settings.mediaKeyInterceptionEnabled = enabled
         persistSettings()
         reconcileMediaKeyTap()  // owns the Accessibility prompt + grant-poll when needed
+        Task { [weak self] in await self?.confirmDisplayAudioForKeys() }
     }
 
     func setMediaKeyTargetMode(_ mode: MediaKeyTargetMode) {

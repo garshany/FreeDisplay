@@ -672,47 +672,7 @@ private struct HealthSection: View {
                     }
                 }
 
-                Divider()
-
-                Text("Media keys").font(.title3)
-                Toggle(isOn: Binding(
-                    get: { model.settings.mediaKeyInterceptionEnabled },
-                    set: { model.setMediaKeyInterceptionEnabled($0) }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Use the brightness & volume keys to control displays")
-                        Text("The brightness keys control the chosen display, in hardware or software. The volume keys use DDC only when the sound plays through that monitor. Capturing the keys needs Accessibility permission; nothing is requested until you turn this on.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                if model.settings.mediaKeyInterceptionEnabled {
-                    Picker("Brightness keys control the", selection: Binding(
-                        get: { model.settings.mediaKeyTargetMode }, set: { model.setMediaKeyTargetMode($0) })) {
-                        Text("Display under the pointer").tag(MediaKeyTargetMode.underCursor)
-                        Text("Main display").tag(MediaKeyTargetMode.mainDisplay)
-                        Text("Built-in display").tag(MediaKeyTargetMode.builtInAlways)
-                        Text("External displays only").tag(MediaKeyTargetMode.externalOnly)
-                    }
-                    .fixedSize()
-                    Toggle("Require Shift for the brightness keys", isOn: Binding(
-                        get: { model.settings.brightnessMediaKeysRequireShift },
-                        set: { model.setBrightnessMediaKeysRequireShift($0) }))
-                    Text("Volume keys follow the current sound output device.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if !MediaKeyTap.isAccessibilityTrusted {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                            Text("Accessibility permission needed to capture the keys.")
-                                .font(.caption).foregroundStyle(.secondary)
-                            Button("Open Accessibility Settings…") { openAccessibilitySettings() }
-                                .controlSize(.small)
-                        }
-                    } else {
-                        Text(model.mediaKeysActive ? "Media keys are active." : "Access granted, but the keys can’t be captured yet. Retrying…")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Button("Retry Key Capture") { model.retryMediaKeyCapture() }
-                }
+                // The media keys are in Settings → Keyboard (SO-25).
 
                 #if !PUBLIC_API_ONLY
                 Divider()
@@ -1381,12 +1341,4 @@ private struct AppPresetRow: View {
     }
 }
 #endif
-
-/// Opens System Settings → Privacy & Security → Accessibility so the user can grant the permission the
-/// media-key tap needs (Batch-3 #3/#5).
-private func openAccessibilitySettings() {
-    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-        NSWorkspace.shared.open(url)
-    }
-}
 #endif

@@ -305,6 +305,9 @@ private struct RememberedDisplayCleanupSheet: View {
         if plan.softwareBrightness { items.append(String(localized: "Using software brightness instead of DDC")) }
         if plan.appleDDCOverride { items.append(String(localized: "Allowing DDC on this Apple display")) }
         if plan.adaptiveOffset { items.append(String(localized: "Adaptive Display’s learned brightness offset")) }
+        if plan.keyboardAudioPreferences {
+            items.append(String(localized: "Its keyboard and sound settings: key control, matching output, sound output"))
+        }
         if plan.removesTurnedOffRecord {
             items.append(String(localized: "The record that it is switched off, and its card in the menu"))
         }
