@@ -4,22 +4,31 @@
 # built inside the app's own Xcode build (its module outputs conflict with the app's), so we build it
 # as a separate invocation and copy the product into the bundle.
 #
-# Usage: scripts/bundle-helper.sh [Debug|Release]
+# Usage: scripts/bundle-helper.sh [Debug|Release] [derived-data-path]
 set -euo pipefail
 CONFIG="${1:-Debug}"
 cd "$(dirname "$0")/.."
+DD="${2:-${DERIVED_DATA_PATH:-$PWD/.build/release-dd}}"
+case "$DD" in /*) ;; *) DD="$PWD/$DD" ;; esac
+SPEC="${PROJECT_SPEC:-project.yml}"
+UPDATE_SETTINGS=()
+if [ -n "${FREEDISPLAY_UPDATE_FEED_URL:-}" ]; then
+  UPDATE_SETTINGS+=("FREEDISPLAY_UPDATE_FEED_URL=$FREEDISPLAY_UPDATE_FEED_URL")
+fi
+if [ -n "${FREEDISPLAY_UPDATE_PUBLIC_ED_KEY:-}" ]; then
+  UPDATE_SETTINGS+=("FREEDISPLAY_UPDATE_PUBLIC_ED_KEY=$FREEDISPLAY_UPDATE_PUBLIC_ED_KEY")
+fi
 
 # Always regenerate the (gitignored) project from project.yml so the build reflects the current
 # version/settings — a stale generated project silently ships the OLD MARKETING_VERSION (0.4.0
 # release once shipped a binary still stamped 0.3.0 because the project wasn't regenerated).
-make xcode >/dev/null
+xcodegen generate --spec "$SPEC" >/dev/null
 
 echo "Building OpenDisplay.app ($CONFIG)…"
-xcodebuild -project OpenDisplay.xcodeproj -scheme OpenDisplay -configuration "$CONFIG" -destination 'platform=macOS' build >/dev/null
+xcodebuild -project OpenDisplay.xcodeproj -scheme OpenDisplay -configuration "$CONFIG" -destination 'platform=macOS' -derivedDataPath "$DD" ${UPDATE_SETTINGS[@]+"${UPDATE_SETTINGS[@]}"} build >/dev/null
 echo "Building opendisplay CLI ($CONFIG)…"
-xcodebuild -project OpenDisplay.xcodeproj -scheme opendisplay -configuration "$CONFIG" -destination 'platform=macOS' build >/dev/null
+xcodebuild -project OpenDisplay.xcodeproj -scheme opendisplay -configuration "$CONFIG" -destination 'platform=macOS' -derivedDataPath "$DD" ${UPDATE_SETTINGS[@]+"${UPDATE_SETTINGS[@]}"} build >/dev/null
 
-DD=$(ls -dt "$HOME"/Library/Developer/Xcode/DerivedData/OpenDisplay-* | head -1)
 PRODUCTS="$DD/Build/Products/$CONFIG"
 APP="$PRODUCTS/OpenDisplay.app"
 CLI="$PRODUCTS/opendisplay"

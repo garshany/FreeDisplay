@@ -42,11 +42,22 @@ APPCAST="${APPCAST:-$NOTARIZE}"
 PUBLISH="${PUBLISH:-0}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-opendisplay-notary}"
 ENTITLEMENTS="Apps/OpenDisplay/Resources/OpenDisplay.entitlements"
-PROJECT_URL="https://github.com/aquitaine/OpenDisplay"
+PROJECT_URL="https://github.com/garshany/FreeDisplay"
 DIST="dist"
+DD="${DERIVED_DATA_PATH:-$PWD/.build/release-dd}"
+case "$DD" in /*) ;; *) DD="$PWD/$DD" ;; esac
 
 if [ "$PUBLISH" = "1" ] && [ "$NOTARIZE" != "1" ]; then
   echo "error: PUBLISH=1 requires notarization; an unnotarized build is not a release." >&2
+  exit 1
+fi
+
+if [ "$PUBLISH" = "1" ] && [ "$APPCAST" != "1" ]; then
+  echo "error: PUBLISH=1 requires APPCAST=1; every release must carry its update feed." >&2
+  exit 1
+fi
+if [ "$APPCAST" = "1" ] && [ "$NOTARIZE" != "1" ]; then
+  echo "error: APPCAST=1 requires a notarized release archive." >&2
   exit 1
 fi
 
@@ -92,9 +103,8 @@ require_signer() {
 }
 
 # --- 1. Build the Release app + bundle the helper -------------------------------------------------
-CONFIG="$CONFIG" ./scripts/bundle-helper.sh "$CONFIG"
+CONFIG="$CONFIG" ./scripts/bundle-helper.sh "$CONFIG" "$DD"
 
-DD=$(ls -dt "$HOME"/Library/Developer/Xcode/DerivedData/OpenDisplay-* | head -1)
 APP="$DD/Build/Products/$CONFIG/OpenDisplay.app"
 [ -d "$APP" ] || { echo "error: $APP not found" >&2; exit 1; }
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")
@@ -152,7 +162,7 @@ done
 # --- 3. Package -----------------------------------------------------------------------------------
 mkdir -p "$DIST"
 ZIP="$DIST/OpenDisplay.zip"
-rm -f "$ZIP"
+rm -f "$ZIP" "$ZIP.sha256" "$DIST/appcast.xml"
 /usr/bin/ditto -c -k --keepParent "$APP" "$ZIP"
 echo "Packaged: $ZIP"
 
@@ -170,8 +180,11 @@ EOF
     exit 1
   fi
   echo "Stapling the notarization ticket…"
-  xcrun stapler staple "$APP"
-  xcrun stapler validate "$APP"
+  if ! xcrun stapler staple "$APP" || ! xcrun stapler validate "$APP"; then
+    rm -f "$ZIP"
+    echo "error: stapling failed; no release archive retained." >&2
+    exit 1
+  fi
   # The release gate: Gatekeeper must accept the stapled app as a notarized Developer ID app. A
   # rejection used to be printed and ignored (`|| true`) before the success line; now it stops the
   # run and removes the pre-staple zip, so nothing release-shaped is left in dist/.
@@ -199,62 +212,33 @@ else
   echo "   Users would still hit Gatekeeper. Re-run without NOTARIZE=0 once credentials are stored."
 fi
 
+# Owner decision #10: the digest covers the FINAL archive, after stapling/repackaging.
+(cd "$DIST" && shasum -a 256 "$(basename "$ZIP")" > "$(basename "$ZIP").sha256")
+echo "SHA-256 ($ZIP):"
+cat "$ZIP.sha256"
+
 # --- 5. Sparkle appcast ---------------------------------------------------------------------------
 # Last, deliberately: the EdDSA signature and length cover the exact bytes users download, and
 # stapling rewrites the zip. Generating the appcast any earlier would sign a file that no longer
 # exists.
 if [ "$APPCAST" = "1" ]; then
-  # The tool travels inside the resolved Sparkle package, so it is always the same version as the
-  # framework we just embedded — no separately-installed copy to drift out of step.
-  GENERATE_APPCAST=""
-  if [ -n "${SPARKLE_BIN:-}" ]; then
-    GENERATE_APPCAST="$SPARKLE_BIN/generate_appcast"
+  NOTES_FILE="${RELEASE_NOTES:-}"
+  GENERATED_NOTES=""
+  if [ -z "$NOTES_FILE" ]; then
+    GENERATED_NOTES=$(mktemp "$DIST/freedisplay-notes.XXXXXX")
+    trap 'rm -f "$GENERATED_NOTES"' EXIT
+    awk -v version="$VERSION" '
+      $0 ~ "^## \\[" version "\\]" { capture = 1; next }
+      capture && /^## \[/ { exit }
+      capture { print }
+    ' CHANGELOG.md > "$GENERATED_NOTES"
+    if [ -s "$GENERATED_NOTES" ]; then NOTES_FILE="$GENERATED_NOTES"; fi
   fi
-  if [ ! -x "$GENERATE_APPCAST" ]; then
-    GENERATE_APPCAST=$(find "$DD/SourcePackages/artifacts" -type f -name generate_appcast -perm -111 \
-      2>/dev/null | head -1)
-  fi
-  if [ ! -x "$GENERATE_APPCAST" ]; then
-    cat >&2 <<EOF
-error: Sparkle's generate_appcast was not found under
-  $DD/SourcePackages/artifacts
-Resolve the Sparkle package once (open the project in Xcode, or run 'make xcode' and build), or point
-SPARKLE_BIN at a directory holding the tool. Re-run with APPCAST=0 to skip the appcast entirely.
-EOF
-    exit 1
-  fi
-
-  # generate_appcast reads a DIRECTORY of archives and pairs each with a same-named release-notes
-  # file. Staging a fresh directory keeps the feed to exactly this release: the appcast is published
-  # as an asset of the newest release, and SUFeedURL resolves to that newest asset, so history in the
-  # file would never be read.
-  STAGE="$DIST/appcast-staging"
-  rm -rf "$STAGE"
-  mkdir -p "$STAGE"
-  cp "$ZIP" "$STAGE/OpenDisplay.zip"
-
-  # Release notes: this version's CHANGELOG section, which is what Sparkle shows in its update window.
-  awk -v version="$VERSION" '
-    $0 ~ "^## \\[" version "\\]" { capture = 1; next }
-    capture && /^## \[/ { exit }
-    capture { print }
-  ' CHANGELOG.md > "$STAGE/OpenDisplay.md"
-  if [ -s "$STAGE/OpenDisplay.md" ]; then
-    echo "Release notes: CHANGELOG.md section for $VERSION"
-  else
-    echo "⚠️  No CHANGELOG.md section for $VERSION — the update will ship without release notes."
-    rm -f "$STAGE/OpenDisplay.md"
-  fi
-
-  echo "Generating + signing the appcast…"
-  "$GENERATE_APPCAST" \
-    --download-url-prefix "$PROJECT_URL/releases/download/$RELEASE_TAG/" \
-    --link "$PROJECT_URL" \
-    --embed-release-notes \
-    -o "$DIST/appcast.xml" \
-    "$STAGE"
-  rm -rf "$STAGE"
-  echo "Appcast: $DIST/appcast.xml"
+  # Signing tools and the keychain account are owner-supplied; never guess an upstream key.
+  SPARKLE_BIN="${SPARKLE_BIN:?Set SPARKLE_BIN to the resolved Sparkle distribution bin directory}" \
+  SPARKLE_KEYCHAIN_ACCOUNT="${SPARKLE_KEYCHAIN_ACCOUNT:?Set a FreeDisplay-owned keychain account}" \
+  SPARKLE_MAXIMUM_DELTAS="${SPARKLE_MAXIMUM_DELTAS:?Owner must choose the delta-generation policy}" \
+    ./scripts/prepare-appcast.sh "$ZIP" "$RELEASE_TAG" "$DIST/appcast.xml" "$NOTES_FILE"
 fi
 
 # --- 6. Publish -----------------------------------------------------------------------------------
@@ -263,17 +247,15 @@ fi
 # release nobody's app can see.
 if [ "$PUBLISH" = "1" ]; then
   command -v gh >/dev/null 2>&1 || { echo "error: PUBLISH=1 needs the gh CLI." >&2; exit 1; }
-  ASSETS=("$ZIP")
+  ASSETS=("$ZIP" "$ZIP.sha256")
   if [ -f "$DIST/appcast.xml" ]; then
     ASSETS+=("$DIST/appcast.xml")
   fi
   echo "Uploading to release $RELEASE_TAG…"
-  gh release upload "$RELEASE_TAG" "${ASSETS[@]}" --clobber
+  gh release upload --repo garshany/FreeDisplay "$RELEASE_TAG" "${ASSETS[@]}" --clobber
   echo "✅ Uploaded: ${ASSETS[*]}"
 else
   echo
-  echo "Next: attach both assets to the $RELEASE_TAG release —"
-  echo "  gh release upload $RELEASE_TAG $ZIP $DIST/appcast.xml --clobber"
-  echo "The appcast MUST accompany every release: SUFeedURL points at the newest release's copy, so a"
-  echo "release published without it takes the update feed offline until the next one."
+  echo "Prepared locally; nothing published. Review the archive, checksum and appcast before upload."
+  echo "Repository: $PROJECT_URL; release: $RELEASE_TAG"
 fi

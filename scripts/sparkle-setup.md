@@ -1,95 +1,110 @@
-# Sparkle update signing — one-time setup
+# FreeDisplay signed updates — preparation and owner release gates
 
-OpenDisplay updates itself with [Sparkle 2](https://sparkle-project.org). Every update is verified
-twice before it runs: against the project's EdDSA (ed25519) signing key, and against the Developer ID
-code signature of the app that is already installed. This file covers the key half — the part that
-lives outside the repository and can't be regenerated from it.
+FreeDisplay is a GPL-3.0 fork of aquitaine/OpenDisplay. The owned repository and release origin is
+https://github.com/garshany/FreeDisplay. No FreeDisplay Developer ID, Team ID, Ed25519 private key or
+validated public release is asserted by this document. All credential examples below are placeholders.
 
-## What is already wired up
+## Current state: source-only
 
-| Piece | Where | Value |
-|---|---|---|
-| Feed | `Apps/OpenDisplay/Resources/Info.plist` → `SUFeedURL` | `https://github.com/aquitaine/OpenDisplay/releases/latest/download/appcast.xml` |
-| Public key | `Apps/OpenDisplay/Resources/Info.plist` → `SUPublicEDKey` | `G9aQchK8B0eqrXhKwKWat4SRCR/XboPdgpmfuHrBnuE=` |
-| Private key | maintainer's **login keychain** (account `ed25519`) | never on disk, never in the repo |
-| Framework | `project.yml` → `packages.Sparkle` | resolved by SwiftPM, embedded in the app |
-| Appcast | produced by `scripts/release-signed.sh`, uploaded beside `OpenDisplay.zip` | one item, signed |
+`Apps/OpenDisplay/Resources/Info.plist` retains **`OpenDisplayLocalBuild = true`** for every build.
+`SoftwareUpdater` refuses to start Sparkle in that state, even if a feed and public key are supplied.
+Missing/invalid feed/key and known upstream feed/key values also keep it off. A missing local-build
+flag is treated as local (fail closed). Nothing here enables automatic installation or publishes assets.
+Bundle IDs, OpenDisplay.app, `opendisplay`, `opendisplay://` and persisted-settings paths stay compatible.
 
-The feed URL uses GitHub's `releases/latest/download/<asset>` redirect, so it always resolves to the
-newest release's `appcast.xml` and never has to be re-pointed at a new tag.
+`project.yml` supplies these build settings (also overridable on `xcodebuild`):
 
-## Generating the key (only on a new machine, or to rotate)
+| Setting | Prepared value |
+|---|---|
+| `FREEDISPLAY_UPDATE_FEED_URL` | `https://github.com/garshany/FreeDisplay/releases/latest/download/appcast.xml` |
+| `FREEDISPLAY_UPDATE_PUBLIC_ED_KEY` | empty; owner must supply a new fork-owned base64 Ed25519 public key |
+| `OpenDisplayLocalBuild` (Info.plist) | true; never overridden by release scripts |
 
-The key already exists in the maintainer's login keychain — **running `generate_keys` again will not
-overwrite it**, it prints the existing public key instead. You only need this section to set up a
-second machine or to deliberately rotate.
+Only a validated full-app release belongs in this feed. PublicAPIOnly/Rescue/CLI are build checks,
+not automatically replaceable products. Never substitute the upstream key or feed.
 
-```sh
-# The tools travel inside the resolved Sparkle package, so they always match the embedded framework.
-DD=$(ls -dt ~/Library/Developer/Xcode/DerivedData/OpenDisplay-* | head -1)
-SPARKLE_BIN="$DD/SourcePackages/artifacts/sparkle/Sparkle/bin"
+## Owner-only key setup (not performed by the coding agent)
 
-"$SPARKLE_BIN/generate_keys"        # creates the keypair, stores the private half in the keychain
-"$SPARKLE_BIN/generate_keys" -p     # prints just the public key, for checking against Info.plist
-```
-
-`generate_keys` prints the `SUPublicEDKey` value to paste into
-`Apps/OpenDisplay/Resources/Info.plist`. Confirm the embedded key matches the machine you release
-from before cutting a release:
+Use `generate_keys`, `generate_appcast`, and `sign_update` from the same resolved Sparkle distribution
+as the embedded framework. Pass its bin directory explicitly as `SPARKLE_BIN`; never search for the
+newest DerivedData. Select a dedicated `SPARKLE_KEYCHAIN_ACCOUNT` owned by FreeDisplay, separate from
+upstream and other products. The account name, Developer ID authority/team, notarization profile and
+backup/recovery custody are owner decisions. Keep private keys out of this repository and logs.
 
 ```sh
-diff <("$SPARKLE_BIN/generate_keys" -p) \
-     <(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" Apps/OpenDisplay/Resources/Info.plist)
+export SPARKLE_BIN=/absolute/path/to/resolved/Sparkle/bin
+export SPARKLE_KEYCHAIN_ACCOUNT=YOUR_FREEDISPLAY_KEYCHAIN_ACCOUNT
+"$SPARKLE_BIN/generate_keys" --account "$SPARKLE_KEYCHAIN_ACCOUNT"
+"$SPARKLE_BIN/generate_keys" --account "$SPARKLE_KEYCHAIN_ACCOUNT" -p
+# Put only the public output in FREEDISPLAY_UPDATE_PUBLIC_ED_KEY, via release configuration.
 ```
 
-To move the key to another machine, export and import it — never commit the exported file, and delete
-it once imported:
+Do not run this example on a machine without an owner-approved key/account and backup process.
+The private key must remain available for subsequent updates. Rotating/loss requires a separately
+validated migration; merely replacing the embedded public key is not a recovery plan.
+
+## Build, sign, notarize and prepare locally (owner only)
 
 ```sh
-"$SPARKLE_BIN/generate_keys" -x sparkle-private-key.txt   # on the machine that has the key
-"$SPARKLE_BIN/generate_keys" -f sparkle-private-key.txt   # on the machine that needs it
-rm -P sparkle-private-key.txt
+export SIGN_IDENTITY='Developer ID Application: YOUR_NAME (YOUR_TEAM_ID)'
+export NOTARY_PROFILE=YOUR_NOTARIZATION_PROFILE
+export DERIVED_DATA_PATH="$PWD/.build/release-dd"
+export FREEDISPLAY_UPDATE_PUBLIC_ED_KEY=YOUR_FORK_PUBLIC_KEY
+export SPARKLE_MAXIMUM_DELTAS=YOUR_OWNER_CHOSEN_DELTA_COUNT
+# Optional: PROJECT_SPEC=project.local.yml for an explicitly prepared local dependency spec.
+./scripts/release-signed.sh
 ```
 
-## Cutting a release
+`SPARKLE_MAXIMUM_DELTAS` is required when generating an appcast; this branch chooses no numeric
+limit. Feed history is uncapped (`--maximum-versions 0`). The staging directory contains the current
+archive only; retaining older releases/deltas requires the owner to supply a history workflow.
+`NOTARIZE=0 APPCAST=0` is a signing-only development exercise; it cannot publish.
 
-```sh
-export SIGN_IDENTITY="Developer ID Application: Name (TEAMID)"   # the expected signer, exactly
-./scripts/release-signed.sh                 # build → sign → notarize → staple → zip → appcast
-gh release create v0.9.1 dist/OpenDisplay.zip dist/appcast.xml --title "…" --notes-file …
-```
+The helper and app share an explicit `-derivedDataPath`; `bundle-helper.sh CONFIG PATH` also accepts
+an explicit second argument. Default is project-local `.build/release-dd`, never global newest output.
+The release script signs nested helpers/frameworks/CLI and the app, verifies the expected authority
+and team, notarizes, staples, assesses, then re-zips. It writes `dist/OpenDisplay.zip.sha256` next to
+the **final** `dist/OpenDisplay.zip` and prints its full SHA-256. Stapling changes archive bytes, so
+appcast signing follows final packaging. Stale appcast/checksum outputs are cleared before packaging.
 
-or, against a release that already exists:
+`prepare-appcast.sh archive.zip tag output/appcast.xml [notes.md]` is independently usable after the
+owner has produced a validated final archive. It requires explicit tools, keychain account and delta
+policy. It checks the archive's embedded public key and fork feed before generation, runs Sparkle's
+EdDSA appcast generation, validates release URL, build/marketing version, minimum macOS, byte length
+and signature shape, then calls Sparkle `sign_update --verify` against the exact archive. Python 3 (standard library only) is required. The Python
+metadata validator does **not** perform cryptographic verification itself. The output is stable-only;
+prerelease/internal/critical/informational feed policy is FD-150 and requires separate acceptance.
 
-```sh
-PUBLISH=1 ./scripts/release-signed.sh       # uploads both assets with gh
-```
+Release notes default to the current CHANGELOG version section in `release-signed.sh`;
+`RELEASE_NOTES` can supply an owner-reviewed Markdown file. For standalone preparation, pass a Markdown file (named with the archive stem in
+staging). No default rollout interval, expiry threshold or compatibility ceiling is introduced.
+Minimum macOS comes from the archived app; CPU support must be independently checked using `lipo`
+and tested with the intended release artifacts. Keep architecture/maximum-OS bounds explicit in any
+future owner-approved feed; do not publish a broader compatibility claim than was tested.
 
-The script fails closed: it refuses to run without `SIGN_IDENTITY` (it no longer picks the first
-Developer ID identity in the keychain), checks that the app, the bundled CLI and every embedded
-framework carry exactly that authority and team, and stops — removing the zip — if notarization,
-stapling or the Gatekeeper assessment fails or Gatekeeper doesn't report a notarized Developer ID
-source. `NOTARIZE=0` is a dry run: it skips the appcast by default and cannot be combined with
-`PUBLISH=1`.
+## Validation required before changing the local-build guard
 
-The script derives the version from the built app's `CFBundleShortVersionString`, uses `v<version>`
-as the release tag (override with `RELEASE_TAG=`), and lifts that version's section out of
-`CHANGELOG.md` as the release notes Sparkle shows in its update window.
+Use disposable test installations and a private owner-controlled feed. Validate old→new upgrade,
+monotonic `CFBundleVersion`, supported/unsupported CPU and OS, altered archive/signature refusal,
+wrong key and wrong signer, offline/network failure, notes failure, cancellation, authorization denial,
+skip and manual recheck, prepared/install-on-quit, relaunch and quit cleanup. Check settings migration
+and rollback/recovery from failed installation. A download or generated XML is not an installed update.
+Keep a known-good installer and settings backup. The first enabled fork release must be installed
+manually; current source-only builds do not self-update to it.
 
-## Things that will bite you
+Only after that evidence and an owner decision should a dedicated release change set the guard false.
+Never do it for source/debug builds. The gate is not changed by this branch's scripts.
 
-* **Every release needs its appcast.** `SUFeedURL` resolves to the *newest* release's `appcast.xml`.
-  A release published without one makes `releases/latest/download/appcast.xml` 404 — apps in the
-  field then find nothing until the next release fixes it. `release-signed.sh` prints the upload
-  command for exactly this reason; `PUBLISH=1` uploads both together.
-* **The first Sparkle-enabled release still has to be installed by hand.** Sparkle only updates *from*
-  a build that already contains it. Every copy older than that (≤ 0.9.0) has no updater, so those
-  users download the release themselves once; from then on the in-app update works.
-* **Appcast generation must come after stapling.** The signature and length cover the exact bytes
-  users download, and `xcrun stapler` rewrites the zip. The script already orders it that way.
-* **Losing the private key means users can't update.** An app in the field only installs what its
-  embedded public key verifies. Recovering means generating a new key, shipping an app with the new
-  `SUPublicEDKey`… which nobody can auto-update to. Keep the login keychain backed up.
-* **A build running from DerivedData will happily update itself** into the released app. That is
-  Sparkle working as designed on a debug build; quit the dev copy before testing an update, or turn
-  the automatic check off in Settings while developing.
+## Publication (not performed here)
+
+Review and publish archive, checksum, optional notes and appcast together to an existing release in
+`garshany/FreeDisplay`. `PUBLISH=1` is an explicit opt-in in the existing release script; it requires
+notarization and targets that exact repository. GitHub `latest` must resolve to a release carrying
+`appcast.xml`; a release without it breaks the feed. Publish full expected Developer ID authority and
+Team ID alongside each release, and verify downloaded assets again. A checksum beside an archive
+alone cannot establish authenticity if both came from an untrusted origin.
+
+User verification instructions: [Docs/ReleaseVerification.md](../Docs/ReleaseVerification.md).
+Sparkle primary references: [setup](https://sparkle-project.org/documentation/),
+[publishing and EdDSA](https://sparkle-project.org/documentation/publishing/), and the resolved
+`SPUUserDriver.h`, `SPUUpdaterDelegate.h`, `SUErrors.h` for the version actually embedded.
