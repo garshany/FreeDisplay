@@ -1375,6 +1375,9 @@ private struct TrayToolsSection: View {
             if shows(.edid) {
                 TrayRow(icon: "cpu", title: String(localized: "EDID and HiDPI…")) { ui.openSettings(.advanced) }
             }
+            TrayRow(icon: "terminal", title: String(localized: "Show Console…")) {
+                NotificationCenter.default.post(name: Notification.Name("FreeDisplayShowCommandConsole"), object: nil)
+            }
             if shows(.automation) {
                 TrayRow(icon: "terminal", title: String(localized: "Automation and HTTP…")) { ui.openSettings(.automation) }
             }

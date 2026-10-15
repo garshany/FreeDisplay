@@ -137,6 +137,28 @@ final class AutomationEngineTests: XCTestCase {
 
     private let half = AutomationLevel(normalized: 0.5)!
 
+    func testConsoleLexedRequestUsesSharedSettlementWithoutExternalTransport() async throws {
+        let environment = FakeEnvironment(surface: .console, candidates: displays)
+        await environment.configure { $0.levels[DisplayRecordID(rawValue: "cg:desk")] = 0.5 }
+        guard case .command(let request) = try ConsoleGrammar.parse("brightness display='name:Desk' value=40% method=ddc") else { return XCTFail() }
+        let result = await engine(environment).run(request)
+        XCTAssertNil(result.issue)
+        XCTAssertEqual(result.brightness?.level?.normalized, 0.4)
+        XCTAssertEqual(result.brightness?.outcome, .verified)
+    }
+
+    func testConsoleCannotBypassBuildRefusalOrConfirmation() async throws {
+        let refusal = AutomationIssue(.capabilityUnavailable, "not in public build")
+        let environment = FakeEnvironment(surface: .console, candidates: displays, unavailable: [.setBrightness: refusal])
+        guard case .command(let request) = try ConsoleGrammar.parse("brightness display='name:Desk' value=40%") else { return XCTFail() }
+        let result = await engine(environment).run(request)
+        XCTAssertEqual(result.issue, refusal)
+        let disconnect = await engine(environment).run(.byID(.disconnect, DisplayRecordID(rawValue: "cg:desk")))
+        XCTAssertEqual(disconnect.issue?.code, .refusedFromSurface)
+        let calls = await environment.calls
+        XCTAssertTrue(calls.isEmpty)
+    }
+
     // MARK: Admission
 
     func testALinkMayOnlyRunRecovery() async throws {

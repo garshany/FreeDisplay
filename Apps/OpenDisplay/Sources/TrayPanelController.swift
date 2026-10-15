@@ -503,6 +503,9 @@ enum TrayQuickMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.addItem(ActionMenuItem(String(localized: "Settings…"), key: ",") { showSettings() })
+        menu.addItem(ActionMenuItem(String(localized: "Show Console…")) {
+            NotificationCenter.default.post(name: Notification.Name("FreeDisplayShowCommandConsole"), object: nil)
+        })
         menu.addItem(.separator())
         let reconnectTitle = model.busy ? String(localized: "Reconnecting…") : String(localized: "Reconnect all")
         menu.addItem(ActionMenuItem(reconnectTitle, enabled: !model.busy) {
