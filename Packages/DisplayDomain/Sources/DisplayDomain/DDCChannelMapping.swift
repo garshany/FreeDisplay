@@ -168,6 +168,20 @@ public enum DDCChannelMappingPolicy {
     }
 }
 
+/// The provider's enumeration boundary. An empty enumeration is evidence of a missing channel,
+/// so it must pass through consent validation just like a nonempty one.
+public enum DDCChannelLookup {
+    public static func resolve(channels: [DDCChannel], target: DDCServiceMatcher.Target,
+                               externals: [DDCServiceMatcher.Target], displayID: DisplayRecordID?,
+                               mapping: DDCChannelMapping?, otherMappings: [DDCChannelMapping],
+                               unobservedExternalCount: Int = 0)
+        -> (resolution: DDCServiceMatcher.Resolution, status: DDCChannelMappingPolicy.Status?) {
+        DDCChannelMappingPolicy.resolve(channels: channels, target: target, externals: externals,
+            displayID: displayID ?? DisplayRecordID(rawValue: ""), mapping: displayID == nil ? nil : mapping,
+            otherMappings: otherMappings, unobservedExternalCount: unobservedExternalCount)
+    }
+}
+
 /// The test the user runs before pairing a channel: a brightness flash on that channel, held long
 /// enough to see which physical monitor responds, then put back. Only brightness (VCP 0x10) is
 /// touched — never input or power — and nothing is written unless the channel first answers a
@@ -203,7 +217,7 @@ public enum DDCChannelTest {
                            parameters: Parameters, read: () async -> (current: Int, max: Int)?,
                            write: (Int) async -> Bool,
                            hold: () async -> Void) async -> Outcome {
-        guard let reading = await read(), reading.max > 0, reading.current >= 0,
+        guard !Task.isCancelled, let reading = await read(), !Task.isCancelled, reading.max > 0, reading.current >= 0,
               reading.current <= reading.max else { return .noReply }
         let scaled = Double(reading.max) * parameters.levelPercent / 100
         guard scaled < Double(Int.max) else { return .noReply }
@@ -211,7 +225,7 @@ public enum DDCChannelTest {
         guard await write(level) else {
             return .flashWriteFailed(original: reading.current, restored: await write(reading.current))
         }
-        await hold()
+        if !Task.isCancelled { await hold() }
         return .flashed(original: reading.current, flashLevel: level, restored: await write(reading.current))
     }
 }

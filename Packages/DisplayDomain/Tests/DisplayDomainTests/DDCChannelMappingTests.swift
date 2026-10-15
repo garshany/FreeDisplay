@@ -21,6 +21,13 @@ final class DDCChannelMappingTests: XCTestCase {
         DDCChannelMappingPolicy.confirm(displayID: display, displayIdentity: twin, channel: channels[channel], at: date)!
     }
 
+    func testEmptyEnumerationInvalidatesSavedPairing() {
+        let result = DDCChannelLookup.resolve(channels: [], target: twin, externals: [twin],
+                                                     displayID: left, mapping: pairing(left, 0), otherMappings: [])
+        XCTAssertEqual(result.resolution, .none)
+        XCTAssertEqual(result.status, .invalid(.channelMissing))
+    }
+
     func testIdenticalTwinsStayRefusedWithoutAPairing() {
         let result = DDCChannelMappingPolicy.resolve(channels: channels, target: twin, externals: [twin, twin],
                                                      displayID: left, mapping: nil, otherMappings: [])

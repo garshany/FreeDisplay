@@ -309,6 +309,7 @@ final class AppModel: ObservableObject {
                                                 build: DDCBindingTokens.Build)] = [:]
     /// A pairing test flash is on the wire; a second one waits for the user to try again.
     private var ddcPairingTestRunning = false
+    private let ddcPairingTestSession = DDCChannelTestSession()
     private var testedDDCMapping: DDCChannelMapping?
     private var testedDDCMappingContext: [DDCChannelMapping]?
     private var ddcPairingEpoch: UInt64 = 0
@@ -2273,7 +2274,7 @@ final class AppModel: ObservableObject {
 
     func testDDCChannel(_ channel: DDCChannel, for display: DisplayObservation,
                         parameters: DDCChannelTest.Parameters) async -> (DDCChannelMapping?, String) {
-        guard !ddcPairingTestRunning, !safeStartup, !busy,
+        guard !ddcPairingTestRunning, !appManagementIsQuitting, !safeStartup, !busy,
               DDCChannelMappingPolicy.canPair(display.recordID),
               displays.contains(where: { $0.recordID == display.recordID }),
               let cgID = display.cgDisplayID,
@@ -2291,16 +2292,23 @@ final class AppModel: ObservableObject {
         defer { ddcPairingTestRunning = false }
         guard let controller = ExternalDisplayDDC.bindForPairingTest(channelPath: channel.path,
                                                                       allowAppleDisplay: allowApple),
-              await pairingChannels().contains(channel), ddcPairingEpoch == epoch,
+              await pairingChannels().contains(channel), !appManagementIsQuitting, ddcPairingEpoch == epoch,
               settings.ddcChannelMappings == mappingContext,
               ExternalDisplayDDC.ddcIdentity(of: cgID) == target else {
             return (nil, String(localized: "The selected channel is unavailable or its identity changed."))
         }
         defer { controller.invalidate() }
-        let outcome = await DDCChannelTest.run(parameters: parameters,
-            read: { await controller.read(.brightness).map { (current: $0.current, max: $0.max) } },
-            write: { await controller.write(.brightness, $0) },
-            hold: { try? await Task.sleep(for: parameters.duration) })
+        guard let outcome = await ddcPairingTestSession.run({
+            await DDCChannelTest.run(parameters: parameters,
+                read: { await controller.read(.brightness).map { (current: $0.current, max: $0.max) } },
+                write: { value in
+                    // An unstructured restore/write is not cancelled with the diagnostic hold.
+                    await Task { await controller.write(.brightness, value) }.value
+                },
+                hold: { try? await Task.sleep(for: parameters.duration) })
+        }), !appManagementIsQuitting else {
+            return (nil, String(localized: "The brightness test was cancelled. The original value was sent back if it had been changed."))
+        }
         switch outcome {
         case .flashed(_, _, true):
             guard ddcPairingEpoch == epoch, settings.ddcChannelMappings == mappingContext,
@@ -6360,6 +6368,7 @@ final class AppModel: ObservableObject {
     var needsQuitReversion: Bool {
         if !managedOffline.isEmpty { return true }
         #if !PUBLIC_API_ONLY
+        if ddcPairingTestRunning || ddcPairingTestSession.isRunning { return true }
         // An applied evening colour preset owes the monitor its daytime preset back — quitting
         // must wait for that DDC write (the willTerminate backstop can't do async I2C).
         if !settings.adaptiveDayPresetByDisplay.isEmpty { return true }
@@ -6379,6 +6388,10 @@ final class AppModel: ObservableObject {
     /// reconnect actually lands before the process exits.
     func teardownForQuit() async {
         appManagementIsQuitting = true
+        #if !PUBLIC_API_ONLY
+        testedDDCMapping = nil
+        await ddcPairingTestSession.cancelAndRestore()
+        #endif
         configuredReactionTimer.cancel()
         pendingReactionTrigger = nil
         sleepGuard.releaseAll()

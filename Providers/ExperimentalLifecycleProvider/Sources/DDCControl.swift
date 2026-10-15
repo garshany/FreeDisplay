@@ -278,14 +278,12 @@ public actor ExternalDisplayDDC {
                                   pairing: DDCChannelMapping?, otherPairings: [DDCChannelMapping])
         -> (lookup: ServiceLookup, pairing: DDCChannelMappingPolicy.Status?) {
         let services = externalServices()
-        guard !services.isEmpty else { return (.none, nil) }
         let index: Int
         let online = externalDisplayIDs()
-        let resolved = DDCChannelMappingPolicy.resolve(
+        let resolved = DDCChannelLookup.resolve(
             channels: services.map(\.channel), target: identity(of: displayID),
             externals: online.map(identity(of:)),
-            displayID: recordID ?? DisplayRecordID(rawValue: ""),
-            mapping: recordID == nil ? nil : pairing, otherMappings: otherPairings,
+            displayID: recordID, mapping: pairing, otherMappings: otherPairings,
             unobservedExternalCount: unobservedExternalCount(online: online))
         switch resolved.resolution {
         case .matched(let found), .sole(let found): index = found
