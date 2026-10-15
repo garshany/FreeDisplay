@@ -1,4 +1,5 @@
 import XCTest
+import AutomationSchema
 import DisplayDomain
 @testable import TopologyCore
 
@@ -389,6 +390,36 @@ final class DisplaySettingsTransferTests: XCTestCase {
             XCTAssertEqual(error as? DisplaySettingsTransfer.Refusal, .destinationNotConnected)
         }
     }
+    func testClockRecipesAreExplicitlyExcludedFromRetargetingAndIncludedInPreview() throws {
+        var (settings, favorites, menu) = populated()
+        settings.clockMode = .init(timeZoneIdentifier: "Europe/Moscow", resumePolicy: .pauseUntilResumed,
+            displays: [old, new, other].map {
+                .init(displayID: $0, entries: [], method: .software,
+                      restoreLevel: AutomationLevel(normalized: 0.4)!, rampMinutes: 0)
+            })
+        let transfer = try DisplaySettingsTransfer.transferPlan(from: oldEntry(), to: newEntry(),
+            destinationLiveID: new, settings: settings, favorites: favorites, menuLayout: menu, ledger: [])
+        XCTAssertTrue(transfer.retained.contains(.clockRecipes))
+        XCTAssertEqual(transfer.sourceCleanup?.clockRecipeCount, 1)
+        XCTAssertEqual(transfer.source.clockRecipes.map(\.displayID), [old])
+        var changed = settings
+        changed.clockMode?.displays[0].rampMinutes = 7
+        let refreshed = try DisplaySettingsTransfer.transferPlan(from: oldEntry(), to: newEntry(),
+            destinationLiveID: new, settings: changed, favorites: favorites, menuLayout: menu, ledger: [])
+        XCTAssertNotEqual(transfer.sourceByID, refreshed.sourceByID, "changed recipes invalidate the preview")
+        let moved = DisplaySettingsTransfer.applying(transfer, selection: transfer.defaultSelection, to: settings)
+        XCTAssertEqual(moved.clockMode?.displays, settings.clockMode?.displays.filter { $0.displayID != old })
+        XCTAssertEqual(moved.clockMode?.timeZoneIdentifier, "Europe/Moscow")
+        let (entry, base, migrationFavorites, migrationMenu) = migrating()
+        var migratingSettings = base
+        migratingSettings.clockMode = settings.clockMode
+        let migration = try DisplaySettingsTransfer.migrationPlan(for: entry, liveID: new,
+            settings: migratingSettings, favorites: migrationFavorites, menuLayout: migrationMenu)
+        XCTAssertTrue(migration.retained.contains(.clockRecipes))
+        XCTAssertEqual(DisplaySettingsTransfer.applying(migration, selection: migration.defaultSelection,
+            to: migratingSettings).clockMode, settings.clockMode)
+    }
+
     func testTransferMovesMergedPreferencesAndClearsEveryDestinationAlias() throws {
         var (settings, favorites, menu) = populated()
         let anchor = LuminanceAnchorSettings(manualValuesEnabled: false,

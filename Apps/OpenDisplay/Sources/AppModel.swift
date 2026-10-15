@@ -1988,8 +1988,19 @@ final class AppModel: ObservableObject {
         if updatedSettings != settings {
             if updatedSettings.displayGroups != settings.displayGroups
                 || updatedSettings.defaultDisplayGroup != settings.defaultDisplayGroup { groupSyncStates.removeAll() }
+            let clockChanged = updatedSettings.clockMode != settings.clockMode
             settings = updatedSettings
+            if clockChanged {
+                for id in plan.observationIDs {
+                    clockModeLastRequests[id] = nil
+                    clockModeHolds[id] = nil
+                    clockModeResults[id] = nil
+                }
+            }
             persistSettings()
+            #if !PUBLIC_API_ONLY
+            if clockChanged { reconcileAdaptiveLoop() }
+            #endif
         }
         let updatedFavorites = RememberedDisplayCleanup.applying(plan, to: favorites)
         if updatedFavorites != favorites {
@@ -2183,8 +2194,19 @@ final class AppModel: ObservableObject {
         if updatedSettings != settings {
             if updatedSettings.displayGroups != settings.displayGroups
                 || updatedSettings.defaultDisplayGroup != settings.defaultDisplayGroup { groupSyncStates.removeAll() }
+            let clockChanged = updatedSettings.clockMode != settings.clockMode
             settings = updatedSettings
+            if clockChanged {
+                for id in current.sourceIDs {
+                    clockModeLastRequests[id] = nil
+                    clockModeHolds[id] = nil
+                    clockModeResults[id] = nil
+                }
+            }
             persistSettings()
+            #if !PUBLIC_API_ONLY
+            if clockChanged { reconcileAdaptiveLoop() }
+            #endif
         }
         let updatedFavorites = DisplaySettingsTransfer.applying(current, selection: selection, to: favorites)
         if updatedFavorites != favorites {

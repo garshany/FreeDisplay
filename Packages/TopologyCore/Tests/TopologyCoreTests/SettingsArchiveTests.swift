@@ -1,4 +1,5 @@
 import XCTest
+import AutomationSchema
 import DisplayDomain
 import SceneEngine
 @testable import TopologyCore
@@ -592,10 +593,14 @@ final class SettingsArchiveTests: XCTestCase {
     }
     func testMergedPreferencesAreReferencedBackedUpImportedAndReset() throws {
         var settings = OpenDisplaySettings()
-        let ids = (0..<6).map { DisplayRecordID.forCGUUID("family-\($0)") }
+        let ids = (0..<7).map { DisplayRecordID.forCGUUID("family-\($0)") }
         settings.luminanceAnchorsByDisplay[ids[0].rawValue] = .init(manualValuesEnabled: false)
         settings.keyboardAudioByDisplay[ids[1].rawValue] = .init(nativeAudioEnabled: true, nativeAudioDevice: "USB")
         settings.defaultDisplayGroup.offsetByMember[ids[5].rawValue] = 0.2
+        settings.clockScheduleEnabled = true
+        settings.clockMode = .init(timeZoneIdentifier: "Europe/Moscow", resumePolicy: .pauseUntilResumed,
+            displays: [.init(displayID: ids[6], entries: [], method: .software,
+                             restoreLevel: AutomationLevel(normalized: 0.4)!, rampMinutes: 0)])
         settings.preventDisplaySleepDisplayIDs = [ids[2].rawValue]
         settings.osdFeedback.volumeHiddenDisplayIDs = [ids[3].rawValue]
         settings.ddcChannelMappings = [.init(displayID: ids[4],
@@ -618,6 +623,8 @@ final class SettingsArchiveTests: XCTestCase {
         XCTAssertTrue(replacement.archive.settings.preventDisplaySleepDisplayIDs.isEmpty)
         XCTAssertTrue(replacement.archive.settings.ddcChannelMappings.isEmpty)
         XCTAssertTrue(replacement.archive.settings.osdFeedback.volumeHiddenDisplayIDs.isEmpty)
+        XCTAssertNil(replacement.archive.settings.clockMode)
+        XCTAssertFalse(replacement.archive.settings.clockScheduleEnabled)
     }
 
 }

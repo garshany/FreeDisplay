@@ -24,7 +24,11 @@ import Foundation
 /// values; input-switch hotkeys and app presets are rules the user wrote naming a display (input
 /// codes are monitor-specific); protected layouts describe a whole desk. Nothing here writes to a
 /// monitor or to macOS's display configuration. Scenes contain selectors in their own library and
-/// are deliberately not rewritten by a per-record transfer. Cancelling changes nothing.
+/// are deliberately not rewritten by a per-record transfer. Clock recipes are also excluded:
+/// their route and authored Restore are target-specific and their time zone/resume policy is shared.
+/// Migration keeps them under the original ID; source Forget removes them like protected layouts.
+/// Recreate a recipe explicitly in Clock Mode rather than silently retargeting an actuator.
+/// Cancelling changes nothing.
 public enum DisplaySettingsTransfer {
     public enum Kind: String, Hashable, Sendable {
         case transfer, migrate
@@ -55,7 +59,7 @@ public enum DisplaySettingsTransfer {
 
     /// Saved data that never moves, listed so nothing stays behind silently.
     public enum Retained: String, Hashable, Sendable, CaseIterable {
-        case appleDDCOverride, ddcChannelMapping, pendingRestores, inputSwitchHotkeys, appPresets, protectedLayouts
+        case appleDDCOverride, ddcChannelMapping, pendingRestores, inputSwitchHotkeys, appPresets, protectedLayouts, clockRecipes
     }
 
     public struct GroupMembership: Hashable, Sendable {
@@ -90,6 +94,8 @@ public enum DisplaySettingsTransfer {
         public var inputSwitchHotkeys: Int
         public var appPresetNames: [String]
         public var protectedLayoutKeys: [String]
+        /// Authored route/restore recipes retain their target; the source Forget removes them.
+        public var clockRecipes: [ClockDisplaySchedule]
 
         /// Whether a category holds anything but its default.
         public func has(_ category: Category) -> Bool {
@@ -117,6 +123,7 @@ public enum DisplaySettingsTransfer {
             case .inputSwitchHotkeys: return inputSwitchHotkeys > 0
             case .appPresets: return !appPresetNames.isEmpty
             case .protectedLayouts: return !protectedLayoutKeys.isEmpty
+            case .clockRecipes: return !clockRecipes.isEmpty
             }
         }
 
@@ -275,7 +282,8 @@ public enum DisplaySettingsTransfer {
             }.sorted(),
             protectedLayoutKeys: settings.protectedLayouts.filter { _, config in
                 LayoutProtectionPolicy.members(of: config).contains(where: idSet.contains)
-            }.keys.sorted())
+            }.keys.sorted(),
+            clockRecipes: settings.clockMode?.displays.filter { idSet.contains($0.displayID) } ?? [])
     }
 
     // MARK: - Planning

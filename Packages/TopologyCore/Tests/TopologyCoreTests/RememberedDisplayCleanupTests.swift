@@ -1,4 +1,5 @@
 import XCTest
+import AutomationSchema
 import DisplayDomain
 @testable import TopologyCore
 
@@ -399,6 +400,32 @@ final class RememberedDisplayCleanupTests: XCTestCase {
         XCTAssertTrue(favorites.favoriteKeys(for: desk).isEmpty)
         XCTAssertEqual(favorites.favoriteKeys(for: deskOtherPort).count, 1)
     }
+    func testClockRecipesAreListedAndRemovedAcrossAliasesWithoutEnablingLegacyMode() throws {
+        for status in [RememberedDisplay.Status.connected, .notConnected] {
+            let entry = deskEntry(status: status)
+            var settings = OpenDisplaySettings()
+            settings.clockScheduleEnabled = true
+            settings.clockMode = .init(timeZoneIdentifier: "Europe/Moscow", resumePolicy: .pauseUntilResumed,
+                displays: [desk, deskOtherPort, laptop].map {
+                    .init(displayID: $0, entries: [], method: .software,
+                          restoreLevel: AutomationLevel(normalized: 0.4)!, rampMinutes: 0)
+                })
+            let mode: RememberedDisplayCleanup.Mode = status == .connected ? .reset : .forget
+            let plan = try RememberedDisplayCleanup.plan(for: entry, mode: mode, settings: settings,
+                favorites: .init(), menuLayout: .init(), ledger: [])
+            XCTAssertEqual(plan.clockRecipeCount, 2)
+            XCTAssertFalse(plan.removesOnlyRecord)
+            let updated = RememberedDisplayCleanup.applying(plan, to: settings)
+            XCTAssertEqual(updated.clockMode?.displays.map(\.displayID), [laptop])
+            XCTAssertEqual(updated.clockMode?.timeZoneIdentifier, "Europe/Moscow")
+            XCTAssertEqual(updated.clockMode?.resumePolicy, .pauseUntilResumed)
+            settings.clockMode?.displays.removeAll { $0.displayID == laptop }
+            let empty = RememberedDisplayCleanup.applying(plan, to: settings)
+            XCTAssertNotNil(empty.clockMode, "nil re-enables legacy Clock Mode")
+            XCTAssertEqual(empty.clockMode?.displays, [])
+        }
+    }
+
     func testCleanupListsAndRemovesEveryMergedPreferenceAcrossAliases() throws {
         for status in [RememberedDisplay.Status.connected, .notConnected] {
             let entry = deskEntry(status: status)

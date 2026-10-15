@@ -23,3 +23,24 @@ A manual brightness request through FreeDisplay holds the explicit schedule unti
 An active brightness-sync group (including Default) or active app preset blocks recurring, Apply Now and Restore writes for that display. The UI reports that hold or a shared command refusal. Pause the competing policy explicitly to use independent scheduled levels. Clock writes bypass group leadership/offset learning only after checking that no group owns the target; they do not silently change group settings. Already dispatched hardware writes can still finish after a toggle or configuration change. Other applications, monitor buttons and macOS controls are not continuously observed by this policy and can change actual brightness. A wake/current-state catch-up reasserts the current interval, subject to manual holds.
 
 Readback is controller/software state, not a physical luminance measurement. Hardware, installed Shortcuts discovery, wake notifications and visual layout require separate real-device validation. This implementation was verified with deterministic injected-date/time-zone and fake-environment unit tests and builds only.
+
+## Settings lifecycle and reset scopes
+
+Forget, automatic forgetting and per-display Reset Settings remove that display's recipes across
+all of its observation aliases. The preview lists the recipe count. Other displays' recipes and
+the shared time zone/resume policy remain. An empty explicit configuration remains present so
+cleanup cannot silently reactivate the legacy shared schedule. Future dispatch checks the current
+configuration; an already dispatched device write can still finish.
+
+Identity transfer and migration deliberately exclude Clock Mode recipes: their selected route and
+authored Restore belong to the original target, while time zone and wake policy are shared with
+other recipes. The transfer preview lists this exclusion and source Forget removes its recipes;
+migration preserves recipes under the original ID. Review/recreate the target in Clock Mode.
+Full recipe snapshots participate in the stale-preview check.
+
+Settings archives and automatic replacement backups include complete Clock Mode configuration.
+Import preserves exact target IDs, lists unmatched recipe-only IDs, and does not guess a new target.
+Application Reset to Defaults backs up the old recipes and removes Clock Mode configuration along
+with the other settings. A monitor factory reset or Reset Software Adjustments changes the requested
+hardware/software adjustment scope only; it deliberately leaves saved automation recipes intact.
+Disable Clock Mode separately to prevent later scheduled writes when testing such a reset.

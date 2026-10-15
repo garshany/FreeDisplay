@@ -386,6 +386,9 @@ private struct RememberedDisplayCleanupSheet: View {
         if plan.ddcChannelMapping { items.append(String(localized: "Its manually confirmed DDC channel mapping")) }
         if plan.defaultGroupOffset { items.append(String(localized: "Its Default group brightness offset")) }
         if plan.luminanceAnchors { items.append(String(localized: "Its saved luminance anchors")) }
+        if plan.clockRecipeCount > 0 {
+            items.append(String(localized: "Its Clock Mode recipes: \(plan.clockRecipeCount)"))
+        }
         if plan.volumeFeedback { items.append(String(localized: "Its volume and mute feedback preference")) }
         if plan.adaptiveOffset { items.append(String(localized: "Adaptive Display’s learned brightness offset")) }
         if plan.keepsDisplaysAwake { items.append(String(localized: "Keeping the displays awake while it is connected")) }

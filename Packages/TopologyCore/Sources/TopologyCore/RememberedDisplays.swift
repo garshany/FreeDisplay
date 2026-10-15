@@ -237,6 +237,7 @@ public enum RememberedDisplayCleanup {
         public var luminanceAnchors: Bool = false
         public var volumeFeedback: Bool = false
         public var defaultGroupOffset: Bool = false
+        public var clockRecipeCount: Int = 0
         public var adaptiveOffset: Bool
         /// This display's own "keep displays awake while connected" (AM-42).
         public var keepsDisplaysAwake: Bool = false
@@ -256,7 +257,7 @@ public enum RememberedDisplayCleanup {
             alias == nil && tagCount == 0 && favoriteModeCount == 0 && groupNames.isEmpty
                 && protectedLayoutKeys.isEmpty && !hasMenuPreferences && !softwareBrightness
                 && !appleDDCOverride && !ddcChannelMapping && !adaptiveOffset && !keepsDisplaysAwake
-                && !keyboardAudioPreferences && !luminanceAnchors && !volumeFeedback && !defaultGroupOffset && !removesTurnedOffRecord
+                && clockRecipeCount == 0 && !keyboardAudioPreferences && !luminanceAnchors && !volumeFeedback && !defaultGroupOffset && !removesTurnedOffRecord
         }
     }
 
@@ -307,6 +308,7 @@ public enum RememberedDisplayCleanup {
                 guard case .display(let target) = preset.target, raw.contains(target) else { return nil }
                 return preset.applicationName
             }.sorted())
+        plan.clockRecipeCount = settings.clockMode?.displays.filter { ids.contains($0.displayID) }.count ?? 0
         plan.defaultGroupOffset = !raw.isDisjoint(with: settings.defaultDisplayGroup.offsetByMember.keys)
         plan.luminanceAnchors = !raw.isDisjoint(with: settings.luminanceAnchorsByDisplay.keys)
         plan.volumeFeedback = !raw.isDisjoint(with: settings.osdFeedback.volumeHiddenDisplayIDs)
@@ -333,6 +335,8 @@ public enum RememberedDisplayCleanup {
         updated.softwareBrightnessDisplayIDs.subtract(raw)
         updated.ddcAppleDisplayOverrideIDs.subtract(raw)
         updated.ddcChannelMappings.removeAll { plan.observationIDs.contains($0.displayID) }
+        // Keep the explicit configuration even when empty: nil would reactivate legacy schedules.
+        updated.clockMode?.displays.removeAll { plan.observationIDs.contains($0.displayID) }
         updated.preventDisplaySleepDisplayIDs.subtract(raw)
         updated.osdFeedback.volumeHiddenDisplayIDs.subtract(raw)
         for key in raw {

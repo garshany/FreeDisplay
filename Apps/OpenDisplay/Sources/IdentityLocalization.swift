@@ -24,6 +24,7 @@ func identityLabel(_ key: String) -> String {
     case "pendingRestores": return String(localized: "Pending restores stay under their original identifiers")
     case "inputSwitchHotkeys": return String(localized: "Input hotkeys stay under their original identifiers")
     case "appPresets": return String(localized: "App presets stay under their original identifiers")
+    case "clockRecipes": return String(localized: "Clock Mode recipes are not transferred; recipes for a forgotten source are removed. Edit targets in Clock Mode.")
     case "protectedLayouts": return String(localized: "Protected layouts are not transferred; layouts referencing a forgotten source are removed")
     case "vendor": return String(localized: "Vendor")
     case "product": return String(localized: "Product")
