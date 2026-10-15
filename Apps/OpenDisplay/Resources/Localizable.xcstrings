@@ -1298,12 +1298,32 @@
         }
       }
     },
+    "Another display change is still being applied. Try again when it’s done." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ещё применяется другое изменение мониторов. Повторите, когда оно завершится."
+          }
+        }
+      }
+    },
     "Another display mode change is waiting to be kept or reverted. Finish it in OpenDisplay first." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Другая смена режима ещё ждёт подтверждения или отмены. Сначала завершите её в OpenDisplay."
+          }
+        }
+      }
+    },
+    "Another file is already at “%@”, so nothing was put back." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На месте «%@» уже есть другой файл, поэтому ничего не возвращено."
           }
         }
       }
@@ -1318,16 +1338,6 @@
         }
       }
     },
-    "Any" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Любые"
-          }
-        }
-      }
-    },
     "any" : {
       "localizations" : {
         "ru" : {
@@ -1338,7 +1348,17 @@
         }
       }
     },
-    "App presets" : {
+    "Any" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Любые"
+          }
+        }
+      }
+    },
+    "App Presets" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
@@ -1348,7 +1368,7 @@
         }
       }
     },
-    "App Presets" : {
+    "App presets" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
@@ -1943,8 +1963,7 @@
         }
       }
     },
-    "Brightness control" : {
-      "extractionState" : "manual",
+    "Brightness Control" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
@@ -1954,7 +1973,8 @@
         }
       }
     },
-    "Brightness Control" : {
+    "Brightness control" : {
+      "extractionState" : "manual",
       "localizations" : {
         "ru" : {
           "stringUnit" : {
@@ -2631,22 +2651,22 @@
         }
       }
     },
-    "color profile" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "цветовой профиль"
-          }
-        }
-      }
-    },
     "Color profile" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Цветовой профиль"
+          }
+        }
+      }
+    },
+    "color profile" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "цветовой профиль"
           }
         }
       }
@@ -3177,6 +3197,16 @@
         }
       }
     },
+    "Couldn’t write the new settings: %@ Your previous settings were put back, so nothing changed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось записать новые настройки: %@ Прежние настройки восстановлены, поэтому ничего не изменилось."
+          }
+        }
+      }
+    },
     "Create Virtual Screen" : {
       "localizations" : {
         "ru" : {
@@ -3351,6 +3381,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Записи DDC, проигнорированные монитором"
+          }
+        }
+      }
+    },
+    "Debug" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "отладочная"
           }
         }
       }
@@ -3628,6 +3668,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Диагностика и восстановление"
+          }
+        }
+      }
+    },
+    "Diagnostics…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Диагностика…"
           }
         }
       }
@@ -3932,22 +3982,22 @@
         }
       }
     },
-    "Display Mode" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Режим дисплея"
-          }
-        }
-      }
-    },
     "Display mode" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Режим экрана"
+          }
+        }
+      }
+    },
+    "Display Mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Режим дисплея"
           }
         }
       }
@@ -5290,6 +5340,16 @@
         }
       }
     },
+    "full" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "полная"
+          }
+        }
+      }
+    },
     "Full mode: logical size, framebuffer, refresh rate and HiDPI, then the markers macOS reports for it" : {
       "localizations" : {
         "ru" : {
@@ -5356,6 +5416,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Гамма приостановлена: на %@ назначен пользовательский цветовой профиль, из-за которого экран может стать чёрным или получить оттенок. Затемнение выполняется чёрным слоем; цветовая температура, контрастность и усиление XDR выключены. Выберите заводской профиль или разрешите гамму с пользовательскими профилями в «Настройки › Мониторы › Затемнение»."
+          }
+        }
+      }
+    },
+    "Gamma is paused because macOS couldn’t report the colour profile of %@, and a custom profile can turn a screen black or tinted. Dimming uses the overlay instead; colour temperature, contrast and XDR boost are off. Gamma resumes once macOS reports the profile, or allow gamma with custom profiles in Settings › Displays › Dimming." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Гамма приостановлена: macOS не сообщила цветовой профиль %@, а пользовательский профиль может сделать экран чёрным или придать ему оттенок. Затемнение выполняется чёрным слоем; цветовая температура, контрастность и усиление XDR выключены. Гамма вернётся, когда macOS сообщит профиль, — или разрешите гамму с пользовательскими профилями в «Настройки › Мониторы › Затемнение»."
+          }
+        }
+      }
+    },
+    "gamma paused: colour profile unread" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "гамма приостановлена: профиль не прочитан"
           }
         }
       }
@@ -5864,16 +5944,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "по горизонтали: передний порог %1, синхроимпульс %2, гашение %3"
-          }
-        }
-      }
-    },
-    "Hotkeys and diagnostics…" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Горячие клавиши и диагностика…"
           }
         }
       }
@@ -6570,6 +6640,16 @@
         }
       }
     },
+    "Keyboard shortcuts…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сочетания клавиш…"
+          }
+        }
+      }
+    },
     "Kind" : {
       "localizations" : {
         "ru" : {
@@ -6780,6 +6860,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Загрузить источники…"
+          }
+        }
+      }
+    },
+    "local build" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "локальная сборка"
           }
         }
       }
@@ -7058,6 +7148,16 @@
         }
       }
     },
+    "macOS didn’t confirm that the previous display settings were restored. OpenDisplay kept a record of them and restores it at the next launch; the next display change you make replaces that record." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS не подтвердила, что прежние настройки мониторов восстановлены. OpenDisplay сохранил их запись и восстановит её при следующем запуске; следующее изменение мониторов заменит эту запись."
+          }
+        }
+      }
+    },
     "macOS didn’t confirm the new mode on “%@”." : {
       "localizations" : {
         "ru" : {
@@ -7261,6 +7361,16 @@
         }
       }
     },
+    "main display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "основной монитор"
+          }
+        }
+      }
+    },
     "Main display" : {
       "localizations" : {
         "ru" : {
@@ -7277,16 +7387,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Основной дисплей"
-          }
-        }
-      }
-    },
-    "main display" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "основной монитор"
           }
         }
       }
@@ -8025,22 +8125,22 @@
         }
       }
     },
-    "Native" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Системный"
-          }
-        }
-      }
-    },
     "native" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "родное"
+          }
+        }
+      }
+    },
+    "Native" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Системный"
           }
         }
       }
@@ -8260,22 +8360,22 @@
         }
       }
     },
-    "No HiDPI" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Без HiDPI"
-          }
-        }
-      }
-    },
     "no HiDPI" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "без HiDPI"
+          }
+        }
+      }
+    },
+    "No HiDPI" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Без HiDPI"
           }
         }
       }
@@ -8495,6 +8595,16 @@
         }
       }
     },
+    "Not applied: another display change is still in progress. Nothing was changed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не применено: ещё выполняется другое изменение мониторов. Ничего не изменено."
+          }
+        }
+      }
+    },
     "Not applied: none of this scene’s displays are connected." : {
       "localizations" : {
         "ru" : {
@@ -8511,6 +8621,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Не применено: обязательные мониторы не подключены (%@). Ничего не изменено."
+          }
+        }
+      }
+    },
+    "Not applied: this scene holds a value OpenDisplay can’t use (%@). Nothing was changed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не применено: в этой сцене есть значение, которое OpenDisplay не может использовать (%@). Ничего не изменено."
           }
         }
       }
@@ -9345,6 +9465,16 @@
         }
       }
     },
+    "OpenDisplay sends no DDC commands to this monitor: the only DDC connection macOS reports identifies a different monitor (another vendor, model or serial number), so commands could reach the wrong one." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenDisplay не отправляет этому монитору команды DDC: единственное DDC-подключение, о котором сообщает macOS, указывает на другой монитор (другой производитель, модель или серийный номер), и команды могут попасть не тому монитору."
+          }
+        }
+      }
+    },
     "OpenDisplay Settings %@.json" : {
       "localizations" : {
         "ru" : {
@@ -9742,22 +9872,22 @@
         }
       }
     },
-    "Position" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Положение"
-          }
-        }
-      }
-    },
     "position" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "положение"
+          }
+        }
+      }
+    },
+    "Position" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Положение"
           }
         }
       }
@@ -10053,6 +10183,16 @@
         }
       }
     },
+    "public APIs only" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "только публичные API"
+          }
+        }
+      }
+    },
     "Publishes each brightness and volume change OpenDisplay makes — including slider, HTTP, command-line and Shortcuts brightness changes — over the dev.opendisplay.osd distributed notification, whether or not OpenDisplay shows its own HUD. Off by default." : {
       "localizations" : {
         "ru" : {
@@ -10296,22 +10436,22 @@
         }
       }
     },
-    "Reconnect All" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Подключить все"
-          }
-        }
-      }
-    },
     "Reconnect all" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Подключить все экраны"
+          }
+        }
+      }
+    },
+    "Reconnect All" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключить все"
           }
         }
       }
@@ -10639,6 +10779,16 @@
         }
       }
     },
+    "Release" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "релизная"
+          }
+        }
+      }
+    },
     "release to apply" : {
       "localizations" : {
         "ru" : {
@@ -10949,22 +11099,22 @@
         }
       }
     },
-    "Reset to defaults" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сброс к заводским настройкам"
-          }
-        }
-      }
-    },
     "Reset to Defaults" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сбросить настройки"
+          }
+        }
+      }
+    },
+    "Reset to defaults" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сброс к заводским настройкам"
           }
         }
       }
@@ -11263,22 +11413,22 @@
         }
       }
     },
-    "Rotation" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Поворот"
-          }
-        }
-      }
-    },
     "rotation" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "поворот"
+          }
+        }
+      }
+    },
+    "Rotation" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поворот"
           }
         }
       }
@@ -12264,17 +12414,6 @@
         }
       }
     },
-    "Speaker Allocation" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Распределение динамиков"
-          }
-        }
-      }
-    },
     "Speaker allocation" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12282,6 +12421,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Расположение динамиков"
+          }
+        }
+      }
+    },
+    "Speaker Allocation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Распределение динамиков"
           }
         }
       }
@@ -12370,17 +12520,6 @@
         }
       }
     },
-    "Standby" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Режим ожидания"
-          }
-        }
-      }
-    },
     "standby" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12388,6 +12527,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ожидание"
+          }
+        }
+      }
+    },
+    "Standby" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Режим ожидания"
           }
         }
       }
@@ -12948,6 +13098,16 @@
         }
       }
     },
+    "The colour profile of %@ couldn’t be read either." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цветовой профиль %@ тоже не удалось прочитать."
+          }
+        }
+      }
+    },
     "The current mode stays listed although macOS marks it as not meant for desktop use." : {
       "localizations" : {
         "ru" : {
@@ -13088,6 +13248,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Не удалось прочитать файл. Ничего не изменено."
+          }
+        }
+      }
+    },
+    "The file has changed since the list was read, so it wasn’t removed. Refresh the list and try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Файл изменился с тех пор, как был прочитан список, поэтому он не удалён. Обновите список и попробуйте снова."
           }
         }
       }
@@ -13391,6 +13561,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Файл профиля отсутствует: %@"
+          }
+        }
+      }
+    },
+    "The profiles folder has changed (a folder on the way is now a link), so nothing was put back." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Папка профилей изменилась (одна из папок на пути теперь является ссылкой), поэтому ничего не возвращено."
           }
         }
       }
@@ -13835,6 +14015,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "У этого файла настроек неизвестный OpenDisplay формат (%lld). Ничего не изменено."
+          }
+        }
+      }
+    },
+    "This settings file holds a value OpenDisplay can’t use (%@: %@). Nothing was changed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В этом файле настроек есть значение, которое OpenDisplay не может использовать (%@: %@). Ничего не изменено."
           }
         }
       }
@@ -14611,22 +14801,22 @@
         }
       }
     },
-    "Use as main display" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сделать основным монитором"
-          }
-        }
-      }
-    },
     "Use as Main Display" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сделать основным экраном"
+          }
+        }
+      }
+    },
+    "Use as main display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сделать основным монитором"
           }
         }
       }
