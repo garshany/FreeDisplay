@@ -1203,7 +1203,16 @@ final class AppModel: ObservableObject {
         guard read == customProfileGuardRead else { return }
         var classified: [DisplayRecordID: ColorProfileGuard.Assignment] = [:]
         for (id, assignment) in readings {
-            guard let assignment else { continue }  // unreadable: the guard keeps what it verified
+            guard let assignment else {
+                // No ColorSync device info — the API doesn't tell "no device" from a failed read.
+                // A display ColorSync has no device for can't carry a custom profile, so unless an
+                // earlier read verified something (a gap must not lift a known block), it holds
+                // none. Counting it as unverified paused gamma on EVERY display for as long as one
+                // display (a virtual screen, some adapters) had no ColorSync device; a hot-plug
+                // race closes on the next ColorSync notification, which re-reads.
+                if case .verified? = colorProfileKnowledge[id] {} else { classified[id] = .factory }
+                continue
+            }
             if colorProfileAssignment[id] != assignment { colorProfileAssignment[id] = assignment }
             classified[id] = ColorProfileGuard.classify(assignedPath: assignment.customURL?.path,
                                                         factoryPaths: assignment.factoryURLs.map(\.path))
