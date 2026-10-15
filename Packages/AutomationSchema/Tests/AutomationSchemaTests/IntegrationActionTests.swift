@@ -23,7 +23,8 @@ final class IntegrationActionTests: XCTestCase {
     func testEnvValidatesNestedInterpreterBeforeMetadataExpansion() throws {
         for arguments in [["/bin/sh", "-lc", "[*:DEVICE_NAME:*]"],
                           ["/usr/bin/env", "/bin/bash", "-lc", "[*:DEVICE_NAME:*]"],
-                          ["-S", "/bin/sh -lc [*:DEVICE_NAME:*]"]] {
+                          ["-S", "/bin/sh -lc [*:DEVICE_NAME:*]"],
+                          ["/usr/bin/arch", "/bin/sh", "-lc", "[*:DEVICE_NAME:*]"]] {
             XCTAssertThrowsError(try IntegrationActionPolicy.prepare(.process(executable: "/usr/bin/env", arguments: arguments, budget: budget), context: .init(display: display)))
         }
         XCTAssertNoThrow(try IntegrationActionPolicy.prepare(.process(executable: "/usr/bin/env", arguments: ["/bin/sh", "/owned/script.sh", "[*:DEVICE_NAME:*]"], budget: budget), context: .init(display: display)))

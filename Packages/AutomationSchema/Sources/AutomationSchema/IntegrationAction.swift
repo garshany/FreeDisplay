@@ -98,6 +98,7 @@ public struct IntegrationContext: Sendable {
 public struct IntegrationPreparedAction: Hashable, Sendable {
     public var action: IntegrationAction
     public var target: DisplayRecordID
+    public var binding: AutomationDisplayCandidate? = nil
 }
 
 public enum IntegrationActionPolicy {
@@ -145,19 +146,24 @@ public enum IntegrationActionPolicy {
             guard !name.isEmpty, !name.contains("[*:") else { throw IntegrationError.invalid("Notification name must be a literal") }
             prepared = .notification(name: name, payload: try context.expand(payload))
         }
-        return .init(action: prepared, target: context.display.id)
+        return .init(action: prepared, target: context.display.id, binding: context.display)
     }
 
     private static func validateInvocation(_ path: String, arguments: ArraySlice<String>) throws {
         let executable = URL(fileURLWithPath: path).lastPathComponent
+        let interpreters = ["sh", "bash", "zsh", "dash", "ksh", "fish", "python", "python3", "ruby", "perl", "node", "osascript", "swift"]
         if executable == "env" {
             // env is an executable wrapper, not a script interpreter. Validate the nested argv
             // before expanding data; option forms such as -S can reinterpret an argument as code.
             guard let nested = arguments.first, nested.hasPrefix("/"), !nested.contains("[*:") else {
                 throw IntegrationError.invalid("env requires an absolute literal executable and a validated argument array")
             }
+            let nestedName = URL(fileURLWithPath: nested).lastPathComponent
+            guard nestedName == "env" || interpreters.contains(nestedName) else {
+                throw IntegrationError.invalid("env must wrap a supported interpreter with a literal script file")
+            }
             try validateInvocation(nested, arguments: arguments.dropFirst())
-        } else if ["sh", "bash", "zsh", "dash", "ksh", "fish", "python", "python3", "ruby", "perl", "node", "osascript", "swift"].contains(executable) {
+        } else if interpreters.contains(executable) {
             guard let script = arguments.first, script.hasPrefix("/"), !script.contains("[*:") else {
                 throw IntegrationError.invalid("Interpreters require an absolute literal script path as the first argument")
             }
