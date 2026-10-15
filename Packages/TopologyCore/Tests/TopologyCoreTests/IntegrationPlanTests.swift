@@ -56,6 +56,34 @@ final class IntegrationPlanTests: XCTestCase {
         config.displays[0].controls[0].enabled = true; config.displays[0].controls[0].readback = nil
         XCTAssertThrowsError(try parser(config))
     }
+    func testFeedRejectsProvisionalUUIDIdentityAndUsesOneValidatedDefinition() async throws {
+        let id = DisplayRecordID.forCGUUID("UUID-A")
+        let control = IntegrationControl(name: "remote", kind: .boolean, enabled: true,
+            readback: .boolean(on: "ON", off: "OFF", regex: false))
+        let definition = DisplayIntegration(id: id, enabled: true, controls: [control])
+        let config = IntegrationConfiguration(displays: [definition])
+        let set = AutomationDisplaySet(candidates: [.init(id: id, name: "Desk", availability: .active)])
+        let registry = await DisplayRegistry(store: InMemoryRegistryStore())
+        let provisional = await registry.resolveAllExplained(
+            [(fingerprint: .init(), cgUUID: "UUID-A", displayClass: .external)],
+            newRecordStrategy: .qualifiedSerial)[0].record
+        XCTAssertTrue(provisional.isProvisional)
+        XCTAssertNotNil(IntegrationPlan.definition(for: id, in: config, displays: set))
+        XCTAssertThrowsError(try IntegrationPlan.feed(controlID: control.id, displayID: id,
+            configuration: config, displays: set,
+            identityVerified: PersistentDisplayIdentity.isVerified(id, record: provisional))) { error in
+            XCTAssertEqual((error as? IntegrationError)?.message, "Feed requires a verified persistent display identity")
+        }
+        let verified = DisplayRecord(id: .init(rawValue: "disp_verified"), fingerprint: .init(),
+            displayClass: .external, lastSeen: Date())
+        let feed = try IntegrationPlan.feed(controlID: control.id, displayID: id, configuration: config,
+            displays: set, identityVerified: PersistentDisplayIdentity.isVerified(id, record: verified))
+        XCTAssertEqual(feed.display, definition)
+        XCTAssertEqual(try feed.parser.parse("ON"), .boolean(true))
+        XCTAssertEqual(IntegrationControlRuntime.key(display: feed.display.id, control: control.id),
+                       IntegrationControlRuntime.key(display: id, control: control.id))
+    }
+
     func testRangedBrightnessProducesTheSharedCommandWithoutConversion() throws {
         let level = AutomationLevel(normalized: 0.42)!
         let action = try IntegrationActionPolicy.prepare(.brightness(.hardware), context: .init(display: set.candidates[0], value: "42", input: .level(level)))

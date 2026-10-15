@@ -14,6 +14,19 @@ public enum DisplayAudioSink: Hashable, Sendable {
     case unresolvedNative(AudioDeviceResolution)
     /// No audio control at all.
     case none
+
+    /// Missing identity is not permission to fall back from saved preferences to DDC discovery.
+    public static func resolve(observation: DisplayObservation, record: DisplayRecord?,
+                               preferences: DisplayKeyboardAudioPreferences, devices: [AudioOutputDevice],
+                               hardwareVolume: Bool, hardwareMute: Bool) -> DisplayAudioSink {
+        guard observation.displayClass != .builtIn,
+              PersistentDisplayIdentity.isVerified(observation.recordID, record: record) else { return .none }
+        if preferences.nativeAudioEnabled {
+            let resolution = AudioDeviceSelector.resolve(preferences.nativeAudioDevice, in: devices, strictness: .exact)
+            return resolution.device.map(DisplayAudioSink.native) ?? .unresolvedNative(resolution)
+        }
+        return .hardware(volume: hardwareVolume, mute: hardwareMute)
+    }
 }
 
 /// One display as the volume keys see it.

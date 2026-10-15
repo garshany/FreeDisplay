@@ -142,11 +142,10 @@ final class IntegrationSession: ObservableObject {
     }
     func feed(controlID: UUID, response: String, displayID: DisplayRecordID) throws -> IntegrationSample {
         guard !shuttingDown else { throw IntegrationError.invalid("Integration session is stopping") }
-        let parser = try IntegrationPlan.feedParser(controlID: controlID, displayID: displayID,
-            configuration: configuration, displays: displaySet)
-        let display = definition(for: displayID)!
-        let key = IntegrationControlRuntime.key(display: display.id, control: controlID)
-        let value = try parser.parse(response)
+        let feed = try IntegrationPlan.feed(controlID: controlID, displayID: displayID,
+            configuration: configuration, displays: displaySet, identityVerified: verified(displayID))
+        let key = IntegrationControlRuntime.key(display: feed.display.id, control: controlID)
+        let value = try feed.parser.parse(response)
         runtime.feed(value, key: key, at: Date())
         return runtime.samples[key]!
     }

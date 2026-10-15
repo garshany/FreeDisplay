@@ -325,6 +325,42 @@ final class AudioKeyRouterTests: XCTestCase {
                                                        captureEnabled: true, safeStartup: false), [rid("lg")])
     }
 
+    func testStartupAudioWaitsForIdentityAndHonorsSavedNativeBindingBeforeAnyProbe() async {
+        let id = DisplayRecordID.forCGUUID("UUID-A")
+        let observation = DisplayObservation(recordID: id, cgDisplayID: 1, cgUUID: "UUID-A",
+            isActive: true, displayClass: .external, physicalPresence: .physical, generation: .initial)
+        var settings = OpenDisplaySettings.default
+        var preferences = DisplayKeyboardAudioPreferences()
+        preferences.nativeAudioEnabled = true
+        preferences.nativeAudioDevice = usbSpeakers.uid
+        settings.keyboardAudioByDisplay[id.rawValue] = preferences
+        func candidate(_ record: DisplayRecord?, saved: DisplayKeyboardAudioPreferences) -> AudioKeyCandidate {
+            .init(observation: observation, productName: "Desk",
+                sink: .resolve(observation: observation, record: record, preferences: saved,
+                               devices: [usbSpeakers], hardwareVolume: false, hardwareMute: false))
+        }
+        func probes(_ candidate: AudioKeyCandidate) -> [DisplayRecordID] {
+            DisplayAudioInitialRead.targets(candidates: [candidate], confirmedVolume: [],
+                captureEnabled: true, safeStartup: false)
+        }
+        // The guarded preference reader returns defaults before resolution; these cannot grant DDC.
+        let unresolved = candidate(nil, saved: .init())
+        XCTAssertEqual(unresolved.sink, .none)
+        XCTAssertTrue(probes(unresolved).isEmpty)
+        let registry = await DisplayRegistry(store: InMemoryRegistryStore())
+        let record = await registry.resolve(fingerprint: .init(), cgUUID: "UUID-A")
+        let native = candidate(record, saved: settings.keyboardAudioPreferences(for: id))
+        XCTAssertEqual(native.sink, .native(usbSpeakers))
+        XCTAssertTrue(probes(native).isEmpty)
+        let hardware = candidate(record, saved: .init())
+        XCTAssertEqual(probes(hardware), [id], "verified hardware still gets owner #6 discovery")
+        let provisional = DisplayRecord(id: .init(rawValue: "unresolved:UUID-A"), fingerprint: .init(),
+            displayClass: .external, lastSeen: Date(), unresolvedCandidates: [])
+        XCTAssertTrue(probes(candidate(provisional, saved: .init())).isEmpty)
+        XCTAssertTrue(probes(candidate(record, saved: .init(nativeAudioEnabled: true,
+            nativeAudioDevice: "missing"))).isEmpty)
+    }
+
     func testInitialReadsNeverProbeNativeBindingsExcludedTargetsOrSafeStartup() {
         let hardware = ddc("dell", name: "DELL U2720Q", volume: false, mute: false)
         let bound = native("desk", name: "Desk", device: usbSpeakers)

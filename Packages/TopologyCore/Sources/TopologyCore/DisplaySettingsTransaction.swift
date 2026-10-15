@@ -25,6 +25,20 @@ public enum DisplaySettingsTransaction {
         case settings, favorites, menuLayout, managedOffline, registry
     }
 
+    public struct StateChanged: Error {
+        public init() {}
+    }
+
+    /// Call on the owning actor after the final suspension. Persistence and publication must not
+    /// yield: even an unchanged-state save during registry I/O may have overwritten staged files.
+    public static func commitIfUnchanged<Value: Equatable>(expected: Value, current: Value,
+                                                           persist: () throws -> Void,
+                                                           publish: () -> Void) throws {
+        guard current == expected else { throw StateChanged() }
+        try persist()
+        publish()
+    }
+
     public struct Failure: Error {
         public var underlying: any Error
         public var recoveryURL: URL
@@ -36,6 +50,7 @@ public enum DisplaySettingsTransaction {
     public static func run(isolation: isolated (any Swift.Actor)? = #isolation,
                            snapshot: DisplaySettingsRecoverySnapshot, recoveryURL: URL,
                            write: (Step) async throws -> Void,
+                           commit: () throws -> Void = {},
                            restore: (Step) async throws -> Void) async throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -47,6 +62,7 @@ public enum DisplaySettingsTransaction {
                 reached.append(step)
                 try await write(step)
             }
+            try commit()
         } catch {
             var restored = true
             for step in reached.reversed() {
