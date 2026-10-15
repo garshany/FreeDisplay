@@ -1,3 +1,4 @@
+import AppKit
 import AutomationSchema
 import CoreGraphics
 import CoreGraphicsProvider
@@ -58,10 +59,21 @@ let helpText = """
       opendisplay group <list|create|delete> [name] [--json]
       opendisplay group <add|remove> <name> <selector>
       opendisplay brightness <selector> [0..1|N%] [--method automatic|hardware|native|ddc|software] [--json]
-      opendisplay brightness <selector> --offset <delta>  # requires FD-078; currently refused
+      opendisplay brightness <selector> --offset <delta>  # atomic in the running app
       opendisplay mode <selector> [--json]       # exact available modes, current first
       opendisplay capabilities <selector> [--json]
       opendisplay commands [--json]             # typed command catalog
+      opendisplay ready [--json]
+      opendisplay contrast <selector> [0..1|N%] [--json]  # managed hardware contrast
+      opendisplay main <selector> [--json]
+      opendisplay profile <selector> [profile] [--json]
+      opendisplay profiles [--json]
+      opendisplay command <name> [parameter=value ...] [--json] [--dry-run]
+
+    Shared-model commands require the running FreeDisplay app. --timeout <seconds> is optional
+    on these commands; without it no client deadline is imposed. Losing a response does not undo
+    accepted work. Legacy verbs are refused while the app runs; they retain standalone behavior
+    only while it is off. No command launches the app automatically.
       opendisplay ddc <selector> <brightness|contrast|volume|input|colour|sharpness|red|green|blue|mute|power|caps> [value] [--json]
       opendisplay ddc <selector> reset                # restore the monitor's factory defaults (VCP 0x04)
       opendisplay ddc <selector> vcp <0xNN> [value]   # any raw MCCS feature code
@@ -143,6 +155,59 @@ if command == "commands" {
     if asJSON { emit(AutomationCatalog.descriptors(for: .cli)) }
     else { for item in AutomationCatalog.descriptors(for: .cli) { print("\(item.name.rawValue): \(item.summary)") } }
     exit(CLIExitCode.success.rawValue)
+}
+
+// Shared-model commands require the app, including when no endpoint is present. A lost response
+// must never fall back to an in-process write: the app may already have accepted the command.
+if CLIAppRequest.commands.contains(command) {
+    do {
+        let request = try LocalAutomationProtocol.Request(command: CLIAppRequest.request(invocation))
+        let data = try await LocalAutomationSocket.exchange(JSONEncoder().encode(request),
+            path: LocalAutomationSocket.defaultPath(), timeout: CLIAppRequest.timeout(invocation))
+        let response = try JSONDecoder().decode(LocalAutomationProtocol.Response.self, from: data)
+        switch try response.validated(for: request) {
+        case .readiness(let state):
+            if asJSON { emit(response) } else { print(state.rawValue) }
+            exit(state == .ready ? CLIExitCode.success.rawValue : CLIExitCode.failure.rawValue)
+        case .failure(let failure):
+            fail("FreeDisplay IPC: \(failure.rawValue); no command was dispatched by this response")
+        case .result(let result):
+            if command == "brightness" {
+                if let report = result.brightness, report.requested == nil, let level = report.level {
+                    struct Reading: Encodable { var displayId: String; var level: Double; var provider: String; var raw: Int?; var max: Int? }
+                    if asJSON { emit(Reading(displayId: report.displayId, level: level.normalized,
+                        provider: report.route == .native ? "displayServices" : report.route.rawValue, raw: report.raw, max: report.rawMaximum)) }
+                    else { print("\(level.wholePercent)%") }
+                } else {
+                    if asJSON { emit(result.envelope) }
+                    else if let report = result.brightness { print("\(report.displayName): \(report.outcome?.rawValue ?? "unknown")") }
+                    else if let issue = result.issue { warn(issue.message) }
+                    else { print(result.status.rawValue) }
+                }
+            } else if ["recover", "disconnect"].contains(command) {
+                if asJSON { emit(result.envelope) }
+                else if let issue = result.issue { warn(issue.message) }
+                else { print(result.plan ?? result.status.rawValue) }
+            } else if asJSON { emit(result) }
+            else if let issue = result.issue { warn(issue.message) }
+            else if let modes = result.modes { for mode in modes.available { print("\(mode.isCurrent ? "*" : " ") \(mode.key)") } }
+            else { emit(result) }
+            exit(CLIExitCode(result).rawValue)
+        }
+    } catch let issue as AutomationIssue {
+        fail(issue.message, code: issue.category == .usage ? CLIExitCode.usage.rawValue : CLIExitCode.failure.rawValue)
+    } catch {
+        fail("FreeDisplay app IPC unavailable: \(error). Start FreeDisplay and check Automation settings. No standalone retry was attempted.")
+    }
+}
+
+// Legacy verbs have no typed running-app adapter yet. Refuse rather than touch app-owned state
+// through a second provider. They retain their existing standalone behavior only with the app off.
+let runningApp = ["local.personal.OpenDisplay", "local.personal.OpenDisplay.publicapionly"].contains {
+    NSRunningApplication.runningApplications(withBundleIdentifier: $0).contains { !$0.isTerminated }
+}
+if runningApp {
+    fail("'\(command)' has no running-app IPC adapter. Use a typed command (opendisplay commands); direct legacy commands are refused while FreeDisplay runs.")
 }
 
 // MARK: - Composition root

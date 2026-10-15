@@ -35,6 +35,12 @@ final class AppAutomationEnvironment: AutomationEnvironment {
 
     nonisolated func unavailability(of command: AutomationCommandName) -> AutomationIssue? {
         switch command {
+        case .getContrast, .setContrast:
+            #if PUBLIC_API_ONLY
+            return AutomationIssue(.methodUnavailable, "hardware contrast is unavailable in this build")
+            #else
+            return nil
+            #endif
         case .setColorProfile, .resetColorProfile:
             guard FeatureFlags.iccProfileWrite else {
                 return AutomationIssue(.capabilityUnavailable, "colour profile changes are turned off in this build",
@@ -97,6 +103,21 @@ final class AppAutomationEnvironment: AutomationEnvironment {
         let target = AutomationLevel(clamping: Double(current)).offset(by: delta)
         model.setBrightness(target.float, for: observation, eventSource: osdSource)
         return await model.automationBrightnessWriteReport(target, for: observation)
+    }
+
+    func writeGroupBrightness(_ level: AutomationLevel, group: String, dryRun: Bool) async throws(AutomationIssue) -> ResultEnvelope {
+        try await model.automationGroupBrightness(level, groupName: group, dryRun: dryRun, actor: surface.actor)
+    }
+
+    func readContrast(of display: AutomationDisplayCandidate) async throws(AutomationIssue) -> BrightnessReadback {
+        let readback = await model.automationContrastReadback(for: try active(display))
+        guard readback.level != nil else { throw AutomationIssue(.methodUnavailable, "hardware contrast is unavailable") }
+        return readback
+    }
+    func writeContrast(_ level: AutomationLevel, to display: AutomationDisplayCandidate) async throws(AutomationIssue) -> BrightnessWriteReport {
+        let observation = try active(display)
+        model.setHardwareControl(.contrast, level.float, for: observation, eventSource: osdSource)
+        return await model.automationContrastWriteReport(level, for: observation)
     }
 
     // MARK: Modes and main display
@@ -198,7 +219,27 @@ final class AppAutomationEnvironment: AutomationEnvironment {
 
     // MARK: Recovery
 
+    func validateDisconnect(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) {
+        guard !model.busy, model.pendingRevert == nil else {
+            throw AutomationIssue(.busy, "another display operation is in progress")
+        }
+        guard model.canTurnOff(try active(display)) else {
+            throw AutomationIssue(.capabilityUnavailable, "disconnect would leave no usable recovery screen")
+        }
+    }
+    func disconnect(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> ResultEnvelope {
+        try await validateDisconnect(display)
+        let committed = await model.setDisplayActive(false, for: try active(display), as: surface.actor)
+        return ResultEnvelope(transactionId: "txn_disconnect", status: committed ? .committed : .failed,
+            actor: surface.actor, requestedAt: Date(), topologyGeneration: model.displays.map(\.generation.value).max() ?? 0,
+            targets: [.init(displayId: display.id.rawValue, alias: display.alias, identityConfidence: 1,
+                            operations: [.init(field: "connected", requested: .bool(false),
+                                               verification: committed ? .verified : .notApplicable,
+                                               outcome: committed ? .verified : .failed)])])
+    }
+
     func reconnectAll() async throws(AutomationIssue) -> ResultEnvelope {
+        guard !model.busy else { throw AutomationIssue(.busy, "another display operation is in progress") }
         guard surface == .http else { return await model.reconnectAll(actor: surface.actor) }
         // A verified reconnect watches each display until it lights (with one escalation), which
         // outlasts an HTTP connection, so it runs as its own operation — the socket closing doesn't

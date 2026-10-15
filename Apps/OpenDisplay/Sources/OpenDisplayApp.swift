@@ -105,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        model.integrationService.start()
         // Close the pop-out when an action that re-lays-out the displays is picked (e.g. Set as Main):
         // otherwise the open pop-out, anchored to the status item, gets displaced to a random spot when
         // set-main relocates the menu bar to the new main display.
@@ -315,6 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// revert completes; otherwise quit immediately. Gamma and the keep-awake assertion are also
     /// restored synchronously by `AppModel`'s `willTerminate` backstop.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        model.integrationService.stop()
         guard model.needsQuitReversion else { return .terminateNow }
         Task {
             await model.teardownForQuit()
