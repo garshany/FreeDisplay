@@ -13,6 +13,7 @@ public struct AutomationDisplaySummary: Hashable, Sendable, Codable {
     public var isMain: Bool
     public var isBuiltIn: Bool
     public var cgDisplayID: UInt32?
+    public var legacyListRow: LegacyDisplayListRow?
 
     public init(_ candidate: AutomationDisplayCandidate) {
         id = candidate.id.rawValue
@@ -24,6 +25,7 @@ public struct AutomationDisplaySummary: Hashable, Sendable, Codable {
         isMain = candidate.isMain
         isBuiltIn = candidate.isBuiltIn
         cgDisplayID = candidate.cgDisplayID
+        legacyListRow = candidate.legacyListRow
     }
 }
 

@@ -153,7 +153,7 @@ func emit<T: Encodable>(_ value: T, servedBy: CLIExecutionPath = .standalone) {
     encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
     encoder.dateEncodingStrategy = .iso8601
     guard let encoded = try? encoder.encode(value),
-          let data = try? (CLIAppRequest.commands.contains(command) ? servedBy.annotating(encoded) : encoded),
+          let data = try? (CLIAppRequest.commands.contains(command) && command != "list" ? servedBy.annotating(encoded) : encoded),
           let text = String(data: data, encoding: .utf8) else {
         fail("failed to encode JSON output")
     }
@@ -184,7 +184,21 @@ func appIsRunning() -> Bool {
 }
 
 func renderSharedResult(_ result: AutomationResult, servedBy: CLIExecutionPath) {
-    if command == "brightness" {
+    if command == "list" {
+        do {
+            let rows = try LegacyDisplayListRenderer.rows(from: result)
+            if asJSON { emit(rows, servedBy: servedBy) }
+            else {
+                for row in rows {
+                    let mark = row.active ? "●" : "○"
+                    let main = row.main ? " [main]" : ""
+                    let tags = row.tags.isEmpty ? "" : " #" + row.tags.joined(separator: " #")
+                    let name = result.displays?.first { $0.id == row.id }?.name ?? row.id
+                    print("\(mark) \(name)\(main) \(row.mode ?? "—")\(tags)")
+                }
+            }
+        } catch { fail("\(error)") }
+    } else if command == "brightness" {
         if let report = result.brightness, report.requested == nil, let level = report.level {
             struct Reading: Encodable { var displayId: String; var level: Double; var provider: String; var raw: Int?; var max: Int? }
             if asJSON { emit(Reading(displayId: report.displayId, level: level.normalized,
