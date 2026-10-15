@@ -295,19 +295,19 @@ enum DisplayIntentError: Error, CustomLocalizedStringResourceConvertible {
     var localizedStringResource: LocalizedStringResource {
         switch self {
         case .appNotReady:
-            return "OpenDisplay isn’t ready to run this action. Open OpenDisplay and try again."
+            return "FreeDisplay isn’t ready to run this action. Open FreeDisplay and try again."
         case .displayNotConnected(let name):
-            return "“\(name)” isn’t connected. Connect it, or turn it back on in OpenDisplay, and try again."
+            return "“\(name)” isn’t connected. Connect it, or turn it back on in FreeDisplay, and try again."
         case .displayInactive(let name):
             return "“\(name)” is connected but isn’t showing its own desktop (for example, it’s mirroring another display). Nothing was changed."
         case .noBuiltInDisplay:
             return "There’s no active built-in display. Choose a display for this action."
         case .brightnessUnavailable(let name):
-            return "OpenDisplay can’t read or set the brightness of “\(name)”."
+            return "FreeDisplay can’t read or set the brightness of “\(name)”."
         case .modeNotOffered(let name):
             return "“\(name)” doesn’t offer this mode now. Choose the mode again from the display’s current list."
         case .modeChangePending:
-            return "Another display mode change is waiting to be kept or reverted. Finish it in OpenDisplay first."
+            return "Another display mode change is waiting to be kept or reverted. Finish it in FreeDisplay first."
         case .modeChangeFailed(let message):
             return "\(message)"
         case .modeNotConfirmed(let name):
@@ -324,7 +324,7 @@ enum DisplayIntentError: Error, CustomLocalizedStringResourceConvertible {
 struct GetBrightnessIntent: AppIntent {
     static let title: LocalizedStringResource = "Get Display Brightness"
     static let description = IntentDescription(
-        "Gets a display’s brightness in percent (0–100). The result says whether the display itself reported it; with software dimming it is the level OpenDisplay applies."
+        "Gets a display’s brightness in percent (0–100). The result says whether the display itself reported it; with software dimming it is the level FreeDisplay applies."
     )
     static let openAppWhenRun = false
 
@@ -340,7 +340,7 @@ struct GetBrightnessIntent: AppIntent {
         let name = report.display?.name ?? display.name
         let dialog: IntentDialog = report.confirmed
             ? "\(name): \(report.percent ?? 0) %."
-            : "\(name): \(report.percent ?? 0) % (the level OpenDisplay applies; the display can’t report it)."
+            : "\(name): \(report.percent ?? 0) % (the level FreeDisplay applies; the display can’t report it)."
         return .result(value: BrightnessResultEntity(report), dialog: dialog)
     }
 }
@@ -373,7 +373,7 @@ struct SetBrightnessIntent: AppIntent {
         if report.confirmed {
             dialog = "\(name): brightness \(report.percent ?? requested) %."
         } else if report.control == .software, let applied = report.percent {
-            dialog = "\(name): \(applied) % (the level OpenDisplay applies; the display can’t report it)."
+            dialog = "\(name): \(applied) % (the level FreeDisplay applies; the display can’t report it)."
         } else if let actual = report.percent {
             dialog = "Requested \(requested) % on \(name); it reports \(actual) %."
         } else {
@@ -388,7 +388,7 @@ struct SetBrightnessIntent: AppIntent {
 struct SetDisplayModeIntent: AppIntent {
     static let title: LocalizedStringResource = "Set Display Mode"
     static let description = IntentDescription(
-        "Switches a display to one of the exact modes it offers. Keep the new mode in OpenDisplay before the countdown ends, or the previous mode comes back."
+        "Switches a display to one of the exact modes it offers. Keep the new mode in FreeDisplay before the countdown ends, or the previous mode comes back."
     )
     static let openAppWhenRun = false
 
@@ -415,7 +415,7 @@ struct SetDisplayModeIntent: AppIntent {
         case .alreadyInEffect:
             dialog = "\(name) is already in this mode."
         case .awaitingConfirmation:
-            dialog = "\(name) switched modes. Keep the new mode in OpenDisplay within \(report.secondsToKeep ?? 0) seconds, or it reverts."
+            dialog = "\(name) switched modes. Keep the new mode in FreeDisplay within \(report.secondsToKeep ?? 0) seconds, or it reverts."
         }
         return .result(value: result, dialog: dialog)
     }
@@ -426,7 +426,7 @@ struct SetDisplayModeIntent: AppIntent {
 struct SetMainDisplayIntent: AppIntent {
     static let title: LocalizedStringResource = "Set Main Display"
     static let description = IntentDescription(
-        "Makes a connected display the main display, keeping the arrangement. Confirm the change in OpenDisplay before the existing keep/revert window expires. Returns whether confirmation is pending."
+        "Makes a connected display the main display, keeping the arrangement. Confirm the change in FreeDisplay before the existing keep/revert window expires. Returns whether confirmation is pending."
     )
     static let openAppWhenRun = false
 
@@ -445,7 +445,7 @@ struct SetMainDisplayIntent: AppIntent {
         result.outcome = report.outcome
         result.secondsToKeep = report.secondsToKeep
         let dialog: IntentDialog = report.outcome == .awaitingConfirmation
-            ? "\(main.name) is now the main display. Keep the change in OpenDisplay within \(report.secondsToKeep ?? 0) seconds, or it reverts."
+            ? "\(main.name) is now the main display. Keep the change in FreeDisplay within \(report.secondsToKeep ?? 0) seconds, or it reverts."
             : "\(main.name) is already the main display."
         return .result(value: result, dialog: dialog)
     }

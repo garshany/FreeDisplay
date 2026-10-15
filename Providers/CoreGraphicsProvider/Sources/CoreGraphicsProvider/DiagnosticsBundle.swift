@@ -54,7 +54,7 @@ public enum DiagnosticsBundle {
 
     /// What the bundle holds, in the words shown to the user before they export.
     public static let contents = [
-        "OpenDisplay's own records: the display event timeline, the audit log, the list of displays "
+        "FreeDisplay's own records: the display event timeline, the audit log, the list of displays "
             + "it turned off, its display registry, and its settings (location and app presets removed)",
         "macOS's saved display configuration, now and as copied before recent disconnects",
         "What macOS reports about the displays, the graphics link, and Thunderbolt devices "
@@ -151,8 +151,8 @@ public enum DiagnosticsBundle {
 
     private static func readme(app: AppInfo, now: Date) -> String {
         """
-        OpenDisplay diagnostics bundle
-        Exported \(ISO8601DateFormatter().string(from: now)) by OpenDisplay \(app.version) (\(app.build), \(app.flavor))
+        FreeDisplay diagnostics bundle
+        Exported \(ISO8601DateFormatter().string(from: now)) by FreeDisplay \(app.version) (\(app.build), \(app.flavor))
 
         This file was created on your Mac and has not been sent anywhere. Attach it to your issue at
         https://github.com/aquitaine/OpenDisplay/issues if you are happy to share it.

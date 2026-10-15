@@ -31,7 +31,7 @@ public enum HotkeyAction: String, Hashable, Sendable, Codable, CaseIterable {
         case .faceLight: return "Toggle FaceLight"
         case .toggleMenu: return "Show or Hide the Menu"
         case .openSettings: return "Open Settings"
-        case .quit: return "Quit OpenDisplay"
+        case .quit: return "Quit FreeDisplay"
         }
     }
 

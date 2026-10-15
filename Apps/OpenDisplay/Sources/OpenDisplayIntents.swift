@@ -127,14 +127,14 @@ enum OpenDisplayAutomation {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = String(localized: "A link asked OpenDisplay to disconnect a display")
-        alert.informativeText = String(localized: "OpenDisplay doesn’t change displays from links, so nothing was changed. To disconnect a display, use its switch in the OpenDisplay menu.")
+        alert.messageText = String(localized: "A link asked FreeDisplay to disconnect a display")
+        alert.informativeText = String(localized: "FreeDisplay doesn’t change displays from links, so nothing was changed. To disconnect a display, use its switch in the FreeDisplay menu.")
         alert.addButton(withTitle: String(localized: "OK"))
         alert.runModal()
     }
 
     private static func log(_ message: String) {
-        FileHandle.standardError.write(Data("OpenDisplay URL: \(message)\n".utf8))
+        FileHandle.standardError.write(Data("FreeDisplay URL: \(message)\n".utf8))
     }
 }
 
@@ -143,7 +143,7 @@ enum OpenDisplayAutomation {
 struct ReconnectAllIntent: AppIntent {
     static let title: LocalizedStringResource = "Reconnect All Displays"
     static let description = IntentDescription(
-        "Reconnects every display OpenDisplay turned off — the always-available recovery action."
+        "Reconnects every display FreeDisplay turned off — the always-available recovery action."
     )
     // The intent does its own work; no need to bring the app forward.
     static let openAppWhenRun = false

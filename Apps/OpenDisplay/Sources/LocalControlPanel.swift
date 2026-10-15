@@ -21,7 +21,7 @@ struct LocalControlPanel: View {
             // SO-18: App Intents are a separate integration from the keyboard shortcuts and the HTTP
             // control below; say what they cover and open the app that runs them.
             Section("Shortcuts app") {
-                Text("OpenDisplay’s actions are in the Shortcuts app: get or set a display’s brightness, switch a display to one of its modes, make a display the main display, and reconnect all displays. They act on connected displays while OpenDisplay is running, and say when a display isn’t available. Keyboard shortcuts for OpenDisplay’s own actions are in Settings → Keyboard.")
+                Text("FreeDisplay’s actions are in the Shortcuts app: get or set a display’s brightness, switch a display to one of its modes, make a display the main display, and reconnect all displays. They act on connected displays while FreeDisplay is running, and say when a display isn’t available. Keyboard shortcuts for FreeDisplay’s own actions are in Settings → Keyboard.")
                 Button("Open Shortcuts") { openShortcutsApp() }
                     .disabled(Self.shortcutsAppURL == nil)
             }
@@ -39,7 +39,7 @@ struct LocalControlPanel: View {
                 }
                 Text(verbatim: "GET /v1/displays · POST /v1/brightness · POST /v1/reconnect-all")  // routes, not prose
                     .font(.system(.caption, design: .monospaced))
-                Text("A brightness change returns the request status; the hardware result is not verified. Display brightness in the list is OpenDisplay’s last requested or read value, with its age; it is empty until a value is known. Reconnect All starts in the background and answers with the displays it is reconnecting. TV and AV-receiver protocols and HDMI-CEC are not implemented in this build.").font(.caption)
+                Text("A brightness change returns the request status; the hardware result is not verified. Display brightness in the list is FreeDisplay’s last requested or read value, with its age; it is empty until a value is known. Reconnect All starts in the background and answers with the displays it is reconnecting. TV and AV-receiver protocols and HDMI-CEC are not implemented in this build.").font(.caption)
             }
         }
         .formStyle(.grouped)

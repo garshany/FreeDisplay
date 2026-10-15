@@ -46,7 +46,7 @@ struct AboutView: View {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable().frame(width: 64, height: 64)
                 .accessibilityHidden(true)
-            Text("OpenDisplay")
+            Text("FreeDisplay")
                 .font(.title2.weight(.semibold))
             Text("Open-source display control for macOS. Local build with custom changes.")
                 .font(.callout).foregroundStyle(.secondary)

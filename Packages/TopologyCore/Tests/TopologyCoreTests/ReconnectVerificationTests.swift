@@ -8,6 +8,13 @@ final class ReconnectVerificationTests: XCTestCase {
     private let desk = ManagedOfflineDisplay(
         recordID: DisplayRecordID(rawValue: "cg:DESK"), cgID: 7, name: "Desk", displayClass: .external)
 
+    func testFailureNoticeUsesFreeDisplayWithoutChangingTheRecoveryLink() {
+        let notice = Verification.failureNotification(for: desk)
+        XCTAssertEqual(notice.body, "FreeDisplay asked macOS to turn it on and nothing appeared. It is still listed in the menu, with recovery steps.")
+        XCTAssertEqual(Verification.recoveryGuideURL.absoluteString,
+                       "https://github.com/aquitaine/OpenDisplay/blob/main/Docs/Recovering-a-stranded-display.md")
+    }
+
     func testALitDisplayIsConfirmedHoweverLongItTook() {
         XCTAssertEqual(Verification.next(isLit: true, waited: 0, escalated: false), .confirmed)
         XCTAssertEqual(Verification.next(isLit: true, waited: 60, escalated: true), .confirmed)

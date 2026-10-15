@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds a Developer-ID-signed, notarized, stapled OpenDisplay.app, packages it as a zip that opens
+# Builds a Developer-ID-signed, notarized, stapled FreeDisplay.app, packages it as a zip that opens
 # with no Gatekeeper warning (no `xattr` dance for users), and writes the Sparkle appcast that feeds
 # in-app updates. Distribution channel is Developer ID + hardened runtime — NOT the App Store (the
 # full app uses private frameworks; see D-007). Signs the bundle inside-out (Sparkle's helpers,
@@ -95,7 +95,7 @@ require_signer() {
 CONFIG="$CONFIG" ./scripts/bundle-helper.sh "$CONFIG"
 
 DD=$(ls -dt "$HOME"/Library/Developer/Xcode/DerivedData/OpenDisplay-* | head -1)
-APP="$DD/Build/Products/$CONFIG/OpenDisplay.app"
+APP="$DD/Build/Products/$CONFIG/FreeDisplay.app"
 [ -d "$APP" ] || { echo "error: $APP not found" >&2; exit 1; }
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")
 RELEASE_TAG="${RELEASE_TAG:-v$VERSION}"

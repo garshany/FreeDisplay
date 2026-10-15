@@ -138,7 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: Bundle.main.bundleIdentifier, suspensionBehavior: .deliverImmediately)
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "OpenDisplay")
+        item.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "FreeDisplay")
         item.button?.action = #selector(statusItemClicked(_:))
         item.button?.target = self
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -291,7 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             let hosting = NSHostingController(rootView: AboutView().environmentObject(model))
             let created = NSWindow(contentViewController: hosting)
-            created.title = String(localized: "About OpenDisplay")
+            created.title = String(localized: "About FreeDisplay")
             created.styleMask = [.titled, .closable]
             created.isReleasedWhenClosed = false
             aboutWindow = created

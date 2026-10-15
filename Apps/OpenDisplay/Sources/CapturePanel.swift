@@ -157,7 +157,7 @@ final class CapturePresentation: NSObject, ObservableObject, SCStreamOutput, SCS
 
     private func showPanel() {
         let window = NSPanel(contentRect: NSRect(x: 180, y: 180, width: 640, height: 360), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-        window.title = String(localized: "OpenDisplay — Capture Preview")
+        window.title = String(localized: "FreeDisplay — Capture Preview")
         window.level = .floating
         window.isReleasedWhenClosed = false
         window.delegate = self

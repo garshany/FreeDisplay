@@ -12,13 +12,13 @@ enum DDCStatusText {
     static func refusal(_ reason: DDCBindingRefusal) -> String {
         switch reason {
         case .ambiguousIdentity:
-            return String(localized: "OpenDisplay sends no DDC commands to this monitor: another connected monitor reports the same identity (usually the same model without a serial number), so it can't tell which connection belongs to which.")
+            return String(localized: "FreeDisplay sends no DDC commands to this monitor: another connected monitor reports the same identity (usually the same model without a serial number), so it can't tell which connection belongs to which.")
         case .unidentified:
-            return String(localized: "OpenDisplay sends no DDC commands to this monitor: macOS doesn't report which connection belongs to it, and with several displays attached a guess could control the wrong one.")
+            return String(localized: "FreeDisplay sends no DDC commands to this monitor: macOS doesn't report which connection belongs to it, and with several displays attached a guess could control the wrong one.")
         case .contradictingIdentity:
-            return String(localized: "OpenDisplay sends no DDC commands to this monitor: the only DDC connection macOS reports identifies a different monitor (another vendor, model or serial number), so commands could reach the wrong one.")
+            return String(localized: "FreeDisplay sends no DDC commands to this monitor: the only DDC connection macOS reports identifies a different monitor (another vendor, model or serial number), so commands could reach the wrong one.")
         case .appleDisplay:
-            return String(localized: "OpenDisplay doesn't send DDC commands to Apple displays: some older models can be left with a screen that stays black. You can allow it for this display in Settings → Displays.")
+            return String(localized: "FreeDisplay doesn't send DDC commands to Apple displays: some older models can be left with a screen that stays black. You can allow it for this display in Settings → Displays.")
         }
     }
 
@@ -65,7 +65,7 @@ enum DDCStatusText {
     static func powerOutcome(_ outcome: DDCCommandOutcome, mode: DDCPowerMode) -> String {
         switch outcome {
         case .sent:
-            return String(localized: "“\(mode.label.appLocalized)” sent. The monitor accepted the command; OpenDisplay can't check whether the screen actually changed.")
+            return String(localized: "“\(mode.label.appLocalized)” sent. The monitor accepted the command; FreeDisplay can't check whether the screen actually changed.")
         case .failed:
             return String(localized: "The monitor didn't accept the “\(mode.label.appLocalized)” command (DDC write failed). Nothing changed.")
         case .notSent:
@@ -74,7 +74,7 @@ enum DDCStatusText {
     }
 
     private static var notSent: String {
-        String(localized: "Nothing was sent: OpenDisplay has no usable DDC connection to this monitor.")
+        String(localized: "Nothing was sent: FreeDisplay has no usable DDC connection to this monitor.")
     }
 
     // MARK: - Factory reset (AM-06)
@@ -86,7 +86,7 @@ enum DDCStatusText {
         case .sent:
             return String(localized: "Factory reset sent — the monitor accepted the command, and its controls were read again.")
         case .failed:
-            return String(localized: "The monitor didn't accept the factory reset (DDC write failed). Nothing was changed, including OpenDisplay's own dimming and temperature.")
+            return String(localized: "The monitor didn't accept the factory reset (DDC write failed). Nothing was changed, including FreeDisplay's own dimming and temperature.")
         case .notSent:
             return notSent
         }

@@ -32,7 +32,7 @@ public final class DisplaySleepGuard {
 
     public init(
         backend: any PowerAssertionControlling,
-        assertionName: String = "OpenDisplay: external display connected"
+        assertionName: String = "FreeDisplay: external display connected"
     ) {
         self.backend = backend
         self.assertionName = assertionName

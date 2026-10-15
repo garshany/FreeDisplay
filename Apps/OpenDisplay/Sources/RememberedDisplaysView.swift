@@ -33,7 +33,7 @@ struct RememberedDisplaysView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: ODSpacing.md) {
-                    Text("Every display OpenDisplay has a record of, including ones that aren’t connected now. A record holds the display’s name in OpenDisplay, favourite modes, menu settings, group memberships and protected layouts.")
+                    Text("Every display FreeDisplay has a record of, including ones that aren’t connected now. A record holds the display’s name in FreeDisplay, favourite modes, menu settings, group memberships and protected layouts.")
                         .font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     if let outcome {
@@ -42,7 +42,7 @@ struct RememberedDisplaysView: View {
                                        title: outcome.text)
                     }
                     if entries.isEmpty {
-                        Text("OpenDisplay doesn’t remember any displays yet.")
+                        Text("FreeDisplay doesn’t remember any displays yet.")
                             .font(.callout).foregroundStyle(.secondary)
                     } else {
                         ODCard {
@@ -63,7 +63,7 @@ struct RememberedDisplaysView: View {
                             }
                         }
                     }
-                    Text("Forgetting a display that isn’t connected removes OpenDisplay’s record of it; if it is connected again later, OpenDisplay treats it as a new display. A connected display can’t be forgotten — macOS would report it again at once — so it offers “Reset Settings…” instead. A display OpenDisplay switched off has to be reconnected first; if it doesn’t come back, it can be forgotten then. None of this sends anything to the monitor or changes macOS’s own display settings: “Factory reset” in the monitor controls is a different thing.")
+                    Text("Forgetting a display that isn’t connected removes FreeDisplay’s record of it; if it is connected again later, FreeDisplay treats it as a new display. A connected display can’t be forgotten — macOS would report it again at once — so it offers “Reset Settings…” instead. A display FreeDisplay switched off has to be reconnected first; if it doesn’t come back, it can be forgotten then. None of this sends anything to the monitor or changes macOS’s own display settings: “Factory reset” in the monitor controls is a different thing.")
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -134,13 +134,13 @@ private struct RememberedDisplayRow: View {
     private var cleanupHelp: String {
         switch (entry.cleanupMode, entry.forgetRefusal) {
         case (.reset, _):
-            return String(localized: "Clear what OpenDisplay saved for this display; it stays connected and recognized")
+            return String(localized: "Clear what FreeDisplay saved for this display; it stays connected and recognized")
         case (.forget, .turnedOffByApp?):
-            return String(localized: "OpenDisplay switched this display off and still owes it a way back. Reconnect it first; if it doesn’t come back, it can be forgotten.")
+            return String(localized: "FreeDisplay switched this display off and still owes it a way back. Reconnect it first; if it doesn’t come back, it can be forgotten.")
         case (.forget, .builtInTurnedOff?):
-            return String(localized: "The built-in display can’t be forgotten while OpenDisplay has it switched off: this record is how it is turned back on.")
+            return String(localized: "The built-in display can’t be forgotten while FreeDisplay has it switched off: this record is how it is turned back on.")
         default:
-            return String(localized: "Remove OpenDisplay’s record of this display")
+            return String(localized: "Remove FreeDisplay’s record of this display")
         }
     }
 
@@ -148,13 +148,13 @@ private struct RememberedDisplayRow: View {
         switch entry.status {
         case .connected:
             if entry.offline != nil, model.logicalOffMethod == .mirror {
-                ODBadge(String(localized: "Mirrored by OpenDisplay"), tone: .accent)
+                ODBadge(String(localized: "Mirrored by FreeDisplay"), tone: .accent)
             } else {
                 ODBadge(String(localized: "Connected"), tone: .green)
             }
         case .turnedOff:
-            ODBadge(model.logicalOffMethod == .mirror ? String(localized: "Mirrored by OpenDisplay")
-                                                      : String(localized: "Turned off by OpenDisplay"), tone: .accent)
+            ODBadge(model.logicalOffMethod == .mirror ? String(localized: "Mirrored by FreeDisplay")
+                                                      : String(localized: "Turned off by FreeDisplay"), tone: .accent)
         case .reconnectFailed: ODBadge(String(localized: "Didn’t reconnect"), tone: .orange)
         case .notConnected: ODBadge(String(localized: "Not connected"))
         }
@@ -229,7 +229,7 @@ private struct RememberedDisplayCleanupSheet: View {
         // The display came (or went) while the sheet was open: what was asked for no longer applies.
         let changed = frozen == nil && entry.cleanupMode != request.mode
         Text(request.mode == .forget ? String(localized: "Forget “\(name)”?")
-                                     : String(localized: "Reset OpenDisplay’s settings for “\(name)”?"))
+                                     : String(localized: "Reset FreeDisplay’s settings for “\(name)”?"))
             .font(.headline)
         if changed {
             ODInlineBanner(tone: .orange, systemImage: "exclamationmark.triangle",
@@ -240,9 +240,9 @@ private struct RememberedDisplayCleanupSheet: View {
         if request.mode == .forget, plan.removesTurnedOffRecord {
             ODInlineBanner(tone: .red, systemImage: "exclamationmark.octagon",
                            title: model.logicalOffMethod == .mirror
-                               ? String(localized: "OpenDisplay mirrored this display and this record is how it undoes that")
-                               : String(localized: "OpenDisplay turned this display off and this record is how it turns it back on"),
-                           message: String(localized: "Its last reconnect found no display. After forgetting, its card leaves the menu, and neither Reconnect All nor quitting OpenDisplay will bring it back. If it is in fact still attached and switched off, it may stay dark until you unplug it and plug it in again, or restart the Mac. If the monitor is no longer connected, forgetting only removes the card."))
+                               ? String(localized: "FreeDisplay mirrored this display and this record is how it undoes that")
+                               : String(localized: "FreeDisplay turned this display off and this record is how it turns it back on"),
+                           message: String(localized: "Its last reconnect found no display. After forgetting, its card leaves the menu, and neither Reconnect All nor quitting FreeDisplay will bring it back. If it is in fact still attached and switched off, it may stay dark until you unplug it and plug it in again, or restart the Mac. If the monitor is no longer connected, forgetting only removes the card."))
         }
         VStack(alignment: .leading, spacing: 4) {
             Text("Removes").font(.subheadline.weight(.semibold))
@@ -282,10 +282,10 @@ private struct RememberedDisplayCleanupSheet: View {
         var items: [String] = []
         if plan.mode == .forget {
             items.append(plan.registryRecordID == nil
-                         ? String(localized: "What OpenDisplay saved under this display’s id")
-                         : String(localized: "Its record: how OpenDisplay recognizes this display, and the name it shows"))
+                         ? String(localized: "What FreeDisplay saved under this display’s id")
+                         : String(localized: "Its record: how FreeDisplay recognizes this display, and the name it shows"))
         } else if plan.alias != nil || plan.tagCount > 0 {
-            items.append(plan.alias.map { alias in String(localized: "Its name in OpenDisplay (“\(alias)”) and tags") }
+            items.append(plan.alias.map { alias in String(localized: "Its name in FreeDisplay (“\(alias)”) and tags") }
                          ?? String(localized: "Its tags"))
         }
         if plan.mode == .forget, let alias = plan.alias {
@@ -315,9 +315,9 @@ private struct RememberedDisplayCleanupSheet: View {
     private func kept(_ plan: RememberedDisplayCleanup.Plan) -> [String] {
         var items: [String] = []
         if plan.mode == .reset {
-            items.append(String(localized: "The display stays connected and OpenDisplay keeps recognizing it"))
+            items.append(String(localized: "The display stays connected and FreeDisplay keeps recognizing it"))
             if model.managedOffline.contains(where: { plan.observationIDs.contains($0.recordID) }) {
-                items.append(String(localized: "The record that OpenDisplay switched it off"))
+                items.append(String(localized: "The record that FreeDisplay switched it off"))
             }
         }
         for restore in plan.keptRestores {
@@ -347,13 +347,13 @@ private struct RememberedDisplayCleanupSheet: View {
         switch result {
         case .done:
             return .init(text: request.mode == .forget ? String(localized: "“\(name)” was forgotten.")
-                                                       : String(localized: "OpenDisplay’s settings for “\(name)” were reset."),
+                                                       : String(localized: "FreeDisplay’s settings for “\(name)” were reset."),
                          isProblem: false)
         case .stateChanged:
             return .init(text: String(localized: "Nothing was changed: “\(name)” was connected or disconnected meanwhile."),
                          isProblem: true)
         case .refused:
-            return .init(text: String(localized: "Nothing was changed: OpenDisplay still has “\(name)” switched off. Reconnect it first."),
+            return .init(text: String(localized: "Nothing was changed: FreeDisplay still has “\(name)” switched off. Reconnect it first."),
                          isProblem: true)
         case .notFound:
             return .init(text: String(localized: "Nothing was changed: “\(name)” is no longer remembered."), isProblem: true)
