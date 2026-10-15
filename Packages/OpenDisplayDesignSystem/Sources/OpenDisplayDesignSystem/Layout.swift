@@ -154,7 +154,9 @@ public struct ODRow<Leading: View, Trailing: View>: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(label).font(.system(size: 13)).foregroundStyle(.primary).lineLimit(1)
                 if let secondary {
-                    Text(secondary).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    // Two lines: Russian captions run longer than English ones and were cut off.
+                    Text(secondary).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 6)
