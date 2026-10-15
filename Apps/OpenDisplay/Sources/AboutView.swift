@@ -147,8 +147,9 @@ struct UpdateCheckStatusView: View {
                       systemImage: refusal == .localBuild ? "hammer" : "nosign")
                     .font(.caption).foregroundStyle(.secondary)
                     .help(SoftwareUpdater.refusalExplanation(refusal))
-            } else {
-                statusControl(model.updateStatus.presentation)
+            }
+            if model.checksGitHubReleases || model.updateDistributionRefusal == nil {
+                statusControl(model.updatePresentation)
             }
         }
         // AM-20/SO-14: a result that went stale clears when the surface is shown again.

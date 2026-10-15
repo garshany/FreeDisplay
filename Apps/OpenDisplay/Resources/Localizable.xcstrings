@@ -7205,22 +7205,22 @@
         }
       }
     },
-    "Every display moves by the same amount, keeping existing differences until one reaches its limit." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Каждый экран меняется на ту же величину, сохраняя существующую разницу, пока один из них не упрётся в предел."
-          }
-        }
-      }
-    },
     "Every display FreeDisplay has a record of, including ones that aren’t connected now. A record holds the display’s name in FreeDisplay, favourite modes, menu settings, group memberships and protected layouts." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Все экраны, о которых у FreeDisplay есть запись, включая неподключённые сейчас. В записи хранятся название экрана в FreeDisplay, избранные режимы, настройки меню, участие в группах и защищённые расположения."
+          }
+        }
+      }
+    },
+    "Every display moves by the same amount, keeping existing differences until one reaches its limit." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Каждый экран меняется на ту же величину, сохраняя существующую разницу, пока один из них не упрётся в предел."
           }
         }
       }
@@ -8243,6 +8243,16 @@
         }
       }
     },
+    "FreeDisplay" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay"
+          }
+        }
+      }
+    },
     "FreeDisplay actions are disabled until configured. Editing never runs an action. Shift safe startup suppresses actions, hooks and polling." : {
       "localizations" : {
         "ru" : {
@@ -8264,12 +8274,52 @@
         }
       }
     },
+    "FreeDisplay asked macOS to reconnect it and the display didn’t appear. It is still listed in the menu, with recovery steps." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay попросил macOS подключить его, но экран так и не появился. Он по-прежнему есть в меню вместе с шагами восстановления."
+          }
+        }
+      }
+    },
+    "FreeDisplay asked macOS to stop mirroring it and it didn’t return to the desktop. It is still listed in the menu, with recovery steps." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay попросил macOS выключить на нём повтор, но экран не вернулся на рабочий стол. Он по-прежнему есть в меню вместе с шагами восстановления."
+          }
+        }
+      }
+    },
     "FreeDisplay assertion ID: %u. This is not a process ID." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "ID запрета сна FreeDisplay: %u. Это не идентификатор процесса."
+          }
+        }
+      }
+    },
+    "FreeDisplay can list and apply only the modes macOS offers right now. A missing size or refresh rate usually means the display, the cable or adapter, or the GPU doesn’t offer that combination — filters and “Include modes not meant for desktop use” can’t add it. A HiDPI size needs a framebuffer twice its logical size, which isn’t offered for every size. Adding new modes needs a display override, which FreeDisplay doesn’t install." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay может показать и применить только режимы, которые macOS предлагает прямо сейчас. Если нет нужного размера или частоты, обычно такое сочетание не поддерживает дисплей, кабель или адаптер либо видеокарта — фильтры и «Показывать режимы не для рабочего стола» его не добавят. Размеру HiDPI нужен буфер изображения вдвое больше логического размера, а он доступен не для каждого размера. Для новых режимов нужна замена настроек дисплея, которую FreeDisplay не устанавливает."
+          }
+        }
+      }
+    },
+    "FreeDisplay can’t read or set the brightness of “%@”." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay не может прочитать или установить яркость дисплея «%@»."
           }
         }
       }
@@ -8364,6 +8414,26 @@
         }
       }
     },
+    "FreeDisplay doesn't send DDC commands to Apple displays: some older models can be left with a screen that stays black. You can allow it for this display in Settings → Displays." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay не отправляет команды DDC мониторам Apple: у некоторых старых моделей после этого экран может остаться чёрным. Разрешить DDC для этого монитора можно в «Настройки → Мониторы»."
+          }
+        }
+      }
+    },
+    "FreeDisplay doesn’t change displays from links, so nothing was changed. To disconnect a display, use its switch in the FreeDisplay menu." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay не меняет экраны по ссылкам, поэтому ничего не изменилось. Чтобы отключить экран, воспользуйтесь его переключателем в меню FreeDisplay."
+          }
+        }
+      }
+    },
     "FreeDisplay doesn’t measure light. These are values you entered or the display’s EDID states; nits (cd/m²) shown for a brightness position are calculated from them, assuming light changes linearly between the SDR minimum and maximum." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8371,6 +8441,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "FreeDisplay не измеряет свет. Это значения, которые ввели вы или которые заявлены в EDID дисплея; ниты (кд/м²) для положения яркости рассчитываются по ним в предположении, что свет меняется линейно между минимумом и максимумом SDR."
+          }
+        }
+      }
+    },
+    "FreeDisplay doesn’t remember any displays yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay пока не запомнил ни одного экрана."
+          }
+        }
+      }
+    },
+    "FreeDisplay draws every style itself; none of them is the macOS system HUD." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Все стили FreeDisplay рисует сам; ни один из них не является системным индикатором macOS."
           }
         }
       }
@@ -8459,6 +8549,16 @@
         }
       }
     },
+    "FreeDisplay isn’t ready to run this action. Open FreeDisplay and try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay пока не может выполнить это действие. Откройте FreeDisplay и попробуйте ещё раз."
+          }
+        }
+      }
+    },
     "FreeDisplay isn’t ready. Open FreeDisplay and try again." : {
       "localizations" : {
         "ru" : {
@@ -8489,6 +8589,16 @@
         }
       }
     },
+    "FreeDisplay mirrored this display and this record is how it undoes that" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay включил повтор на этом экране, и по этой записи он его отменяет"
+          }
+        }
+      }
+    },
     "FreeDisplay needs Accessibility permission to capture the keys. Until then they work as usual." : {
       "localizations" : {
         "ru" : {
@@ -8499,12 +8609,62 @@
         }
       }
     },
+    "FreeDisplay Notices" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уведомления FreeDisplay"
+          }
+        }
+      }
+    },
+    "FreeDisplay quits — putting back what it changed, as on every quit — and opens again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay завершится — вернув то, что изменил, как при любом завершении, — и откроется снова."
+          }
+        }
+      }
+    },
     "FreeDisplay releases" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Релизы FreeDisplay"
+          }
+        }
+      }
+    },
+    "FreeDisplay sends no DDC commands to this monitor: another connected monitor reports the same identity (usually the same model without a serial number), so it can't tell which connection belongs to which." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay не отправляет этому монитору команды DDC: другой подключённый монитор сообщает те же идентификационные данные (обычно та же модель без серийного номера), и нельзя определить, какое подключение кому принадлежит."
+          }
+        }
+      }
+    },
+    "FreeDisplay sends no DDC commands to this monitor: macOS doesn't report which connection belongs to it, and with several displays attached a guess could control the wrong one." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay не отправляет этому монитору команды DDC: macOS не сообщает, какое подключение ему принадлежит, а при нескольких подключённых экранах догадка может управлять не тем монитором."
+          }
+        }
+      }
+    },
+    "FreeDisplay sends no DDC commands to this monitor: the only DDC connection macOS reports identifies a different monitor (another vendor, model or serial number), so commands could reach the wrong one." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay не отправляет этому монитору команды DDC: единственное DDC-подключение, о котором сообщает macOS, указывает на другой монитор (другой производитель, модель или серийный номер), и команды могут попасть не тому монитору."
           }
         }
       }
@@ -8539,6 +8699,26 @@
         }
       }
     },
+    "FreeDisplay switched this display off and still owes it a way back. Reconnect it first; if it doesn’t come back, it can be forgotten." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay выключил этот экран и должен уметь вернуть его. Сначала подключите его; если он не вернётся, его можно будет забыть."
+          }
+        }
+      }
+    },
+    "FreeDisplay turned this display off and this record is how it turns it back on" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay выключил этот экран, и по этой записи он включает его обратно"
+          }
+        }
+      }
+    },
     "FreeDisplay uses a separately paired network controller. Video connection, pairing and a sent request do not prove that a TV changed power, volume or input. Automatic power handling is off." : {
       "localizations" : {
         "ru" : {
@@ -8569,6 +8749,36 @@
         }
       }
     },
+    "FreeDisplay window" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Окно FreeDisplay"
+          }
+        }
+      }
+    },
+    "FreeDisplay Workspace" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рабочий экран FreeDisplay"
+          }
+        }
+      }
+    },
+    "FreeDisplay — Capture Preview" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay — предпросмотр захвата"
+          }
+        }
+      }
+    },
     "FreeDisplay → Arrange for it to be restored automatically" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8580,6 +8790,27 @@
         }
       }
     },
+    "FreeDisplay's own records: the display event timeline, the audit log, the list of displays it turned off, its display registry, and its settings (location and app presets removed)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Собственные записи FreeDisplay: хронология событий мониторов, журнал действий, список отключённых им мониторов, реестр мониторов и настройки (без местоположения и профилей приложений)"
+          }
+        }
+      }
+    },
+    "FreeDisplay’s actions are in the Shortcuts app: get or set a display’s brightness, switch a display to one of its modes, make a display the main display, and reconnect all displays. They act on connected displays while FreeDisplay is running, and say when a display isn’t available. Keyboard shortcuts for FreeDisplay’s own actions are in Settings → Keyboard." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Действия FreeDisplay есть в приложении «Команды»: узнать или установить яркость дисплея, переключить дисплей в один из его режимов, сделать дисплей основным и подключить все дисплеи. Они работают с подключёнными дисплеями, пока запущен FreeDisplay, и сообщают, если дисплей недоступен. Сочетания клавиш для действий самого FreeDisplay — в разделе «Настройки» → «Клавиатура»."
+          }
+        }
+      }
+    },
     "FreeDisplay’s actions are in the Shortcuts app: read or set display brightness, modes and color profiles, make a display the main display, and reconnect all displays. They act on connected displays while FreeDisplay is running, and say when a display isn’t available. Keyboard shortcuts for FreeDisplay’s own actions are in Settings → Keyboard." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8587,6 +8818,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Действия FreeDisplay доступны в приложении «Команды»: чтение и изменение яркости, режимов и цветовых профилей дисплеев, назначение основного дисплея и переподключение всех дисплеев. Они работают с подключёнными дисплеями, пока FreeDisplay запущен, и сообщают о недоступности дисплея. Сочетания клавиш для собственных действий FreeDisplay находятся в разделе «Настройки → Клавиатура»."
+          }
+        }
+      }
+    },
+    "FreeDisplay’s settings for “%@” were reset." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройки FreeDisplay для «%@» сброшены."
           }
         }
       }
@@ -9658,22 +9899,22 @@
         }
       }
     },
-    "if the monitor ignores DDC" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "если монитор игнорирует DDC"
-          }
-        }
-      }
-    },
     "If the FreeDisplay icon isn’t in the menu bar, macOS may be hiding it — behind the camera notch when the menu bar is full, or because it is switched off in System Settings → Menu Bar. Opening FreeDisplay again from Finder, Spotlight or Launchpad always brings up this window, and the button below opens the menu panel without the icon." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Если значка FreeDisplay нет в строке меню, его может скрывать macOS — за вырезом камеры, когда строка меню заполнена, или потому что он выключен в «Системные настройки → Строка меню». Повторный запуск FreeDisplay из Finder, Spotlight или Launchpad всегда открывает это окно, а кнопка ниже открывает панель меню без значка."
+          }
+        }
+      }
+    },
+    "if the monitor ignores DDC" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "если монитор игнорирует DDC"
           }
         }
       }
@@ -14570,6 +14811,16 @@
         }
       }
     },
+    "Open FreeDisplay Settings" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть настройки FreeDisplay"
+          }
+        }
+      }
+    },
     "Open in ColorSync Utility" : {
       "localizations" : {
         "ru" : {
@@ -14616,16 +14867,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Открыть настройки уведомлений…"
-          }
-        }
-      }
-    },
-    "Open FreeDisplay Settings" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Открыть настройки FreeDisplay"
           }
         }
       }
@@ -14680,253 +14921,12 @@
         }
       }
     },
-    "FreeDisplay" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay"
-          }
-        }
-      }
-    },
-    "FreeDisplay asked macOS to reconnect it and the display didn’t appear. It is still listed in the menu, with recovery steps." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay попросил macOS подключить его, но экран так и не появился. Он по-прежнему есть в меню вместе с шагами восстановления."
-          }
-        }
-      }
-    },
-    "FreeDisplay asked macOS to stop mirroring it and it didn’t return to the desktop. It is still listed in the menu, with recovery steps." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay попросил macOS выключить на нём повтор, но экран не вернулся на рабочий стол. Он по-прежнему есть в меню вместе с шагами восстановления."
-          }
-        }
-      }
-    },
-    "FreeDisplay can list and apply only the modes macOS offers right now. A missing size or refresh rate usually means the display, the cable or adapter, or the GPU doesn’t offer that combination — filters and “Include modes not meant for desktop use” can’t add it. A HiDPI size needs a framebuffer twice its logical size, which isn’t offered for every size. Adding new modes needs a display override, which FreeDisplay doesn’t install." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay может показать и применить только режимы, которые macOS предлагает прямо сейчас. Если нет нужного размера или частоты, обычно такое сочетание не поддерживает дисплей, кабель или адаптер либо видеокарта — фильтры и «Показывать режимы не для рабочего стола» его не добавят. Размеру HiDPI нужен буфер изображения вдвое больше логического размера, а он доступен не для каждого размера. Для новых режимов нужна замена настроек дисплея, которую FreeDisplay не устанавливает."
-          }
-        }
-      }
-    },
-    "FreeDisplay can’t read or set the brightness of “%@”." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay не может прочитать или установить яркость дисплея «%@»."
-          }
-        }
-      }
-    },
-    "FreeDisplay doesn't send DDC commands to Apple displays: some older models can be left with a screen that stays black. You can allow it for this display in Settings → Displays." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay не отправляет команды DDC мониторам Apple: у некоторых старых моделей после этого экран может остаться чёрным. Разрешить DDC для этого монитора можно в «Настройки → Мониторы»."
-          }
-        }
-      }
-    },
-    "FreeDisplay doesn’t change displays from links, so nothing was changed. To disconnect a display, use its switch in the FreeDisplay menu." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay не меняет экраны по ссылкам, поэтому ничего не изменилось. Чтобы отключить экран, воспользуйтесь его переключателем в меню FreeDisplay."
-          }
-        }
-      }
-    },
-    "FreeDisplay doesn’t remember any displays yet." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay пока не запомнил ни одного экрана."
-          }
-        }
-      }
-    },
-    "FreeDisplay draws every style itself; none of them is the macOS system HUD." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Все стили FreeDisplay рисует сам; ни один из них не является системным индикатором macOS."
-          }
-        }
-      }
-    },
-    "FreeDisplay isn’t ready to run this action. Open FreeDisplay and try again." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay пока не может выполнить это действие. Откройте FreeDisplay и попробуйте ещё раз."
-          }
-        }
-      }
-    },
-    "FreeDisplay mirrored this display and this record is how it undoes that" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay включил повтор на этом экране, и по этой записи он его отменяет"
-          }
-        }
-      }
-    },
-    "FreeDisplay Notices" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Уведомления FreeDisplay"
-          }
-        }
-      }
-    },
-    "FreeDisplay quits — putting back what it changed, as on every quit — and opens again." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay завершится — вернув то, что изменил, как при любом завершении, — и откроется снова."
-          }
-        }
-      }
-    },
-    "FreeDisplay sends no DDC commands to this monitor: another connected monitor reports the same identity (usually the same model without a serial number), so it can't tell which connection belongs to which." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay не отправляет этому монитору команды DDC: другой подключённый монитор сообщает те же идентификационные данные (обычно та же модель без серийного номера), и нельзя определить, какое подключение кому принадлежит."
-          }
-        }
-      }
-    },
-    "FreeDisplay sends no DDC commands to this monitor: macOS doesn't report which connection belongs to it, and with several displays attached a guess could control the wrong one." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay не отправляет этому монитору команды DDC: macOS не сообщает, какое подключение ему принадлежит, а при нескольких подключённых экранах догадка может управлять не тем монитором."
-          }
-        }
-      }
-    },
-    "FreeDisplay sends no DDC commands to this monitor: the only DDC connection macOS reports identifies a different monitor (another vendor, model or serial number), so commands could reach the wrong one." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay не отправляет этому монитору команды DDC: единственное DDC-подключение, о котором сообщает macOS, указывает на другой монитор (другой производитель, модель или серийный номер), и команды могут попасть не тому монитору."
-          }
-        }
-      }
-    },
     "OpenDisplay Settings %@.json" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Настройки OpenDisplay %@.json"
-          }
-        }
-      }
-    },
-    "FreeDisplay switched this display off and still owes it a way back. Reconnect it first; if it doesn’t come back, it can be forgotten." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay выключил этот экран и должен уметь вернуть его. Сначала подключите его; если он не вернётся, его можно будет забыть."
-          }
-        }
-      }
-    },
-    "FreeDisplay turned this display off and this record is how it turns it back on" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay выключил этот экран, и по этой записи он включает его обратно"
-          }
-        }
-      }
-    },
-    "FreeDisplay window" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Окно FreeDisplay"
-          }
-        }
-      }
-    },
-    "FreeDisplay Workspace" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Рабочий экран FreeDisplay"
-          }
-        }
-      }
-    },
-    "FreeDisplay — Capture Preview" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FreeDisplay — предпросмотр захвата"
-          }
-        }
-      }
-    },
-    "FreeDisplay's own records: the display event timeline, the audit log, the list of displays it turned off, its display registry, and its settings (location and app presets removed)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Собственные записи FreeDisplay: хронология событий мониторов, журнал действий, список отключённых им мониторов, реестр мониторов и настройки (без местоположения и профилей приложений)"
-          }
-        }
-      }
-    },
-    "FreeDisplay’s actions are in the Shortcuts app: get or set a display’s brightness, switch a display to one of its modes, make a display the main display, and reconnect all displays. They act on connected displays while FreeDisplay is running, and say when a display isn’t available. Keyboard shortcuts for FreeDisplay’s own actions are in Settings → Keyboard." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Действия FreeDisplay есть в приложении «Команды»: узнать или установить яркость дисплея, переключить дисплей в один из его режимов, сделать дисплей основным и подключить все дисплеи. Они работают с подключёнными дисплеями, пока запущен FreeDisplay, и сообщают, если дисплей недоступен. Сочетания клавиш для действий самого FreeDisplay — в разделе «Настройки» → «Клавиатура»."
-          }
-        }
-      }
-    },
-    "FreeDisplay’s settings for “%@” were reset." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Настройки FreeDisplay для «%@» сброшены."
           }
         }
       }
@@ -16866,16 +16866,6 @@
         }
       }
     },
-    "Relaunch Normally" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Перезапустить в обычном режиме"
-          }
-        }
-      }
-    },
     "Relaunch FreeDisplay?" : {
       "localizations" : {
         "ru" : {
@@ -16892,6 +16882,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Перезапустить FreeDisplay…"
+          }
+        }
+      }
+    },
+    "Relaunch Normally" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапустить в обычном режиме"
           }
         }
       }
@@ -17036,6 +17036,16 @@
         }
       }
     },
+    "Remove FreeDisplay’s record of this display" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить запись FreeDisplay об этом экране"
+          }
+        }
+      }
+    },
     "Remove from desktop (mirror)" : {
       "localizations" : {
         "ru" : {
@@ -17062,16 +17072,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Удалить сочетание клавиш"
-          }
-        }
-      }
-    },
-    "Remove FreeDisplay’s record of this display" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Удалить запись FreeDisplay об этом экране"
           }
         }
       }
@@ -17511,6 +17511,16 @@
         }
       }
     },
+    "Reset FreeDisplay’s settings for “%@”?" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбросить настройки FreeDisplay для «%@»?"
+          }
+        }
+      }
+    },
     "Reset image adjustments" : {
       "localizations" : {
         "ru" : {
@@ -17547,16 +17557,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сбросить монитор"
-          }
-        }
-      }
-    },
-    "Reset FreeDisplay’s settings for “%@”?" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сбросить настройки FreeDisplay для «%@»?"
           }
         }
       }
@@ -21611,22 +21611,22 @@
         }
       }
     },
-    "The record that it is switched off, and its card in the menu" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Запись о том, что он выключен, и его карточка в меню"
-          }
-        }
-      }
-    },
     "The record that FreeDisplay switched it off" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Запись о том, что FreeDisplay его выключил"
+          }
+        }
+      }
+    },
+    "The record that it is switched off, and its card in the menu" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запись о том, что он выключен, и его карточка в меню"
           }
         }
       }
@@ -22347,6 +22347,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Файл создан более новой версией FreeDisplay (формат %lld). Обновите FreeDisplay, чтобы импортировать его. Ничего не изменено."
+          }
+        }
+      }
+    },
+    "This is a local build. You can check GitHub for a newer release and download it in your browser. Replace the app manually to update." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это локальная сборка. Можно проверить новые релизы на GitHub и скачать их в браузере. Для обновления замените приложение вручную."
           }
         }
       }
@@ -24686,6 +24696,16 @@
         }
       }
     },
+    "What FreeDisplay saved under this display’s id" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "То, что FreeDisplay сохранил под идентификатором этого экрана"
+          }
+        }
+      }
+    },
     "What macOS reports about the displays, the graphics link, and Thunderbolt devices (hardware identifiers follow the export redaction options)" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -24704,16 +24724,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сведения macOS о мониторах, видеосоединении и устройствах Thunderbolt (модели и серийные номера мониторов и док-станций)"
-          }
-        }
-      }
-    },
-    "What FreeDisplay saved under this display’s id" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "То, что FreeDisplay сохранил под идентификатором этого экрана"
           }
         }
       }

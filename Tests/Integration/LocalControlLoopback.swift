@@ -71,7 +71,7 @@ struct LocalControlLoopback {
         let gateway = CommandGateway(observer: system, lifecycleProvider: system, checkpoints: InMemoryCheckpointStore())
         let server = LocalControlServer()
         let probe = Probe()
-        let handler: LocalControlServer.Handler = { command in
+        let payloadHandler: @MainActor @Sendable (LocalHTTPControl.ParseResult) async -> Data = { command in
             probe.calls += 1
             if probe.slow {
                 probe.entered = true
@@ -90,11 +90,22 @@ struct LocalControlLoopback {
             default: return Data("{}".utf8)
             }
         }
+        let handler: LocalControlServer.Handler = { command in
+            // Typed validation now reaches the app handler so it can render a structured issue.
+            if case .invalid(let issue) = command {
+                return AutomationHTTPResponse(status: AutomationHTTPStatus.code(for: issue), body: Data())
+            }
+            return AutomationHTTPResponse(status: 200, body: await payloadHandler(command))
+        }
+        // Credentials/configuration now belong to the app; supply synthetic values explicitly.
+        let configuration = IntegrationHTTPConfiguration(enabled: true)
+        let firstToken = String(repeating: "1", count: 64)
+        let rotatedToken = String(repeating: "2", count: 64)
         try require(server.port == nil && server.token == nil, "Construction must stay stopped")
-        try server.start(handler: handler)
+        try server.start(token: firstToken, configuration: configuration, onReady: { _ in }, handler: handler)
         let (port, token) = try await ready(server)
         try require(token.count == 64, "Session token size")
-        try server.start(handler: handler)
+        try server.start(token: firstToken, configuration: configuration, onReady: { _ in }, handler: handler)
         try require(server.token == token, "Duplicate start must preserve session")
         let unauthorized = await exchange(port: port, bytes: request(token: "invalid"))
         try require(status(unauthorized) == 401 && probe.calls == 0, "Wrong token must never dispatch")
@@ -130,15 +141,15 @@ struct LocalControlLoopback {
         try require(cancelledResponse.isEmpty && probe.cancelled, "Stop cancels in-flight cooperative handler")
         try require(server.port == nil && server.token == nil, "Stop clears credentials")
         probe.slow = false
-        try server.start(handler: handler)
+        try server.start(token: rotatedToken, configuration: configuration, onReady: { _ in }, handler: handler)
         let (newPort, newToken) = try await ready(server)
-        try require(newToken != token, "Restart rotates token")
+        try require(newToken != token, "Restart uses the credential supplied by the owner")
         let oldAuth = await exchange(port: newPort, bytes: request(token: token))
         try require(status(oldAuth) == 401, "Previous token rejected after restart")
         let restarted = await exchange(port: newPort, bytes: request("GET", "/v1/displays", token: newToken, body: ""))
         try require(status(restarted) == 200, "Restart serves authenticated list")
         server.stop(); server.stop()
-        try server.start(handler: handler)
+        try server.start(token: rotatedToken, configuration: configuration, onReady: { _ in }, handler: handler)
         server.stop()
         try await Task.sleep(for: .milliseconds(100))
         try require(server.port == nil && server.token == nil, "Stop before readiness cannot revive listener")

@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Existing version tag, for example v1.0.0 (must match MARKETING_VERSION)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# A manual dispatch and a tag push must never publish different assets to the same release together.
+concurrency:
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    env:
+      RELEASE_TAG: ${{ inputs.version || github.ref_name }}
+    steps:
+      - name: Validate tag syntax before checkout
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - name: Verify existing tag and marketing version
+        run: |
+          set -euo pipefail
+          test "$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")" = "$(git rev-parse HEAD)"
+          version=$(sed -nE 's/^    MARKETING_VERSION: "([^"]+)"$/\1/p' project.yml)
+          test "$RELEASE_TAG" = "v$version"
+      - name: Select newest installed Xcode 26 or newer
+        id: xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcode_path=$(ls -d /Applications/Xcode_*.app 2>/dev/null | python3 -c '
+          import re
+          import sys
+
+          candidates = []
+          for path in sys.stdin.read().splitlines():
+              match = re.search(r"/Xcode_(\d+(?:\.\d+)*).*\.app$", path)
+              if match and int(match[1].split(".")[0]) >= 26:
+                  version = tuple(map(int, match[1].split(".")))
+                  candidates.append((version + (0,) * (3 - len(version)), path))
+          if not candidates:
+              sys.exit("::error::No Xcode 26 or newer found in /Applications/Xcode_*.app")
+          print(sorted(candidates)[-1][1])
+          ')
+          sudo xcode-select -s "$xcode_path/Contents/Developer"
+          export DEVELOPER_DIR="$xcode_path/Contents/Developer"
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+          xcodebuild -version
+          swift --version
+          python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+
+          required = re.search(r"^// swift-tools-version:\s*(\d+(?:\.\d+){1,2})", Path("Package.swift").read_text())
+          swift = subprocess.check_output(["swift", "--version"], text=True)
+          installed = re.search(r"Swift version (\d+(?:\.\d+){1,2})", swift)
+          if not required or not installed:
+              sys.exit("::error::Cannot determine Package.swift swift-tools-version or installed Swift version")
+          def version(value):
+              parts = tuple(map(int, value.split(".")))
+              return parts + (0,) * (3 - len(parts))
+          if version(installed[1]) < version(required[1]):
+              sys.exit(f"::error::Selected Xcode provides Swift {installed[1]}, but Package.swift requires Swift {required[1]} or newer")
+          xcode = subprocess.check_output(["xcodebuild", "-version"], text=True)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("cache-version=" + "-".join(xcode.split()) + "\n")
+          PYTHON
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .spm
+            .dd/release/SourcePackages
+          key: ${{ runner.os }}-${{ runner.arch }}-release-xcode-${{ steps.xcode.outputs.cache-version }}-spm-${{ hashFiles('Package.swift', 'project.yml') }}
+      - name: Test release source
+        run: |
+          swift build --scratch-path ./.spm
+          swift test --scratch-path ./.spm
+          python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+      - name: Build, ad-hoc sign, package and checksum
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          brew install xcodegen
+          scripts/release-adhoc.sh ./.dd/release ./.dd/artifacts
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "FreeDisplay $RELEASE_TAG" --generate-notes \
+            ./.dd/artifacts/FreeDisplay.zip ./.dd/artifacts/FreeDisplay.zip.sha256 \
+            ./.dd/artifacts/opendisplay.zip ./.dd/artifacts/opendisplay.zip.sha256

@@ -171,13 +171,16 @@ struct ApplicationUpdatePreferences: View {
         if let refusal = model.updateDistributionRefusal {
             Text(SoftwareUpdater.refusalExplanation(refusal))
             Link("FreeDisplay releases", destination: ProjectIdentity.link(.releases).url)
-        } else {
+        }
+        if model.checksGitHubReleases || model.updateDistributionRefusal == nil {
             Toggle("Check for updates automatically", isOn: Binding(
                 get: { model.settings.updateCheckEnabled }, set: { model.setUpdateCheckEnabled($0) }))
-            Toggle("Download and install updates automatically", isOn: Binding(
-                get: { model.settings.automaticUpdateDownloadEnabled },
-                set: { model.setAutomaticUpdateDownloadEnabled($0) }))
-                .disabled(!model.settings.updateCheckEnabled)
+            if !model.checksGitHubReleases {
+                Toggle("Download and install updates automatically", isOn: Binding(
+                    get: { model.settings.automaticUpdateDownloadEnabled },
+                    set: { model.setAutomaticUpdateDownloadEnabled($0) }))
+                    .disabled(!model.settings.updateCheckEnabled)
+            }
             Button("Check Now in About…") {
                 NotificationCenter.default.post(name: Notification.Name("OpenDisplayShowSection"), object: "about")
                 model.checkForUpdates()

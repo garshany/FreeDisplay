@@ -4,12 +4,15 @@
 # built inside the app's own Xcode build (its module outputs conflict with the app's), so we build it
 # as a separate invocation and copy the product into the bundle.
 #
-# Usage: scripts/bundle-helper.sh [Debug|Release] [derived-data-path]
+# Usage: scripts/bundle-helper.sh [Debug|Release] [derived-data-path] [xcodebuild overrides…]
 set -euo pipefail
 CONFIG="${1:-Debug}"
 cd "$(dirname "$0")/.."
 DD="${2:-${DERIVED_DATA_PATH:-$PWD/.build/release-dd}}"
 case "$DD" in /*) ;; *) DD="$PWD/$DD" ;; esac
+# Forward explicit build overrides to BOTH products (CI build number and unsigned staging).
+if [ "$#" -gt 0 ]; then shift; fi
+if [ "$#" -gt 0 ]; then shift; fi
 SPEC="${PROJECT_SPEC:-project.yml}"
 UPDATE_SETTINGS=()
 if [ -n "${FREEDISPLAY_UPDATE_FEED_URL:-}" ]; then
@@ -25,9 +28,9 @@ fi
 xcodegen generate --spec "$SPEC" >/dev/null
 
 echo "Building FreeDisplay.app ($CONFIG)…"
-xcodebuild -project OpenDisplay.xcodeproj -scheme OpenDisplay -configuration "$CONFIG" -destination 'platform=macOS' -derivedDataPath "$DD" ${UPDATE_SETTINGS[@]+"${UPDATE_SETTINGS[@]}"} build >/dev/null
+xcodebuild -project OpenDisplay.xcodeproj -scheme OpenDisplay -configuration "$CONFIG" -destination 'platform=macOS' -derivedDataPath "$DD" ${UPDATE_SETTINGS[@]+"${UPDATE_SETTINGS[@]}"} "$@" build >/dev/null
 echo "Building opendisplay CLI ($CONFIG)…"
-xcodebuild -project OpenDisplay.xcodeproj -scheme opendisplay -configuration "$CONFIG" -destination 'platform=macOS' -derivedDataPath "$DD" ${UPDATE_SETTINGS[@]+"${UPDATE_SETTINGS[@]}"} build >/dev/null
+xcodebuild -project OpenDisplay.xcodeproj -scheme opendisplay -configuration "$CONFIG" -destination 'platform=macOS' -derivedDataPath "$DD" ${UPDATE_SETTINGS[@]+"${UPDATE_SETTINGS[@]}"} "$@" build >/dev/null
 
 PRODUCTS="$DD/Build/Products/$CONFIG"
 APP="$PRODUCTS/FreeDisplay.app"

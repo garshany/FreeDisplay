@@ -1,3 +1,8 @@
+> **Current owner decision (2026-10-15):** Sparkle stays disabled (empty public key). Public releases
+> use ad-hoc signatures and GitHub metadata notifications with browser downloads, without secrets or
+> notarization. See [Docs/Releasing.md](../Docs/Releasing.md). Everything below describes retained,
+> optional Developer ID/Sparkle preparation and is not the current release procedure.
+
 # FreeDisplay signed updates — preparation and owner release gates
 
 FreeDisplay is a GPL-3.0 fork of aquitaine/OpenDisplay. The owned repository and release origin is
@@ -10,7 +15,7 @@ validated public release is asserted by this document. All credential examples b
 `SoftwareUpdater` refuses to start Sparkle in that state, even if a feed and public key are supplied.
 Missing/invalid feed/key and known upstream feed/key values also keep it off. A missing local-build
 flag is treated as local (fail closed). Nothing here enables automatic installation or publishes assets.
-Bundle IDs, OpenDisplay.app, `opendisplay`, `opendisplay://` and persisted-settings paths stay compatible.
+Bundle IDs, FreeDisplay.app, `opendisplay`, `opendisplay://` and persisted-settings paths stay compatible.
 
 `project.yml` supplies these build settings (also overridable on `xcodebuild`):
 
@@ -63,8 +68,8 @@ archive only; retaining older releases/deltas requires the owner to supply a his
 The helper and app share an explicit `-derivedDataPath`; `bundle-helper.sh CONFIG PATH` also accepts
 an explicit second argument. Default is project-local `.build/release-dd`, never global newest output.
 The release script signs nested helpers/frameworks/CLI and the app, verifies the expected authority
-and team, notarizes, staples, assesses, then re-zips. It writes `dist/OpenDisplay.zip.sha256` next to
-the **final** `dist/OpenDisplay.zip` and prints its full SHA-256. Stapling changes archive bytes, so
+and team, notarizes, staples, assesses, then re-zips. It writes `dist/FreeDisplay.zip.sha256` next to
+the **final** `dist/FreeDisplay.zip` and prints its full SHA-256. Stapling changes archive bytes, so
 appcast signing follows final packaging. Stale appcast/checksum outputs are cleared before packaging.
 
 `prepare-appcast.sh archive.zip tag output/appcast.xml [notes.md]` is independently usable after the

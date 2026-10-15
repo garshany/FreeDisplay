@@ -4,12 +4,17 @@ import Foundation
 /// is built on and credits, and the license. Both About surfaces, the copied build report and the
 /// docs state the same facts from here.
 ///
-/// The built product is FreeDisplay.app. Internal executable, CLI, URL scheme and storage
-/// identities keep their compatibility names so existing scripts and preferences keep working.
+/// The app bundle is FreeDisplay.app. The CLI and URL scheme retain their compatible names
+/// (`opendisplay`, `opendisplay://`); personal source-build IDs remain recognized alongside releases.
 public enum ProjectIdentity {
     public static let productName = "FreeDisplay"
-    /// The built app bundle name, for presentation in build reports.
     public static let bundleName = "FreeDisplay"
+    /// CLI detection must recognize published apps before deciding whether standalone execution is
+    /// safe. Retain the owner's source-build IDs so local overrides keep the same IPC behavior.
+    public static let applicationBundleIdentifiers = [
+        "io.github.garshany.FreeDisplay", "io.github.garshany.FreeDisplay.publicapionly",
+        "local.personal.OpenDisplay", "local.personal.OpenDisplay.publicapionly",
+    ]
     public static let upstreamName = "OpenDisplay"
     public static let upstreamAuthor = "aquitaine"
     /// The license the fork is distributed under, inherited from upstream.
@@ -72,7 +77,7 @@ public struct BuildReport: Hashable, Sendable {
         /// Built from source (`OpenDisplayLocalBuild`): updated by pulling and rebuilding; the
         /// in-app updater is off.
         case sourceBuild = "source build"
-        /// A published FreeDisplay release, updated through its signed feed.
+        /// A published FreeDisplay release, replaced manually from GitHub Releases.
         case release = "release"
     }
 

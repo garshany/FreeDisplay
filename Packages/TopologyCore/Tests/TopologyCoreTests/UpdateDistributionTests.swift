@@ -74,6 +74,13 @@ final class UpdateDistributionTests: XCTestCase {
 
 /// SO-40 / FA-17: one definition of the fork's identity, links and copied build report.
 final class ProjectIdentityTests: XCTestCase {
+    func testCLIRecognizesPublicAndPersonalAppBundles() {
+        XCTAssertEqual(Set(ProjectIdentity.applicationBundleIdentifiers), [
+            "io.github.garshany.FreeDisplay", "io.github.garshany.FreeDisplay.publicapionly",
+            "local.personal.OpenDisplay", "local.personal.OpenDisplay.publicapionly",
+        ])
+    }
+
     func testLinksPointAtTheForkAndCreditUpstream() {
         let byKind = Dictionary(uniqueKeysWithValues: ProjectIdentity.links.map { ($0.kind, $0.url.absoluteString) })
         XCTAssertEqual(byKind[.source], "https://github.com/garshany/FreeDisplay")

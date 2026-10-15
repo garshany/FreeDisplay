@@ -94,7 +94,7 @@ Do NOT exercise real display mutations in this session.
 ## Attended live verification — 2026-06-24 (user present, MacBook Pro M4 Pro: built-in Liquid
 ##   Retina XDR + Samsung S34J55x "Desk" external over HDMI)
 All five previously-deferred items VERIFIED LIVE on hardware. Test app = Debug build run from
-`~/Applications/OpenDisplay.app` (relocated from `/tmp` because LaunchServices won't honor a URL
+`~/Applications/FreeDisplay.app` (relocated from `/tmp` because LaunchServices won't honor a URL
 handler in a volatile temp dir); settings driven via `settings.json` + relaunch.
 - **Issue 3 — VERIFIED ✅**: toggle on + external present → `pmset -g assertions` shows
   `PreventUserIdleDisplaySleep 1` held by the app, named exactly "OpenDisplay: external display

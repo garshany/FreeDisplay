@@ -1581,7 +1581,7 @@ The full build should be distributed directly as a Developer ID signed and notar
 
 | **Artifact**                 | **Purpose**                                                           | **Release requirement**                                                    |
 |------------------------------|-----------------------------------------------------------------------|----------------------------------------------------------------------------|
-| OpenDisplay.app              | Menu-bar and settings application.                                    | Signed, notarized, hardened/runtime reviewed.                              |
+| FreeDisplay.app              | Menu-bar and settings application.                                    | Ad-hoc signed; no notarization; GitHub Release downloads.                              |
 | OpenDisplay Rescue.app / CLI | Independent reconnect, safe mode, policy disable, checkpoint restore. | Minimal dependencies; signed/notarized; included and separately invocable. |
 | opendisplay CLI              | Automation and diagnostics.                                           | Stable schema; codesigned; optional symlink/install helper.                |
 | Public-API-only build        | Reduced-risk/community distribution flavor.                           | Same source tag; explicit capability differences.                          |

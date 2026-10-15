@@ -44,7 +44,7 @@ final class AppPresencePolicyTests: XCTestCase {
     }
 
     func testSafeStartupIsShiftOrTheLaunchArgument() {
-        XCTAssertFalse(SafeStartup.isRequested(arguments: ["/Applications/OpenDisplay.app"], shiftHeld: false))
+        XCTAssertFalse(SafeStartup.isRequested(arguments: ["/Applications/FreeDisplay.app"], shiftHeld: false))
         XCTAssertTrue(SafeStartup.isRequested(arguments: [], shiftHeld: true))
         XCTAssertTrue(SafeStartup.isRequested(arguments: ["app", "--safe-mode"], shiftHeld: false))
     }

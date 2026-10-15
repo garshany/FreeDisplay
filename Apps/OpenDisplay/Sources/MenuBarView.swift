@@ -96,7 +96,7 @@ private struct TrayNotices: View {
                 ui.openSettings(.health)
             }
         }
-        let update = model.updateStatus.presentation
+        let update = model.updatePresentation
         if let badge = update.badge {
             TrayRow(icon: update.systemImage, iconTint: UpdateCheckStatusView.tint(update.tone), title: update.title.appLocalized, detail: badge,
                     enabled: update.isActionable) {
@@ -1427,7 +1427,7 @@ private struct TrayToolsSection: View {
             if shows(.updates) {
                 // AM-20: one click does what the state offers — check or retry, cancel, or bring the
                 // waiting offer forward — and a stale result clears when the row is shown again.
-                let update = model.updateStatus.presentation
+                let update = model.updatePresentation
                 TrayRow(icon: update.systemImage, iconTint: UpdateCheckStatusView.tint(update.tone), title: update.title.appLocalized, detail: update.badge,
                         enabled: update.isActionable) { model.performUpdateAction(update.action) }
                     .onAppear { model.updateSurfaceAppeared() }

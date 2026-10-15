@@ -3,35 +3,9 @@ import AppKit
 import Sparkle
 import TopologyCore
 
-/// One-click updates, backed by Sparkle 2: check → download → verify (EdDSA signature + Developer ID
-/// code signature) → install → relaunch, all inside Sparkle's own windows. This file is the I/O shell
-/// only — every decision it makes (whether the updater may run at all, how a phase advances, how an
-/// error reads, whether a release may be installed, what the updater may do unattended) lives in
-/// `UpdateDistribution`, `SoftwareUpdatePolicy` and `SoftwareUpdateErrorClassifier`, which `make test`
-/// exercises.
-///
-/// **The updater only runs for a validated FreeDisplay release.** `UpdateDistribution` keeps it off
-/// for a source build (`OpenDisplayLocalBuild`), and for any build without the fork's own feed and
-/// EdDSA key — or with upstream OpenDisplay's — so a fork build can never fetch or install an
-/// upstream release in place of itself.
-///
-/// Sparkle's standard windows are reused through `ObservingUserDriver`, which forwards every call to
-/// `SPUStandardUserDriver` and reports what happened, so the menu rows and About surfaces can show
-/// the whole lifecycle (failures, OS compatibility, download progress, prepared and install-on-quit
-/// updates) and cancel a check or a download from the app's own controls.
-///
-/// Two Sparkle behaviours are deliberately overridden for a menu-bar app:
-///
-///   * **Gentle reminders.** A scheduled check that finds an update must not throw a window in front
-///     of whatever the user is doing. Unless Sparkle itself proposes to show it in immediate focus
-///     (right after launch, or an idle machine), the find is reported only as the menu's "Update
-///     available" badge, and Sparkle's window waits until the user clicks it.
-///   * **Activation.** `LSUIElement` apps aren't brought forward automatically, so any window Sparkle
-///     is about to show is preceded by activating the app — otherwise the update alert can open
-///     behind the frontmost app and look like nothing happened.
-///
-/// Sparkle holds both delegates weakly, so this object must outlive the updater — `AppModel` owns it
-/// for the lifetime of the app.
+/// The owner's release channel checks GitHub metadata and opens the release page in the browser.
+/// Sparkle is instantiated only if a future build supplies a validated key and feed; source builds
+/// always remain metadata-only. The platform-independent policies live in TopologyCore.
 @MainActor
 final class SoftwareUpdater: NSObject {
     /// Called on the main actor whenever the status changes. `AppModel` mirrors it into a published
@@ -51,11 +25,20 @@ final class SoftwareUpdater: NSObject {
         }
     }
 
-    /// Why this build's updater stays off, or nil when it runs (`UpdateDistribution`).
+    /// Why Sparkle stays off. Source builds retain this explanation alongside GitHub checks.
     let distributionRefusal: UpdateDistribution.Refusal?
+    let checksGitHubReleases: Bool
+    private var githubCheck: Task<Void, Never>?
+    private var githubRelease: GitHubRelease?
+    private var automaticGitHubChecks = false
+
+    var presentation: SoftwareUpdatePresentation {
+        checksGitHubReleases ? GitHubRelease.presentation(status: status, isLocalBuild: Self.isLocalBuild)
+                             : status.presentation
+    }
 
     /// Sparkle's updater and the user driver that wraps its standard windows. Nil whenever
-    /// `distributionRefusal` is set: nothing Sparkle-related is created for such a build.
+    /// the GitHub metadata channel is active, or distribution validation refuses Sparkle.
     private var updater: SPUUpdater?
     private var userDriver: ObservingUserDriver?
 
@@ -66,11 +49,18 @@ final class SoftwareUpdater: NSObject {
     /// cycle (which begins on the next runloop pass) sees the settings the user actually chose.
     init(behavior: AutomaticUpdateBehavior) {
         let info = Bundle.main.infoDictionary ?? [:]
-        distributionRefusal = UpdateDistribution.refusal(
+        checksGitHubReleases = UpdateDistribution.checksGitHubReleases(
+            isLocalBuild: Self.isLocalBuild, publicEDKey: info["SUPublicEDKey"] as? String)
+        let refusal = UpdateDistribution.refusal(
             isLocalBuild: Self.isLocalBuild,
             feedURL: info["SUFeedURL"] as? String,
             publicEDKey: info["SUPublicEDKey"] as? String)
+        distributionRefusal = checksGitHubReleases && !Self.isLocalBuild ? nil : refusal
         super.init()
+        if checksGitHubReleases {
+            apply(behavior)
+            return
+        }
         guard distributionRefusal == nil else { return }
         let standard = SPUStandardUserDriver(hostBundle: .main, delegate: self)
         let driver = ObservingUserDriver(standard: standard) { [weak self] report in
@@ -107,6 +97,14 @@ final class SoftwareUpdater: NSObject {
     /// see `observeAutomaticDownloadPreference`. Sparkle re-schedules its cycle after either flag
     /// changes, so no explicit reset is needed here.
     func apply(_ behavior: AutomaticUpdateBehavior) {
+        if checksGitHubReleases {
+            let becameEnabled = behavior.checksForUpdates && !automaticGitHubChecks
+            automaticGitHubChecks = behavior.checksForUpdates
+            // There is no interval in the app's settings. Check at launch/enable, without inventing
+            // another scheduler or carrying Sparkle's automatic-install preference into this channel.
+            if becameEnabled { checkGitHubRelease() }
+            return
+        }
         guard let updater else { return }
         updater.automaticallyChecksForUpdates = behavior.checksForUpdates
         updater.automaticallyDownloadsUpdates = behavior.downloadsAndInstalls
@@ -115,7 +113,13 @@ final class SoftwareUpdater: NSObject {
     /// Does what the update affordance's presentation says a click does.
     func perform(_ action: SoftwareUpdatePresentation.Action) {
         switch action {
-        case .check, .showOffer: checkForUpdates()
+        case .check: checkForUpdates()
+        case .showOffer:
+            if checksGitHubReleases, let githubRelease {
+                NSWorkspace.shared.open(githubRelease.htmlURL)
+            } else {
+                checkForUpdates()
+            }
         case .cancel: userDriver?.cancelInFlight()
         case .none: break
         }
@@ -130,6 +134,10 @@ final class SoftwareUpdater: NSObject {
     /// of its own is mid-flight — it drops the request silently, and a phase moved to `checking` would
     /// sit on a spinner no callback ever clears.
     func checkForUpdates() {
+        if checksGitHubReleases {
+            checkGitHubRelease()
+            return
+        }
         guard let updater else {
             showWhyUpdatesAreOff()
             return
@@ -145,11 +153,51 @@ final class SoftwareUpdater: NSObject {
     func clearStaleResult(staleAfter: TimeInterval?) {
         var updated = status
         updated.clearIfStale(now: Date(), staleAfter: staleAfter)
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
-        updated.dropOffer(ifNotNewerThanBuild: build) {
-            SUStandardVersionComparator.default.compareVersion($0, toVersion: $1)
+        if !checksGitHubReleases {
+            let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+            updated.dropOffer(ifNotNewerThanBuild: build) {
+                SUStandardVersionComparator.default.compareVersion($0, toVersion: $1)
+            }
         }
         status = updated
+    }
+
+    private func checkGitHubRelease() {
+        guard githubCheck == nil else { return }
+        record(.checkStarted)
+        githubCheck = Task { [weak self] in
+            guard let self else { return }
+            defer { githubCheck = nil }
+            // URLSession/URLCache own HTTP freshness and disk persistence, with no custom quota or
+            // TTL. Revalidation respects GitHub's ETag even on an explicit user check.
+            var request = URLRequest(url: GitHubRelease.latestURL, cachePolicy: .reloadRevalidatingCacheData)
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            request.setValue("FreeDisplay", forHTTPHeaderField: "User-Agent")
+            let cached = URLCache.shared.cachedResponse(for: request)
+            if let response = cached?.response as? HTTPURLResponse,
+               let etag = response.value(forHTTPHeaderField: "ETag") {
+                request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+            }
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    record(.failed(.feedUnreadable))
+                    return
+                }
+                let release = try GitHubRelease.parse(statusCode: http.statusCode, data: data, cachedData: cached?.data)
+                githubRelease = release
+                record(release.event(runningVersion: runningVersion))
+            } catch is DecodingError {
+                record(.failed(.feedUnreadable))
+            } catch let error as GitHubRelease.ResponseError {
+                switch error {
+                case .http: record(.failed(.network))
+                case .noCachedRelease, .invalidRelease: record(.failed(.feedUnreadable))
+                }
+            } catch {
+                record(.failed(.network))
+            }
+        }
     }
 
     /// A source build, or a build without a FreeDisplay feed and key: explain instead of checking.
@@ -171,7 +219,7 @@ final class SoftwareUpdater: NSObject {
         case .none:
             return ""
         case .localBuild:
-            return String(localized: "This build is updated from source: pull the project’s changes, build the app, and replace the installed copy. Automatic release downloads aren’t available here.")
+            return String(localized: "This is a local build. You can check GitHub for a newer release and download it in your browser. Replace the app manually to update.")
         case .noFeed, .insecureOrInvalidFeed:
             return String(localized: "This build has no FreeDisplay update feed, so it never checks for updates.")
         case .upstreamFeed:
