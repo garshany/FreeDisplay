@@ -193,3 +193,48 @@ public enum RecoverySurfacePolicy {
         }
     }
 }
+
+/// Black Out under the same rule: an opaque, click-through overlay (plus the gamma floor) that
+/// leaves a display lit and enumerated while showing the user nothing. No provider can report it —
+/// it is this process's own window and colour-table state — so the safeguards only see it once it is
+/// stamped into the observations they judge (`stamping`), and `RecoverySurfacePolicy` then treats a
+/// blacked-out screen as no screen at all.
+public enum BlackOutPolicy {
+    /// `observations` with every display in `blackedOut` carrying the `.blackedOut` overlay — and
+    /// every display mirroring one of them, which shows its source's picture, overlay included. The
+    /// rest keep whatever overlay they were observed with.
+    public static func stamping(_ blackedOut: Set<DisplayRecordID>,
+                                into observations: [DisplayObservation]) -> [DisplayObservation] {
+        guard !blackedOut.isEmpty else { return observations }
+        return observations.map { observation in
+            let covered = blackedOut.contains(observation.recordID)
+                || observation.mirrorSourceID.map(blackedOut.contains) == true
+            guard covered else { return observation }
+            var stamped = observation
+            stamped.overlay = .blackedOut
+            return stamped
+        }
+    }
+
+    /// Whether `target` may be blacked out: some other screen must stay one the user can be left on —
+    /// lit, physical (a virtual, Sidecar or DisplayLink screen shows nobody anything), not mirroring
+    /// (a mirror shows its source, which may be the target) and not blacked out itself. The very
+    /// candidates a disconnect preflight accepts, so the two can never disagree.
+    public static func mayBlackOut(_ target: DisplayRecordID, in observations: [DisplayObservation],
+                                   blackedOut: Set<DisplayRecordID>) -> Bool {
+        !RecoverySurfacePolicy.safeSurfaceCandidates(in: stamping(blackedOut, into: observations),
+                                                     excluding: [target]).isEmpty
+    }
+
+    /// The blackouts emergency recovery must lift: all of them once no screen the user can be left on
+    /// remains outside them (the other screen was unplugged, turned off by another process, or
+    /// became a mirror), none while one does. Lifting is the cheapest rescue there is — the display
+    /// is right there, lit; only this app's overlay is hiding it.
+    public static func blackOutsToLift(in observations: [DisplayObservation],
+                                       blackedOut: Set<DisplayRecordID>) -> Set<DisplayRecordID> {
+        guard !blackedOut.isEmpty else { return [] }
+        let usable = RecoverySurfacePolicy.safeSurfaceCandidates(
+            in: stamping(blackedOut, into: observations), excluding: [])
+        return usable.isEmpty ? blackedOut : []
+    }
+}

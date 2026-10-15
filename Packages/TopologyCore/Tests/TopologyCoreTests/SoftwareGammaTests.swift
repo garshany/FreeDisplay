@@ -66,25 +66,57 @@ final class SoftwareGammaTests: XCTestCase {
                        .custom, "the user's own Displays folder is not the factory folder")
     }
 
+    private let a = DisplayRecordID(rawValue: "A")
+    private let b = DisplayRecordID(rawValue: "B")
+    private let c = DisplayRecordID(rawValue: "C")
+
+    /// The guard's verdict after one round of reads.
+    private func blocking(connected: Set<DisplayRecordID>, readings: [DisplayRecordID: ColorProfileGuard.Assignment],
+                          previous: [DisplayRecordID: ColorProfileGuard.Knowledge] = [:]) -> Set<DisplayRecordID> {
+        ColorProfileGuard.blockingDisplays(
+            ColorProfileGuard.knowledge(connected: connected, readings: readings, previous: previous))
+    }
+
     func testACustomProfileOnAnyDisplayBlocks() {
-        let blocking = ColorProfileGuard.blockingDisplays(
-            readings: [.init(rawValue: "A"): .factory, .init(rawValue: "B"): .custom, .init(rawValue: "C"): .system],
-            unreadable: [], previous: [])
-        XCTAssertEqual(blocking, [.init(rawValue: "B")])
+        XCTAssertEqual(blocking(connected: [a, b, c], readings: [a: .factory, b: .custom, c: .system]), [b])
     }
 
-    func testATransientReadFailureKeepsAKnownBlock() {
-        let b = DisplayRecordID(rawValue: "B")
-        XCTAssertEqual(ColorProfileGuard.blockingDisplays(readings: [.init(rawValue: "A"): .factory],
-                                                          unreadable: [b], previous: [b]), [b])
-        XCTAssertEqual(ColorProfileGuard.blockingDisplays(readings: [.init(rawValue: "A"): .factory],
-                                                          unreadable: [b], previous: []), [],
-                       "an unreadable display that wasn't blocking doesn't start blocking")
+    func testAnAssignmentThatWasNeverReadBlocks() {
+        // R1 P1: the first ColorSync read of a custom-profile display fails — it used to contribute
+        // no block, so gamma went on being written next to the custom profile.
+        let knowledge = ColorProfileGuard.knowledge(connected: [a, b], readings: [a: .factory], previous: [:])
+        XCTAssertEqual(knowledge[b], .unverified)
+        XCTAssertEqual(ColorProfileGuard.blockingDisplays(knowledge), [b])
+        XCTAssertEqual(ColorProfileGuard.unverifiedDisplays(knowledge), [b])
     }
 
-    func testADisconnectedDisplayStopsBlocking() {
-        XCTAssertEqual(ColorProfileGuard.blockingDisplays(readings: [.init(rawValue: "A"): .factory],
-                                                          unreadable: [], previous: [.init(rawValue: "B")]), [])
+    func testADisplayThatArrivedAfterTheReadBeganIsPendingAndBlocks() {
+        XCTAssertEqual(blocking(connected: [a, b], readings: [a: .factory]), [b])
+    }
+
+    func testTheBlockLiftsOnceTheAssignmentIsVerified() {
+        let pending = ColorProfileGuard.knowledge(connected: [a], readings: [:], previous: [:])
+        XCTAssertEqual(ColorProfileGuard.blockingDisplays(pending), [a])
+        XCTAssertEqual(blocking(connected: [a], readings: [a: .factory], previous: pending), [])
+    }
+
+    func testATransientReadFailureKeepsWhatWasVerified() {
+        XCTAssertEqual(blocking(connected: [a, b], readings: [a: .factory], previous: [b: .verified(.custom)]), [b],
+                       "a known block survives a failed re-read")
+        XCTAssertEqual(blocking(connected: [a, b], readings: [a: .factory], previous: [b: .verified(.factory)]), [],
+                       "a verified factory assignment survives a failed re-read too")
+        XCTAssertEqual(blocking(connected: [a, b], readings: [a: .factory], previous: [b: .unverified]), [b],
+                       "still never read: still blocking")
+    }
+
+    func testADisconnectedDisplayStopsBlockingAndIsVerifiedAfreshWhenItReturns() {
+        let gone = ColorProfileGuard.knowledge(connected: [a], readings: [a: .factory], previous: [b: .verified(.custom)])
+        XCTAssertNil(gone[b])
+        XCTAssertEqual(ColorProfileGuard.blockingDisplays(gone), [])
+        XCTAssertEqual(blocking(connected: [a, b], readings: [a: .factory],
+                                previous: ColorProfileGuard.knowledge(connected: [a], readings: [:],
+                                                                      previous: [b: .verified(.factory)])),
+                       [b], "a returning display's old verdict was dropped while it was away")
     }
 
     // MARK: - Software brightness floor (TR-02)

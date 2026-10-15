@@ -861,11 +861,9 @@ private struct TrayToggles: View {
                           isOn: display.isMain, enabled: !display.isMain && !model.busy) { on in
                 if on { Task { await model.setMain(for: display) } }
             }
-            // Black Out on the last lit screen would leave nothing to click — offer it only while
-            // another active screen stays visible.
-            let otherLit = model.displays.contains {
-                $0.recordID != display.recordID && $0.isActive && !model.isBlackedOut($0)
-            }
+            // Black Out on the last screen the user can be left on would leave nothing to click —
+            // offer it only while another lit physical screen stays visible (the model's own rule).
+            let otherLit = model.canBlackOut(display)
             // Without gamma (overlay-only dimming, or the custom-profile safeguard) Black Out is the
             // overlay alone, which sits under the menu bar — so the menu bar stays lit.
             TraySwitchRow(title: String(localized: "Black Out"),

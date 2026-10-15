@@ -191,10 +191,15 @@ final class AppModel: ObservableObject {
     /// Why the last profile change on a display didn't land (ColorSync refused it, or the re-read
     /// shows a different profile); cleared by the next change that does.
     @Published private(set) var colorProfileError: [DisplayRecordID: String] = [:]
-    /// Connected displays with a user/shared custom ICC profile assigned (`ColorProfileGuard`).
-    /// While non-empty, OpenDisplay's gamma writes are blocked on every display unless the user
-    /// overrode the safeguard.
+    /// Connected displays with a user/shared custom ICC profile assigned — or whose assignment
+    /// ColorSync has never reported, which may be one (`ColorProfileGuard`). While non-empty,
+    /// OpenDisplay's gamma writes are blocked on every display unless the user overrode the safeguard.
     @Published private(set) var customProfileDisplays: Set<DisplayRecordID> = []
+    /// The part of `customProfileDisplays` that is there because its assignment couldn't be read,
+    /// not because it is custom — so the message can say which.
+    @Published private(set) var unverifiedProfileDisplays: Set<DisplayRecordID> = []
+    /// What the safeguard last verified about each connected display (`ColorProfileGuard.knowledge`).
+    private var colorProfileKnowledge: [DisplayRecordID: ColorProfileGuard.Knowledge] = [:]
     /// Per display, the Core Graphics error of the last gamma write that was rejected; nil once a
     /// write lands. Surfaced next to the software brightness, dimming and temperature controls,
     /// whose cached values are the request — this says the request isn't on screen.
@@ -244,10 +249,11 @@ final class AppModel: ObservableObject {
 
     /// Whether turning `display` off would still leave a physical screen to recover from — the
     /// same candidates `SafetyEngine` will accept, so the switch is never offered for a request the
-    /// coordinator is bound to refuse.
+    /// coordinator is bound to refuse (a blacked-out screen is no such surface, there or here).
     func canTurnOff(_ display: DisplayObservation) -> Bool {
         display.isActive
-            && !RecoverySurfacePolicy.safeSurfaceCandidates(in: displays, excluding: [display.recordID]).isEmpty
+            && !RecoverySurfacePolicy.safeSurfaceCandidates(in: safetyObservations,
+                                                            excluding: [display.recordID]).isEmpty
     }
 
     /// What turning a display off does with the lifecycle provider in use — published from the
@@ -264,6 +270,9 @@ final class AppModel: ObservableObject {
     var isDegraded: Bool { diagnostics.contains { $0.status != "supported" } }
 
     private let observer: CoreGraphicsProvider
+    /// The coordinator's observer: `observer` with Black Out stamped in, so disconnect preflight
+    /// never takes a blacked-out screen for the one the user is left on (`blackedOut` feeds it).
+    private let safetyObserver: BlackOutAwareObserver
     private let coordinator: TopologyCoordinator
     private let checkpoints: any CheckpointStoring
     private let lifecycle: any LifecycleProvider
@@ -387,6 +396,20 @@ final class AppModel: ObservableObject {
     /// `revertArrangementChange()`.
     @Published private(set) var modeChangeError: String?
     private var modeChangeInProgress = false
+    /// A scene's arrangement transaction is being applied (`applyScene`).
+    private var sceneApplying = false
+    /// A keep/revert rollback (or the launch-time restore of its record) is being written.
+    private var arrangementRestoring = false
+    /// Whether a mode, canvas, scene or rollback transaction is being written right now.
+    private var displayTransactionInFlight: Bool {
+        modeChangeInProgress || arrangementApplying || sceneApplying || arrangementRestoring
+    }
+    /// Whether a Core Graphics display transaction is in flight or a keep/revert window is open.
+    /// They run one at a time: a second transaction would race the first one's readback, and a
+    /// change written under an open window would be undone by its rollback.
+    private var displayConfigurationBusy: Bool {
+        displayTransactionInFlight || pendingRevert != nil
+    }
     @Published private(set) var pendingRevert: PendingRevert?
     /// UI state for the timed auto-revert banner. `kind` says what the window protects, so the prompt
     /// names it and a further canvas move knows whether it may keep the previous step.
@@ -467,8 +490,10 @@ final class AppModel: ObservableObject {
         self.checkpoints = checkpoints
         let lifecycle = AppModel.makeLifecycleProvider(public: observer)
         self.lifecycle = lifecycle
+        let safetyObserver = BlackOutAwareObserver(base: observer)
+        self.safetyObserver = safetyObserver
         self.coordinator = TopologyCoordinator(
-            observer: observer,
+            observer: safetyObserver,
             lifecycleProvider: lifecycle,
             checkpoints: checkpoints,
             // A disconnect from the menu/CLI is an explicit user action, so confirm the SafetyEngine's
@@ -539,11 +564,17 @@ final class AppModel: ObservableObject {
                 Self.clearRotationMarker()
                 await refresh()
             }
-            if let priorArrangement = Self.readRevertMarker() {
-                // An arrangement-revert window was open when the app last died — restore the prior
-                // mode/origin/mirror/main so a bad resolution or mirror can't survive a crash/quit.
-                await restoreArrangement(priorArrangement)
-                Self.clearRevertMarker()
+            // A display change started from the menu while launch was still under way has written
+            // a record of its own, replacing this one — and its window owns it now.
+            if !displayConfigurationBusy, let priorArrangement = Self.readRevertMarker() {
+                // An arrangement-revert window was open when the app last died — or its rollback
+                // never verified — so restore the prior mode/origin/mirror/main: a bad resolution or
+                // mirror must not survive a crash/quit. The record goes only once the restore shows.
+                if RevertMarkerPolicy.mayClearMarker(after: await restoreArrangement(priorArrangement)) {
+                    Self.clearRevertMarker()
+                } else {
+                    reportUnverifiedRestore(kind: .mode)
+                }
             }
             #if DEBUG
             if let token = ProcessInfo.processInfo.environment["OPENDISPLAY_DISCONNECT"] {
@@ -838,7 +869,12 @@ final class AppModel: ObservableObject {
         // restoring) while the snapshot is read. Another canvas move while the previous one still
         // waits means the user is looking at a usable desktop, so that step is kept and this one
         // gets its own window (as the tray does for repeated mode changes). A pending mode change,
-        // or a window that is already restoring, has to finish first.
+        // or a window that is already restoring, has to finish first — as does a scene or a launch
+        // restore, refused before anything (keeping the previous step included) is done.
+        guard !sceneApplying, !arrangementRestoring else {
+            arrangementError = String(localized: "Another display change is still being applied. Try again when it’s done.")
+            return
+        }
         if let pending = pendingRevert {
             guard pending.kind == .arrangement, revertGate?.isPending == true else {
                 arrangementError = pending.kind == .arrangement
@@ -850,7 +886,8 @@ final class AppModel: ObservableObject {
         }
 
         let before = snapshot.observations
-        // Persist the original arrangement BEFORE the write so a crash during verification can recover.
+        // Persist the original arrangement BEFORE the write so a crash during verification can
+        // recover. It replaces a record an earlier rollback couldn't confirm (`RevertMarkerPolicy`).
         Self.writeRevertMarker(before)
         let observer = self.observer
         let warnings = await Task.detached(priority: .userInitiated) {
@@ -870,8 +907,16 @@ final class AppModel: ObservableObject {
         default:
             // Rejected, or the readback broke a mirror set or moved the menu bar elsewhere: put back
             // whatever landed. Never offer Keep for an arrangement macOS didn't make as planned.
-            if outcome != .nothingMoved { await restoreArrangement(before) }
-            let restored = Self.arrangementLayout(await observer.currentSnapshot().observations) == live
+            // With nothing moved there is nothing to write back, only the record to judge.
+            let restoreOutcome: RevertMarkerPolicy.Outcome
+            if outcome != .nothingMoved {
+                restoreOutcome = await restoreArrangement(before)
+            } else {
+                let current = await observer.currentSnapshot().observations
+                restoreOutcome = .restored(providerWarnings: [],
+                                           mismatches: RevertMarkerPolicy.mismatches(wanted: before, current: current))
+            }
+            let restored = RevertMarkerPolicy.isVerified(restoreOutcome)
             if restored { Self.clearRevertMarker() }
             arrangementError = restored
                 ? String(localized: "macOS didn’t accept the new arrangement, so the previous one is in effect.")
@@ -917,7 +962,8 @@ final class AppModel: ObservableObject {
     }
 
     /// Whether the custom-profile safeguard is blocking gamma writes right now: a user/shared
-    /// custom ICC profile is assigned to a connected display and the user hasn't overridden it.
+    /// custom ICC profile is assigned to a connected display (or a connected display's assignment
+    /// couldn't be verified) and the user hasn't overridden it.
     var gammaBlockedByCustomProfile: Bool {
         !customProfileDisplays.isEmpty && !settings.allowGammaWithCustomProfiles
     }
@@ -1143,15 +1189,20 @@ final class AppModel: ObservableObject {
         }.value
         guard read == customProfileGuardRead else { return }
         var classified: [DisplayRecordID: ColorProfileGuard.Assignment] = [:]
-        var unreadable: Set<DisplayRecordID> = []
         for (id, assignment) in readings {
-            guard let assignment else { unreadable.insert(id); continue }
+            guard let assignment else { continue }  // unreadable: the guard keeps what it verified
             if colorProfileAssignment[id] != assignment { colorProfileAssignment[id] = assignment }
             classified[id] = ColorProfileGuard.classify(assignedPath: assignment.customURL?.path,
                                                         factoryPaths: assignment.factoryURLs.map(\.path))
         }
-        let blocking = ColorProfileGuard.blockingDisplays(readings: classified, unreadable: unreadable,
-                                                          previous: customProfileDisplays)
+        // Judged against the displays connected NOW: one that arrived during the read has no
+        // reading yet, so it counts as unverified — blocking — until its own refresh reads it.
+        let connected = Set(displays.filter { $0.cgDisplayID != nil }.map(\.recordID))
+        colorProfileKnowledge = ColorProfileGuard.knowledge(connected: connected, readings: classified,
+                                                            previous: colorProfileKnowledge)
+        let unverified = ColorProfileGuard.unverifiedDisplays(colorProfileKnowledge)
+        if unverifiedProfileDisplays != unverified { unverifiedProfileDisplays = unverified }
+        let blocking = ColorProfileGuard.blockingDisplays(colorProfileKnowledge)
         guard blocking != customProfileDisplays else { return }
         let wasBlocked = gammaBlockedByCustomProfile
         customProfileDisplays = blocking
@@ -1166,9 +1217,18 @@ final class AppModel: ObservableObject {
             return String(localized: "macOS rejected the gamma change (error \(code)), so it isn’t on screen.")
         }
         guard gammaBlockedByCustomProfile else { return nil }
-        let names = displays.filter { customProfileDisplays.contains($0.recordID) }
-            .map { displayName(for: $0) }.sorted().joined(separator: ", ")
-        return String(localized: "Gamma is paused because \(names) uses a custom colour profile, which can turn a screen black or tinted. Dimming uses the overlay instead; colour temperature, contrast and XDR boost are off. Choose a factory profile, or allow gamma with custom profiles in Settings › Displays › Dimming.")
+        func names(_ ids: Set<DisplayRecordID>) -> String {
+            displays.filter { ids.contains($0.recordID) }.map { displayName(for: $0) }.sorted()
+                .joined(separator: ", ")
+        }
+        let custom = names(customProfileDisplays.subtracting(unverifiedProfileDisplays))
+        let unread = names(unverifiedProfileDisplays)
+        guard !custom.isEmpty else {
+            return String(localized: "Gamma is paused because macOS couldn’t report the colour profile of \(unread), and a custom profile can turn a screen black or tinted. Dimming uses the overlay instead; colour temperature, contrast and XDR boost are off. Gamma resumes once macOS reports the profile, or allow gamma with custom profiles in Settings › Displays › Dimming.")
+        }
+        let reason = String(localized: "Gamma is paused because \(custom) uses a custom colour profile, which can turn a screen black or tinted. Dimming uses the overlay instead; colour temperature, contrast and XDR boost are off. Choose a factory profile, or allow gamma with custom profiles in Settings › Displays › Dimming.")
+        guard !unread.isEmpty else { return reason }
+        return reason + " " + String(localized: "The colour profile of \(unread) couldn’t be read either.")
     }
 
     // MARK: - XDR Brightness (Labs, Issue #35)
@@ -1441,12 +1501,30 @@ final class AppModel: ObservableObject {
 
     /// Displays currently blacked out (gamma driven to zero — the panel stays logically connected so it
     /// can be restored instantly). Reversible and public-API-safe; gamma also resets on display
-    /// reconfiguration, wake, and logout, so a blackout can never strand a surface.
-    @Published private(set) var blackedOut: Set<DisplayRecordID> = []
+    /// reconfiguration, wake, and logout. The opaque overlay does not reset with them, so the
+    /// safeguards see it instead: the coordinator's preflight through `safetyObserver`, the
+    /// always-one-active net and the off switch through `safetyObservations` — and the net, Reconnect
+    /// All and quit lift it (`liftBlackOuts`).
+    @Published private(set) var blackedOut: Set<DisplayRecordID> = [] {
+        didSet { safetyObserver.setBlackedOut(blackedOut) }
+    }
 
     /// True when the display is currently blacked out.
     func isBlackedOut(_ observation: DisplayObservation) -> Bool {
         blackedOut.contains(observation.recordID)
+    }
+
+    /// The displays as the "keep a usable screen" safeguards must judge them: Black Out stamped in,
+    /// since no provider can report it.
+    private var safetyObservations: [DisplayObservation] {
+        BlackOutPolicy.stamping(blackedOut, into: displays)
+    }
+
+    /// Whether Black Out may be switched on for `observation`: another lit, physical, unmirrored
+    /// screen must stay visible (`BlackOutPolicy`). A virtual or unverified screen doesn't count —
+    /// it can be lit and enumerated while showing the user nothing on the desk.
+    func canBlackOut(_ observation: DisplayObservation) -> Bool {
+        BlackOutPolicy.mayBlackOut(observation.recordID, in: displays, blackedOut: blackedOut)
     }
 
     /// Toggles Black Out: drive gamma to zero, or restore the display's effective dim level.
@@ -1454,21 +1532,29 @@ final class AppModel: ObservableObject {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
         if blackedOut.contains(id) {
-            blackedOut.remove(id)
-            applyDim(level: softwareDim[id] ?? 1.0, id: id, cgID: cgID)
+            liftBlackOuts([id])
         } else {
-            // Never black out the last visible screen: with every panel at gamma 0 there is nothing
-            // left to click to undo it (any entry point — menu, hotkey, URL — goes through here).
-            let anotherLit = displays.contains {
-                $0.recordID != id && $0.isActive && !blackedOut.contains($0.recordID)
-            }
-            guard anotherLit else { return }
+            // Never black out the last screen the user can be left on: with it covered there is
+            // nothing left to click to undo it (any entry point — menu, hotkey, URL — goes through
+            // here).
+            guard canBlackOut(observation) else { return }
             blackedOut.insert(id)
             writeBlackOutGamma(id: id, cgID: cgID)
             // The provider floors gamma at 0.15 so a dim can never become unreadable; that floor
             // left Black Out at ~15 %. The click-through opaque overlay does the actual blacking
             // out, and lifting it goes through applyDim, which resets the overlay alpha.
             dimOverlay.setAlpha(1, for: cgID)
+        }
+    }
+
+    /// Lifts Black Out from `ids`, putting each display's own dim level back (which resets the
+    /// overlay alpha). A display that has left Core Graphics only leaves the set — its overlay
+    /// went with its screen (`DimOverlayController.reconcile`).
+    private func liftBlackOuts(_ ids: Set<DisplayRecordID>) {
+        for id in ids where blackedOut.contains(id) {
+            blackedOut.remove(id)
+            guard let cgID = displays.first(where: { $0.recordID == id })?.cgDisplayID else { continue }
+            applyDim(level: softwareDim[id] ?? 1.0, id: id, cgID: cgID)
         }
     }
 
@@ -1529,6 +1615,12 @@ final class AppModel: ObservableObject {
     /// reported instead of an apparently clean apply. A missing required member blocks the apply.
     @discardableResult
     func applyScene(_ scene: Scene) async -> SceneApplyReport {
+        // One display transaction at a time (`displayConfigurationBusy`): judged and claimed before
+        // the first suspension point, so nothing can start in between. A scene that would have to
+        // write meanwhile writes nothing; its report judges the topology as it is, and says why.
+        let busy = displayConfigurationBusy
+        if !busy { sceneApplying = true }
+        defer { if !busy { sceneApplying = false } }
         let before = await observer.currentSnapshot()
         var resolution: ScenePlanner.Resolution = [:]
         for member in scene.members {
@@ -1538,16 +1630,32 @@ final class AppModel: ObservableObject {
         }
         let preparation = SceneApplication.prepare(scene: scene, resolution: resolution, before: before)
         var warnings: [String] = []
+        var refused = false
         if !preparation.isBlocked {
             let targets = preparation.writes.compactMap { write -> CoreGraphicsProvider.ArrangementTarget? in
                 guard let cgID = before.observation(for: write.target)?.cgDisplayID else { return nil }
                 return .init(displayID: cgID, origin: write.origin, mode: write.mode)
             }
-            if !targets.isEmpty { warnings = observer.applyArrangement(targets) }
+            if !targets.isEmpty, busy {
+                refused = true
+                warnings = ["another display change is in progress"]
+            } else if !targets.isEmpty {
+                // CGCompleteDisplayConfiguration blocks until the displays are reconfigured — off the
+                // main actor, like the mode and canvas paths, so the menus, the recovery hotkeys and
+                // an open revert countdown keep running meanwhile.
+                let observer = self.observer
+                warnings = await Task.detached(priority: .userInitiated) {
+                    observer.applyArrangement(targets)
+                }.value
+            }
         }
-        let after = await observer.currentSnapshot()
+        let after = refused ? before : await observer.currentSnapshot()
         let report = SceneApplication.report(scene: scene, preparation: preparation, resolution: resolution,
                                              before: before, after: after, providerWarnings: warnings)
+        guard !refused else {
+            sceneWarning = String(localized: "Not applied: another display change is still in progress. Nothing was changed.")
+            return report
+        }
         await refresh()
         await noteLayoutSelfChange()
         sceneWarning = sceneApplySummary(report)
@@ -1987,7 +2095,7 @@ final class AppModel: ObservableObject {
         // The start of the current dark spell, stamped here because this is the one place the app
         // looks at the world. The safety net measures its "give up waiting and light something"
         // deadline from it, so it has to survive across the several events a wake emits.
-        displaysDarkSince = WakeConvergencePolicy.recoverySurfaces(in: displays).isEmpty
+        displaysDarkSince = WakeConvergencePolicy.recoverySurfaces(in: safetyObservations).isEmpty
             ? (displaysDarkSince ?? Date())
             : nil
         // A ledger display lit during the wake window gets the wake's stamp before anything can
@@ -2154,7 +2262,9 @@ final class AppModel: ObservableObject {
         if gammaWriteFailures[id] != nil {
             parts.append(String(localized: "gamma change rejected"))
         } else if gammaBlockedByCustomProfile && settings.dimmingMethod != .overlay {
-            parts.append(String(localized: "gamma paused: custom colour profile"))
+            parts.append(customProfileDisplays == unverifiedProfileDisplays
+                ? String(localized: "gamma paused: colour profile unread")
+                : String(localized: "gamma paused: custom colour profile"))
         }
         return parts.joined(separator: " · ")
     }
@@ -4213,10 +4323,14 @@ final class AppModel: ObservableObject {
     func setMode(_ mode: DisplayMode, for observation: DisplayObservation) async {
         // An arrangement apply in flight is a Core Graphics transaction too; a second one would
         // capture a half-applied "before" and race its readback.
-        guard !modeChangeInProgress, !arrangementApplying, pendingRevert == nil else {
-            modeChangeError = arrangementApplying || pendingRevert?.kind == .arrangement
-                ? String(localized: "Confirm or revert the arrangement change first.")
-                : String(localized: "Confirm or revert the previous mode change first.")
+        guard !displayConfigurationBusy else {
+            if sceneApplying || arrangementRestoring {
+                modeChangeError = String(localized: "Another display change is still being applied. Try again when it’s done.")
+            } else {
+                modeChangeError = arrangementApplying || pendingRevert?.kind == .arrangement
+                    ? String(localized: "Confirm or revert the arrangement change first.")
+                    : String(localized: "Confirm or revert the previous mode change first.")
+            }
             return
         }
         modeChangeError = nil
@@ -4236,7 +4350,8 @@ final class AppModel: ObservableObject {
             modeChangeError = String(localized: "This exact mode is no longer available. A different framebuffer or refresh rate is never substituted automatically.")
             return
         }
-        // Persist the original arrangement BEFORE the write so a crash during verification can recover.
+        // Persist the original arrangement BEFORE the write so a crash during verification can
+        // recover. It replaces a record an earlier rollback couldn't confirm (`RevertMarkerPolicy`).
         Self.writeRevertMarker(before)
         // CGCompleteDisplayConfiguration blocks until the displays are reconfigured (often 1–3 s on
         // HDMI). Off the main actor, so the menu and the rest of the app stay responsive meanwhile.
@@ -4248,11 +4363,7 @@ final class AppModel: ObservableObject {
         let actual = await observer.currentSnapshot().observations.first(where: { $0.cgDisplayID == cgID })?.mode
         guard !Task.isCancelled, DisplayModeChoices.verifiedApply(warnings: warnings, actual: actual, requested: mode) else {
             // Never offer Keep when the provider rejected the request or fresh readback differs.
-            await restoreArrangement(before)
-            let restored = await observer.currentSnapshot().observations.first(where: { $0.cgDisplayID == cgID })?.mode
-            let restorationVerified = prior.mode.map { expected in
-                restored.map { DisplayModeChoices.matches($0, requested: expected) } ?? false
-            } ?? false
+            let restorationVerified = RevertMarkerPolicy.isVerified(await restoreArrangement(before))
             if restorationVerified { Self.clearRevertMarker() }
             modeChangeError = restorationVerified
                 ? String(localized: "macOS did not confirm the selected mode. The previous mode was restored.")
@@ -4335,6 +4446,12 @@ final class AppModel: ObservableObject {
                          origin: DisplayOrigin(x: obs.origin.x + dx, y: obs.origin.y + dy),
                          mode: nil)
         }
+        // Judged after the last suspension point: a scene, mode or canvas transaction now runs off
+        // the main actor, and this one must not land in the middle of it.
+        guard !displayTransactionInFlight else {
+            modeChangeError = String(localized: "Another display change is still being applied. Try again when it’s done.")
+            return
+        }
         _ = observer.applyArrangement(targets)
         await refresh()
         await noteLayoutSelfChange()
@@ -4369,8 +4486,7 @@ final class AppModel: ObservableObject {
             let now = Date()
             if let before = gate.tick(now: now) {
                 revertGate = gate
-                await restoreArrangement(before)
-                clearRevertWindow()
+                closeRevertWindow(after: await restoreArrangement(before))
                 return
             }
             revertGate = gate
@@ -4384,25 +4500,38 @@ final class AppModel: ObservableObject {
     func confirmArrangementChange() {
         guard var gate = revertGate, gate.confirm() else { return }
         revertGate = gate
-        clearRevertWindow()
+        closeRevertWindow(after: .kept)
     }
 
     /// User asked to revert now — restore the prior arrangement and close the window.
     func revertArrangementChange() async {
         guard var gate = revertGate, let before = gate.revert() else { return }
         revertGate = gate
-        await restoreArrangement(before)
-        clearRevertWindow()
+        closeRevertWindow(after: await restoreArrangement(before))
     }
 
-    private func clearRevertWindow() {
+    /// Closes the window. Its recovery record goes only when `outcome` allows it
+    /// (`RevertMarkerPolicy`): a rollback that didn't verify keeps the record, and says so where the
+    /// change was made.
+    private func closeRevertWindow(after outcome: RevertMarkerPolicy.Outcome) {
         // "macOS placed the displays differently" describes an arrangement that's gone once reverted.
         if revertKind == .arrangement, revertGate?.resolution == .reverted { arrangementNote = nil }
         revertTask?.cancel()
         revertTask = nil
         revertGate = nil
         pendingRevert = nil
+        guard RevertMarkerPolicy.mayClearMarker(after: outcome) else {
+            reportUnverifiedRestore(kind: revertKind)
+            return
+        }
         Self.clearRevertMarker()
+    }
+
+    /// Says that a rollback couldn't be confirmed and its record was kept, where the change came
+    /// from: the canvas for an arrangement, the mode controls otherwise.
+    private func reportUnverifiedRestore(kind: PendingRevert.Kind) {
+        let message = String(localized: "macOS didn’t confirm that the previous display settings were restored. OpenDisplay kept a record of them and restores it at the next launch; the next display change you make replaces that record.")
+        if kind == .arrangement { arrangementError = message } else { modeChangeError = message }
     }
 
     /// Restores each display's exact prior mode + origin (origins also restore which display is main,
@@ -4410,14 +4539,27 @@ final class AppModel: ObservableObject {
     /// A display that was a mirror target gets no origin of its own: it sits where its source is, and
     /// an origin write aimed at a target can change its mirror set (AM-09); the mirror step below
     /// puts it back with its source.
-    private func restoreArrangement(_ observations: [DisplayObservation]) async {
+    ///
+    /// Returns what the restore achieved, for `RevertMarkerPolicy` to judge: the arrangement write's
+    /// warnings and what the topology read back afterwards still shows wrong — a request macOS
+    /// accepted is not a restore that landed.
+    private func restoreArrangement(_ recorded: [DisplayObservation]) async -> RevertMarkerPolicy.Outcome {
+        arrangementRestoring = true
+        defer { arrangementRestoring = false }
+        // A display turned off since the recording keeps its "off" (`RevertMarkerPolicy.restorable`).
+        let ledger = Set(managedOffline.map(\.recordID))
+        let observations = RevertMarkerPolicy.restorable(recorded, ledger: ledger)
+        // Core Graphics ids are re-resolved by record: the recording can be older than this session
+        // (the launch-time restore), and a stale id may name another display by now.
+        let live = await observer.currentSnapshot()
         let targets = observations.compactMap { obs -> CoreGraphicsProvider.ArrangementTarget? in
-            guard let cgID = obs.cgDisplayID else { return nil }
+            guard let cgID = live.observation(for: obs.recordID)?.cgDisplayID else { return nil }
             return .init(displayID: cgID, origin: obs.mirrorSourceID == nil ? obs.origin : nil, mode: obs.mode)
         }
+        var warnings: [String] = []
         if !targets.isEmpty {
             let observer = self.observer
-            _ = await Task.detached(priority: .userInitiated) { observer.applyArrangement(targets) }.value
+            warnings = await Task.detached(priority: .userInitiated) { observer.applyArrangement(targets) }.value
         }
         // Back to each display's exact prior source (or independence) — not "onto main", which put a
         // display that mirrored a non-main source onto the wrong one.
@@ -4428,6 +4570,9 @@ final class AppModel: ObservableObject {
         _ = await applyMirrorSteps(steps, in: current)
         await refresh()
         await noteLayoutSelfChange()
+        let after = RevertMarkerPolicy.restorable(await observer.currentSnapshot().observations, ledger: ledger)
+        return .restored(providerWarnings: warnings,
+                         mismatches: RevertMarkerPolicy.mismatches(wanted: observations, current: after))
     }
 
     /// Pending-revert marker (mirrors the rotation marker): the prior arrangement, persisted so a
@@ -4826,6 +4971,27 @@ final class AppModel: ObservableObject {
             }
             return
         }
+        // The cheapest rescue first: when the only screens left are blacked out (the other one was
+        // unplugged, or turned off from another process) and nothing is on its way back, the user's
+        // own overlay is what hides them.
+        switch WakeConvergencePolicy.blackOutRescue(wakeConvergenceContext(), blackedOut: blackedOut) {
+        case .none:
+            break
+        case .wait(let delay):
+            // Lighting a turned-off display meanwhile would be the wrong rescue: the blackout is.
+            armActiveSurfaceRecheck(after: delay)
+            return
+        case .lift(let lift):
+            #if DEBUG
+            Self.err("ACTIVE-SURFACE GUARD: only blacked-out screens are left — lifting Black Out")
+            #endif
+            liftBlackOuts(lift)
+            logDisplayEvent("blackout:lifted \(lift.count)")
+            await appendAudit(WakeConvergencePolicy.netLiftBlackOutAudit(of: lift, at: Date()))
+            displaysDarkSince = WakeConvergencePolicy.recoverySurfaces(in: safetyObservations).isEmpty
+                ? (displaysDarkSince ?? Date())
+                : nil
+        }
         switch WakeConvergencePolicy.surfaceDecision(wakeConvergenceContext()) {
         case .satisfied:
             activeSurfaceRecheck.cancel()
@@ -4878,7 +5044,7 @@ final class AppModel: ObservableObject {
     /// permanent-configuration restore, which is not bound to any one process's transaction.
     private func escalateIfStillStranded() async {
         await refresh()
-        guard WakeConvergencePolicy.recoverySurfaces(in: displays).isEmpty else { return }
+        guard WakeConvergencePolicy.recoverySurfaces(in: safetyObservations).isEmpty else { return }
         #if DEBUG
         Self.err("ACTIVE-SURFACE GUARD: still no real display — escalating to permanent-config restore")
         #endif
@@ -4902,6 +5068,11 @@ final class AppModel: ObservableObject {
         busy = true
         defer { busy = false }
         let requestedAt = Date()
+        // "Give me my screens back" includes the ones this app is covering itself.
+        if !blackedOut.isEmpty {
+            logDisplayEvent("blackout:lifted \(blackedOut.count) (reconnect all)")
+            liftBlackOuts(blackedOut)
+        }
         var results = await coordinator.reconnectAll()
             .sorted { $0.key.rawValue < $1.key.rawValue }
             .map { (displayId: $0.key.rawValue, reconnected: $0.value) }
@@ -5035,10 +5206,10 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// The observed world both wake-convergence decisions reason over.
+    /// The observed world both wake-convergence decisions reason over, Black Out stamped in.
     private func wakeConvergenceContext() -> WakeConvergencePolicy.Context {
         WakeConvergencePolicy.Context(
-            now: Date(), observations: displays, managedOffline: managedOffline,
+            now: Date(), observations: safetyObservations, managedOffline: managedOffline,
             lastWakeAt: lastWakeAt, isBetweenSleepAndWake: isBetweenSleepAndWake,
             darkSince: displaysDarkSince, reassertAttempts: offlineReassertAttempts)
     }
@@ -5143,6 +5314,11 @@ final class AppModel: ObservableObject {
             return
         }
         guard case .restore(let analysis) = evaluation.decision, let protected else { return }
+        // A display change of the user's is being written or awaits Keep/Revert: its scene write
+        // would be refused (`applyScene`), and the lifecycle and mirror writes around it would land
+        // in the middle of that transaction. Its own self-change note, or the next topology event,
+        // decides what protection makes of the result — no attempt is spent on it.
+        guard !displayConfigurationBusy else { return }
         layoutProtectionState = LayoutProtectionPolicy.noteRestoreAttempt(state: layoutProtectionState)
         await restoreProtectedLayout(protected, analysis: analysis, before: snapshot.generation)
     }
@@ -5278,7 +5454,7 @@ final class AppModel: ObservableObject {
     /// Performs mirror steps against fresh Core Graphics IDs from `snapshot`. A step whose display or
     /// source has no live ID is skipped rather than substituted. Returns whether anything was written.
     /// A rejected write isn't retried here: Protected Layout's residual check reports it, and the
-    /// keep/revert path (like before) relies on the refreshed topology the menus then show.
+    /// keep/revert path reads the topology back and keeps its record (`RevertMarkerPolicy`).
     private func applyMirrorSteps(_ steps: [MirrorRestorePlan.Step], in snapshot: TopologySnapshot) async -> Bool {
         var wrote = false
         for step in steps {
@@ -5337,6 +5513,9 @@ final class AppModel: ObservableObject {
     /// delegate's `applicationShouldTerminate` defers termination until this completes so the
     /// reconnect actually lands before the process exits.
     func teardownForQuit() async {
+        // Black Out goes first: the reconnects below can leave a blacked-out screen as the only lit
+        // one, and the overlay would otherwise stay up for as long as teardown takes.
+        liftBlackOuts(blackedOut)
         #if !PUBLIC_API_ONLY
         // Stop adaptive first, then hand back the monitor's daytime colour preset if the evening
         // one is applied — awaited directly (the coalesced writers are fire-and-forget; quitting

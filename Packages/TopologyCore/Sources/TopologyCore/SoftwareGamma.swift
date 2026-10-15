@@ -45,7 +45,9 @@ public enum GammaSlotPolicy {
 /// The default custom-profile safeguard: a user or shared custom ICC profile assigned to ANY
 /// connected display blocks OpenDisplay's gamma writes on EVERY display, because colour-table
 /// writes combined with such profiles can leave a screen black or tinted while it is still
-/// connected. Factory and system profiles don't trigger it. The app can override it explicitly.
+/// connected. Factory and system profiles don't trigger it; an assignment ColorSync has not yet
+/// reported for a connected display does, until it is read (fail closed — "couldn't read" is not
+/// "factory"). The app can override it explicitly.
 public enum ColorProfileGuard {
     public enum Assignment: Hashable, Sendable {
         /// No custom profile, or a display factory profile (this display's or another's).
@@ -71,13 +73,44 @@ public enum ColorProfileGuard {
         return .custom
     }
 
-    /// The connected displays that keep the guard engaged. `readings` holds the displays whose
-    /// assignment could be read; a display in `unreadable` keeps whatever it was before — a
-    /// transient ColorSync failure must not lift a known block. Displays no longer connected (in
-    /// neither set) drop out.
-    public static func blockingDisplays(readings: [DisplayRecordID: Assignment],
-                                        unreadable: Set<DisplayRecordID>,
-                                        previous: Set<DisplayRecordID>) -> Set<DisplayRecordID> {
-        Set(readings.filter { $0.value == .custom }.keys).union(unreadable.intersection(previous))
+    /// What the guard knows about one connected display's assignment.
+    public enum Knowledge: Hashable, Sendable {
+        /// ColorSync reported it, in this read or an earlier one.
+        case verified(Assignment)
+        /// Connected, and no read has succeeded for it yet: the first read is still pending, or
+        /// failed. It might be a custom profile, so it blocks like one.
+        case unverified
+    }
+
+    /// Folds one round of ColorSync reads into what the guard knows. Every display in `connected`
+    /// gets an entry: the assignment just read; otherwise — the read failed, or the display arrived
+    /// after the round began — the assignment last verified for it, so a transient ColorSync failure
+    /// neither lifts a known block nor invents one; and with nothing verified, `.unverified`.
+    /// Displays no longer connected drop out, so one that returns is verified afresh.
+    public static func knowledge(connected: Set<DisplayRecordID>, readings: [DisplayRecordID: Assignment],
+                                 previous: [DisplayRecordID: Knowledge]) -> [DisplayRecordID: Knowledge] {
+        var result: [DisplayRecordID: Knowledge] = [:]
+        for id in connected {
+            if let reading = readings[id] {
+                result[id] = .verified(reading)
+            } else if case .verified(let known)? = previous[id] {
+                result[id] = .verified(known)
+            } else {
+                result[id] = .unverified
+            }
+        }
+        return result
+    }
+
+    /// The connected displays that keep the guard engaged: a custom profile, or an assignment that
+    /// has never been verified.
+    public static func blockingDisplays(_ knowledge: [DisplayRecordID: Knowledge]) -> Set<DisplayRecordID> {
+        Set(knowledge.filter { $0.value == .verified(.custom) || $0.value == .unverified }.keys)
+    }
+
+    /// The blocking displays whose assignment was never read (rather than read as custom), for the
+    /// message saying why gamma is paused.
+    public static func unverifiedDisplays(_ knowledge: [DisplayRecordID: Knowledge]) -> Set<DisplayRecordID> {
+        Set(knowledge.filter { $0.value == .unverified }.keys)
     }
 }
