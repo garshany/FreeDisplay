@@ -20,6 +20,22 @@ final class OSDFeedbackTests: XCTestCase {
 
     // MARK: Switches
 
+    func testOSDFocusedScreenUsesForegroundAXWindowOnSecondaryDisplay() {
+        let mode = DisplayMode(pixelWidth: 100, pixelHeight: 100, pointWidth: 100, pointHeight: 100,
+                               refreshHz: 60, isHiDPI: false)
+        let screens = [DisplayObservation(recordID: .init(rawValue: "primary"), cgDisplayID: 1,
+            isActive: true, mode: mode, isMain: true, displayClass: .external, generation: .initial),
+            DisplayObservation(recordID: .init(rawValue: "secondary"), cgDisplayID: 2, isActive: true,
+                origin: .init(x: 100, y: 0), mode: mode, displayClass: .external, generation: .initial)]
+        let focus = FocusedWindowScreen.display(for: .init(x: 110, y: 10, width: 50, height: 50), in: screens)
+        let foreground = OSDScreenPolicy.focusedScreen(focus, in: screens)
+        XCTAssertEqual(foreground, 2)
+        XCTAssertEqual(OSDScreenPolicy.screen(position: .bottomCenter, choice: .focused,
+            affected: 1, pointer: 1, focused: foreground, primary: 1, iconScreen: 1, available: [1, 2]), 2)
+        XCTAssertNil(OSDScreenPolicy.focusedScreen(nil, in: screens))
+        XCTAssertNil(OSDScreenPolicy.focusedScreen(focus, in: screens + [screens[1]]))
+    }
+
     func testBasicAndCustomSwitchesAreIndependent() {
         let basicOff = settings { $0.osdEnabled = false }
         XCTAssertFalse(draws(.brightness, basicOff))

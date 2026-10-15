@@ -16,7 +16,7 @@ public enum OSDScreenChoice: String, Hashable, Sendable, Codable, CaseIterable {
     case affectedDisplay
     /// The screen under the mouse pointer.
     case pointer
-    /// The screen with the focused window — AppKit's "main screen", which follows keyboard focus.
+    /// The screen with the foreground application’s AX-focused window.
     case focused
     /// The macOS primary display, the one at the origin of the desktop arrangement
     /// (`CGMainDisplayID`). Not the focused screen, even though AppKit also calls that one "main".
@@ -146,6 +146,14 @@ extension OSDFeedbackPolicy {
 
 /// Picks the screen the HUD appears on (SO-35, TR-17). Display numbers are Core Graphics display IDs.
 public enum OSDScreenPolicy {
+    /// Convert the shared foreground-focus result, refusing absent or ambiguous observations.
+    public static func focusedScreen(_ display: DisplayRecordID?, in observations: [DisplayObservation]) -> UInt32? {
+        guard let display else { return nil }
+        let matches = observations.filter { $0.recordID == display && $0.isActive }
+        guard matches.count == 1 else { return nil }
+        return matches[0].cgDisplayID
+    }
+
     /// - Parameters:
     ///   - position: under the menu-bar icon goes to the icon's screen when there is one.
     ///   - affected/pointer/focused/primary: the candidate for each choice, nil when unknown.

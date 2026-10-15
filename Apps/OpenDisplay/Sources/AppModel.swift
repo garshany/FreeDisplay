@@ -601,6 +601,10 @@ final class AppModel: ObservableObject {
         audioSnapshot = audioOutputs.snapshot()
         reconcileXDRPowerAutomation()  // Issue #35: watch power only if an XDR battery rule is armed
         // SO-35: the interactive HUD's bar goes through the same funnels as the menu's sliders.
+        osdHUD.foregroundFocusedScreen = { [weak self] in
+            guard let self else { return nil }
+            return OSDScreenPolicy.focusedScreen(self.focusedWindowDisplayID(), in: self.displays)
+        }
         osdHUD.onAdjust = { [weak self] id, kind, level, bypassSync in
             self?.adjustFromOSD(id, kind: kind, level: level, bypassSync: bypassSync)
         }

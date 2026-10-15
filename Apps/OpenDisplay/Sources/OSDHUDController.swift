@@ -98,6 +98,8 @@ final class OSDHUDController {
 
     /// The screen feedback for a change on `affected` goes to under `appearance` — also the screen
     /// hint published with the event.
+    var foregroundFocusedScreen: @MainActor () -> CGDirectDisplayID? = { nil }
+
     func screenID(for appearance: OSDHUDAppearance, affected: CGDirectDisplayID?) -> CGDirectDisplayID? {
         let screens = NSScreen.screens
         let mouse = NSEvent.mouseLocation
@@ -105,7 +107,7 @@ final class OSDHUDController {
         return OSDScreenPolicy.screen(
             position: appearance.position, choice: appearance.screen, affected: affected,
             pointer: screens.first { NSMouseInRect(mouse, $0.frame, false) }?.osdDisplayID,
-            focused: NSScreen.main?.osdDisplayID, primary: CGMainDisplayID(),
+            focused: foregroundFocusedScreen(), primary: CGMainDisplayID(),
             iconScreen: icon.flatMap { frame in screens.first { $0.frame.intersects(frame) }?.osdDisplayID },
             available: screens.compactMap(\.osdDisplayID))
     }
