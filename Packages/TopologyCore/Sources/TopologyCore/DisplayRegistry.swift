@@ -176,6 +176,12 @@ public actor DisplayRegistry {
     ) -> [(record: DisplayRecord, explanation: IdentityMatchExplanation)] {
         var explanations = inputs.map { explain($0.fingerprint, cgUUID: $0.cgUUID, excluding: []) }
         var claims = explanations.map(Self.claim(from:))
+        for index in inputs.indices {
+            guard case .mint = claims[index] else { continue }
+            let input = inputs[index]
+            let supported = Self.supports(newRecordStrategy, fingerprint: input.fingerprint, cgUUID: input.cgUUID)
+            if !supported { claims[index] = .ambiguous([]) }
+        }
 
         // One record per present display. Two displays on the desk at once are two displays, so a
         // record both claim can be at most one of them: the strictly better-evidenced claimant
@@ -298,8 +304,20 @@ public actor DisplayRegistry {
         try? await mutate(id) { $0.tags.remove(tag) }
     }
 
+    private static func supports(_ strategy: DisplayIdentityStrategy, fingerprint: DisplayFingerprint,
+                                 cgUUID: String?) -> Bool {
+        switch strategy {
+        case .automatic: return true
+        case .systemUUID: return cgUUID?.isEmpty == false
+        case .qualifiedSerial: return IdentityScorer.serialsMatch(fingerprint, fingerprint)
+        }
+    }
+
     /// Changing policy never transfers preferences or rewrites UUID routing.
     public func setIdentityStrategy(_ strategy: DisplayIdentityStrategy, for id: DisplayRecordID) async {
+        guard let record = record(for: id),
+              Self.supports(strategy, fingerprint: record.fingerprint,
+                            cgUUID: state.cgUUIDIndex.first(where: { $0.value == id })?.key) else { return }
         try? await mutate(id) { $0.identityStrategy = strategy }
     }
 

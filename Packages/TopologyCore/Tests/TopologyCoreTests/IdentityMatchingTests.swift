@@ -29,6 +29,33 @@ final class IdentityMatchingTests: XCTestCase {
         return await DisplayRegistry(store: InMemoryRegistryStore(state))
     }
 
+    func testStrategyRestrictionsCannotManufactureSerialUniqueness() async {
+        var a = record("disp_a", fingerprint(serial: "SHARED"))
+        a.identityStrategy = .systemUUID
+        let b = record("disp_b", fingerprint(serial: "SHARED"))
+        let registry = await registry([a, b], index: ["UUID-A": "disp_a"])
+        let result = await registry.resolveAllExplained([input(fingerprint(serial: "SHARED"), "UUID-A")])
+        XCTAssertEqual(result[0].record.id, a.id)
+        let state = await registry.currentState()
+        XCTAssertEqual(state.cgUUIDIndex["UUID-A"], a.id)
+        let unknown = await registry.resolveAllExplained([input(fingerprint(serial: "SHARED"), "NEW")])
+        XCTAssertTrue(unknown[0].record.isProvisional)
+    }
+
+    func testUnsupportedNewRecordStrategyStaysUnresolvedWithoutRegistryGrowth() async {
+        let registry = await registry([])
+        for _ in 0..<3 {
+            let result = await registry.resolveAllExplained([input(fingerprint(), "UUID")],
+                                                          newRecordStrategy: .qualifiedSerial)
+            XCTAssertTrue(result[0].record.isProvisional)
+            let state = await registry.currentState()
+            XCTAssertTrue(state.records.isEmpty)
+            XCTAssertTrue(state.cgUUIDIndex.isEmpty)
+        }
+        let result = await registry.resolveAllExplained([input(fingerprint(), nil)], newRecordStrategy: .systemUUID)
+        XCTAssertTrue(result[0].record.isProvisional)
+    }
+
     func testSystemUUIDStrategyRejectsSerialFallbackButStillRejectsConflicts() async {
         var known = record("disp_a", fingerprint(serial: "A"))
         known.identityStrategy = .systemUUID

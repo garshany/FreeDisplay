@@ -225,11 +225,11 @@ public enum IdentityMatching {
         }
 
         // 1. Qualified serial.
-        let serialMatches = candidates.filter { $0.serialMatches && strategies[$0.recordID] != .systemUUID }.map(\.recordID)
-        if serialMatches.count == 1 {
+        let serialMatches = candidates.filter { $0.serialMatches }.map(\.recordID)
+        if serialMatches.count == 1, strategies[serialMatches[0]] != .systemUUID {
             return explained(.record(serialMatches[0], indexed == serialMatches[0] ? .serialAndCGUUID : .serial))
         }
-        if !serialMatches.isEmpty {
+        if serialMatches.count > 1 {
             // Identical units, or records the user has already split: only this Mac's UUID can say.
             if let indexed, serialMatches.contains(indexed) { return explained(.record(indexed, .serialAndCGUUID)) }
             return explained(.ambiguous(serialMatches, .sharedSerial))
