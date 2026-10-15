@@ -45,9 +45,17 @@ public protocol AutomationEnvironment: Sendable {
 
     func reconnectAll() async throws(AutomationIssue) -> ResultEnvelope
     func disconnect(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> ResultEnvelope
+    func tvCanPerform(_ action: TVAction, on display: AutomationDisplayCandidate) async -> Bool
+    func tvCapabilities(for display: AutomationDisplayCandidate) async -> TVCapabilityReport?
+    func tvControl(_ action: TVAction, on display: AutomationDisplayCandidate) async throws(AutomationIssue) -> TVCommandReceipt
 }
 
 public extension AutomationEnvironment {
+    func tvCapabilities(for display: AutomationDisplayCandidate) async -> TVCapabilityReport? { nil }
+    func tvCanPerform(_ action: TVAction, on display: AutomationDisplayCandidate) async -> Bool { false }
+    func tvControl(_ action: TVAction, on display: AutomationDisplayCandidate) async throws(AutomationIssue) -> TVCommandReceipt {
+        throw notOffered(.tvControl)
+    }
     func prepare() async throws(AutomationIssue) {}
     func unavailability(of command: AutomationCommandName) -> AutomationIssue? { nil }
 
@@ -171,6 +179,27 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
     private func execute(_ command: AutomationCommand, target: AutomationDisplayCandidate?, set: AutomationDisplaySet,
                          context: Context) async throws(AutomationIssue) -> AutomationResult {
         switch command {
+        case .tvControl(let action):
+            let display = try required(target)
+            if action != .wake, display.availability == .disconnected {
+                throw AutomationIssue(.displayNotConnected, "normal TV control needs a connected associated display", subject: display.id.rawValue)
+            }
+            guard await environment.tvCanPerform(action, on: display) else {
+                throw AutomationIssue(.capabilityUnavailable, "the selected display has no ready TV controller for this action", subject: display.id.rawValue)
+            }
+            if context.request.dryRun { return context.plan("send \(action.name) to the paired TV", field: "tvControl") }
+            let receipt = try await environment.tvControl(action, on: display)
+            // Protocol acknowledgement is not a readback of physical power, audio or active input.
+            let outcome: OperationOutcome = receipt.delivery == .failed ? .failed : .sent
+            var result = context.result(status: .aggregate([outcome]), operations: [
+                .init(field: "tvControl", requested: .string(action.name), verification: .readBackUnavailable,
+                      provider: "networkTV", warnings: ["TV physical effect unconfirmed"], outcome: outcome)])
+            result.tv = receipt
+            if outcome == .failed {
+                let issue = AutomationIssue(.executionFailed, "the TV rejected the command", subject: display.id.rawValue)
+                result.issue = issue; result.envelope.errors = [issue.errorInfo]
+            }
+            return result
         case .listDisplays:
             var result = context.result(status: .noOp)
             result.displays = set.candidates.map(AutomationDisplaySummary.init)
@@ -193,6 +222,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             result.capabilities = AutomationCapabilityReport(displayId: display.id.rawValue,
                                                               surface: environment.surface, commands: commands,
                                                               brightnessRoutes: routes)
+            result.capabilities?.tv = await environment.tvCapabilities(for: display)
             return result
 
         case .getBrightness(let method):
