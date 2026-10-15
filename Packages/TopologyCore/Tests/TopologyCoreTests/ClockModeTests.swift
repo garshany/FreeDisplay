@@ -28,6 +28,32 @@ final class ClockModeTests: XCTestCase {
                          sleeping: sleeping, competingPolicy: competing)
     }
 
+    func testDispatchAllowsChangingRampLevelButRejectsNewIntervalAndHolds() throws {
+        for transition in [ScheduleTransition.ramp, .continuous] {
+            let schedule = recipe(entries: [
+                .init(anchor: .time, timeMinute: 8 * 60, brightness: 1, transition: .instant),
+                .init(anchor: .time, timeMinute: 20 * 60, brightness: 0, transition: transition)
+            ])
+            let planned = try XCTUnwrap(sample("2026-10-15T19:45:00Z", schedule))
+            let later = try XCTUnwrap(sample("2026-10-15T19:45:01Z", schedule))
+            XCTAssertNotEqual(planned.level, later.level)
+            var session = ClockModeSession()
+            func permits(_ value: ClockCalendarPolicy.Sample?, safe: Bool = false, sleeping: Bool = false,
+                         competing: Bool = false, enabled: Bool = true) -> Bool {
+                session.allowsDispatch(schedule: schedule, intervalStart: planned.intervalStart,
+                    sample: value, enabled: enabled, safeStartup: safe, sleeping: sleeping, competingPolicy: competing)
+            }
+            XCTAssertTrue(permits(later))
+            XCTAssertFalse(try permits(sample("2026-10-15T20:00:00Z", schedule)))
+            XCTAssertFalse(permits(later, safe: true)); XCTAssertFalse(permits(later, sleeping: true))
+            XCTAssertFalse(permits(later, competing: true)); XCTAssertFalse(permits(later, enabled: false))
+            session.noteManualChange(to: schedule.displayID, sample: later)
+            XCTAssertFalse(permits(later))
+            session.resume(); XCTAssertTrue(permits(later))
+            session.didWake(policy: .pauseUntilResumed); XCTAssertFalse(permits(later))
+        }
+    }
+
     func testFixedDayEveningAndMidnight() throws {
         XCTAssertEqual(try sample("2026-10-15T07:59:00Z")?.level.float, 0.3)
         XCTAssertEqual(try sample("2026-10-15T08:00:00Z")?.level.float, 0.8)
