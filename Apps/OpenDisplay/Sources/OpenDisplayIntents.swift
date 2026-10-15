@@ -13,16 +13,51 @@ import ExperimentalLifecycleProvider
 
 /// Shortcuts / Siri integration (PRD §1 automation, recovery hierarchy step 3). Intents and URLs act
 /// through the running app's `AppModel` when there is one — it alone holds the live managed-offline
-/// ledger and settings. Reconnect All falls back to a freshly composed `CommandGateway` when no
-/// model exists in this process; the display actions (DisplayIntents.swift) need the model.
+/// ledger and settings — and wait for it to have loaded that ledger (`AppModel.awaitStartupLoad`).
+/// Reconnect All falls back to working from the persisted ledger when no model exists in this
+/// process (`reconnectAllFromLedger`); the display actions (DisplayIntents.swift) need the model.
 enum OpenDisplayAutomation {
-    /// The app's model, registered by `AppDelegate` at launch. Weak: automation must never keep a
-    /// torn-down model alive. App Intents in this target run inside the app process, so an intent
-    /// normally finds it here.
+    /// The app's model, registered by `AppDelegate` as it is created. Weak: automation must never
+    /// keep a torn-down model alive. App Intents in this target run inside the app process, so an
+    /// intent normally finds it here.
     @MainActor static weak var liveModel: AppModel?
 
-    static func makeGateway() async -> CommandGateway {
+    /// Reconnect All with no app model: every display in the persisted managed-offline ledger, each
+    /// reconnected and verified the way the app does it, the ledger re-saved after each one, the
+    /// run audited. A fresh `CommandGateway` can't stand in for this — its coordinator only sees the
+    /// provider snapshot's offline list, which Core Graphics never fills — so it reconnected nothing.
+    static func reconnectAllFromLedger(actor: Actor) async -> ResultEnvelope {
+        let requestedAt = Date()
         let observer = CoreGraphicsProvider()
+        let lifecycle = await makeLifecycleProvider(observer)
+        let store = (try? ManagedOfflineStore.defaultDirectory()).map(ManagedOfflineStore.init(directory:))
+        let results = await ManagedOfflineRecovery.reconnectAll(
+            ledger: store?.load() ?? [],
+            attempt: { offline in
+                // Per display, the request deadline the CLI's `recover` gives the same verified
+                // reconnect (and the gateway this replaces gave the whole batch).
+                await ManagedOfflineRecovery.verifiedAttempt(
+                    offline, lifecycle: lifecycle, observer: observer, deadline: Date().addingTimeInterval(15),
+                    escalate: { CoreGraphicsProvider.restorePermanentConfiguration() })
+            },
+            save: { ledger in
+                do { try store?.save(ledger) } catch { log("could not update the turned-off list: \(error)") }
+            })
+        let envelope = ResultEnvelope.reconnectAll(
+            results: results, actor: actor, requestedAt: requestedAt,
+            topologyGeneration: await observer.currentSnapshot().generation.value)
+        let audit = (try? DiskAuditLog.defaultDirectory()).map(DiskAuditLog.init(directory:))
+        await audit?.append(AuditEntry(
+            timestamp: requestedAt, actor: actor, command: "reconnectAll",
+            transactionId: envelope.transactionId, status: envelope.status.rawValue,
+            targets: envelope.targets.map(\.displayId)))
+        return envelope
+    }
+
+    /// The lifecycle provider a model-less surface uses: the experimental one where it is
+    /// supported, the public Core Graphics one otherwise (and always in the public-API-only build).
+    private static func makeLifecycleProvider(_ observer: CoreGraphicsProvider) async -> any LifecycleProvider {
+        #if !PUBLIC_API_ONLY
         #if arch(arm64)
         let appleSilicon = true
         #else
@@ -32,19 +67,11 @@ enum OpenDisplayAutomation {
             osBuild: ProcessInfo.processInfo.operatingSystemVersionString,
             isAppleSilicon: appleSilicon, transport: .unknown, displayClass: .unknown
         )
-        let lifecycle: any LifecycleProvider
-        #if !PUBLIC_API_ONLY
         let experimental = ExperimentalLifecycleProvider()
-        lifecycle = await experimental.probe(environment).status == .supported ? experimental : observer
+        return await experimental.probe(environment).status == .supported ? experimental : observer
         #else
-        lifecycle = observer
+        return observer
         #endif
-        let checkpoints: any CheckpointStoring =
-            (try? DiskCheckpointStore.defaultDirectory()).map(DiskCheckpointStore.init(directory:))
-            ?? InMemoryCheckpointStore()
-        let audit = (try? DiskAuditLog.defaultDirectory()).map(DiskAuditLog.init(directory:))
-        return CommandGateway(observer: observer, lifecycleProvider: lifecycle,
-                              checkpoints: checkpoints, auditLog: audit)
     }
 
     /// Routes an `opendisplay://` URL onto the shared `CommandGateway` (Issue 4) — the third automation
@@ -119,13 +146,13 @@ struct ReconnectAllIntent: AppIntent {
     static let openAppWhenRun = false
 
     func perform() async throws -> some IntentResult & ReturnsValue<ReconnectResultEntity> & ProvidesDialog {
-        // The running app's Reconnect All, which works through the managed-offline ledger. The
-        // gateway fallback (no model in this process) can only reach a provider's own offline list.
+        // The running app's Reconnect All, which works through the managed-offline ledger once
+        // launch has loaded it. With no model in this process, the same ledger is read from disk.
         let envelope: ResultEnvelope
         if let model = await OpenDisplayAutomation.liveModel {
             envelope = await model.reconnectAll(actor: .appIntent)
         } else {
-            envelope = await OpenDisplayAutomation.makeGateway().reconnectAll(actor: .appIntent)
+            envelope = await OpenDisplayAutomation.reconnectAllFromLedger(actor: .appIntent)
         }
         let restored = envelope.targets.filter { target in
             target.operations.contains { $0.verification == .verified }

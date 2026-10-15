@@ -172,6 +172,10 @@ public enum SettingsArchiveError: Error, Hashable, Sendable {
     case unsupportedVersion(Int)
     /// The named section is missing or malformed.
     case damaged(section: String)
+    /// The named section decodes, but `item` holds a value OpenDisplay can't use as it is — a
+    /// number it can't represent or count with (`OpenDisplaySettings.unusableValueKey`,
+    /// `Scene.invalidValues`). Refused rather than clamped: nothing in the file is reinterpreted.
+    case invalidValue(section: String, item: String)
 }
 
 extension SettingsArchive: Codable {
@@ -212,11 +216,21 @@ extension SettingsArchive: Codable {
         settings = try Self.section(.settings, in: container) {
             try $0.decode(OpenDisplaySettings.self, forKey: .settings)
         }.withoutRestoreLedgers()
+        if let key = settings.unusableValueKey {
+            throw SettingsArchiveError.invalidValue(section: CodingKeys.settings.rawValue, item: key)
+        }
         favorites = try Self.section(.favorites, in: container) {
             try $0.decode(FavoriteResolutions.self, forKey: .favorites)
         }
         registry = try Self.section(.registry, in: container) { try $0.decode(RegistryState.self, forKey: .registry) }
         scenes = try Self.section(.scenes, in: container) { try $0.decode([Scene].self, forKey: .scenes) }
+        for scene in scenes {
+            if let invalid = scene.invalidValues.first {
+                throw SettingsArchiveError.invalidValue(
+                    section: CodingKeys.scenes.rawValue,
+                    item: "\(scene.name) › \(invalid.selector) › \(invalid.field.rawValue)")
+            }
+        }
         defaults = try Self.section(.defaults, in: container) {
             try $0.decodeIfPresent(ArchivedDefaults.self, forKey: .defaults)
         } ?? ArchivedDefaults()
@@ -231,6 +245,20 @@ extension SettingsArchive: Codable {
 }
 
 extension OpenDisplaySettings {
+    /// The key of the first setting whose value can't be used as it is, or nil when every one can.
+    /// Technical validity only — a value that can't be represented, or would overflow, where the
+    /// app uses it. Product ranges stay with the features that own them (the revert window's
+    /// 3-second floor, for one), so nothing here limits what a user may choose.
+    public var unusableValueKey: String? {
+        // The keep-or-revert countdown turns these seconds into a TimeInterval and back into whole
+        // seconds: a count `Double` can't hold exactly (Int.max rounds up to 2^63, past Int) is not
+        // representable there, and a negative duration isn't a countdown at all.
+        if arrangementAutoRevertSeconds < 0 || Double(exactly: arrangementAutoRevertSeconds) == nil {
+            return "arrangementAutoRevertSeconds"
+        }
+        return nil
+    }
+
     /// These settings with every restore ledger emptied. The ledgers record what a display looked
     /// like before FaceLight, an evening preset or an app preset changed it; they belong to the
     /// live session on this Mac, so an archive never carries them.

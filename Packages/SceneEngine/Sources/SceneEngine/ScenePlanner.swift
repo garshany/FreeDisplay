@@ -144,8 +144,11 @@ public struct ScenePlanner: Sendable {
 
         if let mode = desired.mode {
             let satisfied = observed?.mode == mode
+            // Whole hertz as before; a rate `Int` can't hold (from a hand-edited file) as its number.
+            let hz = Int(exactly: mode.refreshHz.rounded(.towardZero)).map(String.init)
+                ?? SceneValueText.refresh(mode.refreshHz)
             ops.append(.init(kind: .setMode, target: target,
-                             detail: "\(mode.pointWidth) × \(mode.pointHeight) @ \(Int(mode.refreshHz)) Hz",
+                             detail: "\(mode.pointWidth) × \(mode.pointHeight) @ \(hz) Hz",
                              status: satisfied ? .alreadySatisfied : .willApply))
         }
 
@@ -158,7 +161,7 @@ public struct ScenePlanner: Sendable {
 
         if let brightness = desired.brightness {
             ops.append(.init(kind: .setBrightness, target: target,
-                             detail: "Brightness \(Int((brightness * 100).rounded()))%",
+                             detail: "Brightness \(SceneValueText.percent(brightness))",
                              status: .willApply, risk: .hardwareDependent))
         }
 

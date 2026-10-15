@@ -53,7 +53,11 @@ public struct TimedRevertGate<State: Equatable>: Equatable {
     }
 
     /// Whole seconds remaining until the deadline (never negative), for the countdown label.
+    /// Range-safe: a deadline further away than `Int` can count (the interval goes through `Double`,
+    /// where `Int.max` itself rounds up to 2^63) reads as `Int.max` instead of trapping.
     public func secondsRemaining(now: Date) -> Int {
-        max(0, Int(deadline.timeIntervalSince(now).rounded(.up)))
+        let remaining = deadline.timeIntervalSince(now).rounded(.up)
+        guard remaining > 0 else { return 0 }
+        return Int(exactly: remaining) ?? Int.max
     }
 }

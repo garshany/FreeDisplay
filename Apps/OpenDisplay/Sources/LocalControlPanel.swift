@@ -125,6 +125,8 @@ struct LocalControlPanel: View {
                         // outlasts a connection, so it runs as its own operation — the socket
                         // closing doesn't cancel it — and the reply says what was requested. The
                         // outcome goes to the audit log; GET /v1/displays shows displays returning.
+                        // The reply reads the ledger, so it waits for launch to have loaded it.
+                        await model.awaitStartupLoad()
                         guard !model.busy else {
                             return encode(["status": "rejected", "error": "Another display operation is in progress"])
                         }

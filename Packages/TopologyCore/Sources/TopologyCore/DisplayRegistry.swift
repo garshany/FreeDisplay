@@ -14,10 +14,11 @@ public struct RegistryState: Hashable, Sendable, Codable {
     }
 }
 
-/// Persistence backend for the registry.
+/// Persistence backend for the registry. `save` reports a write that didn't happen: most callers
+/// treat persistence as best-effort, but a settings import must know (`DisplayRegistry.replaceState`).
 public protocol RegistryStoring: Sendable {
     func load() async -> RegistryState
-    func save(_ state: RegistryState) async
+    func save(_ state: RegistryState) async throws
 }
 
 /// In-memory store for tests and previews.
@@ -54,13 +55,14 @@ public struct DiskRegistryStore: RegistryStoring {
         return state
     }
 
-    public func save(_ state: RegistryState) async {
+    /// Atomic: a write that fails leaves the previous file as it was, and throws.
+    public func save(_ state: RegistryState) async throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try? FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
         )
-        try? encoder.encode(state).write(to: fileURL, options: .atomic)
+        try encoder.encode(state).write(to: fileURL, options: .atomic)
     }
 }
 
@@ -310,11 +312,13 @@ public actor DisplayRegistry {
 
     /// Replaces everything remembered with `newState` and persists it — a settings import or
     /// reset (SO-11). Provisional answers about the old state are dropped with it; the next
-    /// resolve works from the new records.
-    public func replaceState(_ newState: RegistryState) async {
+    /// resolve works from the new records. Throws when registry.json couldn't be written: memory
+    /// then holds `newState` while the file still holds what was there, and the caller decides —
+    /// an import puts the previous state back the same way.
+    public func replaceState(_ newState: RegistryState) async throws {
         state = newState
         provisional.removeAll()
-        await persist()
+        try await store.save(state)
     }
 
     /// Every persisted record with the observation ids (`cg:<uuid>`) the CG UUID index points at it —
@@ -387,8 +391,10 @@ public actor DisplayRegistry {
         return state.records[index]
     }
 
+    /// Best-effort, as it always was for resolves and edits: the next change writes the whole state
+    /// again. Only `replaceState` needs the error, and it saves through the store directly.
     private func persist() async {
-        await store.save(state)
+        try? await store.save(state)
     }
 
     /// Fills gaps in `base` from `new` without dropping evidence we already had.

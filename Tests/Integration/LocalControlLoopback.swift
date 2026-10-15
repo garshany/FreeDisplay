@@ -82,14 +82,19 @@ struct LocalControlLoopback {
             case .displays: return Data("{\"displays\":[{\"id\":\"synthetic\"}]}".utf8)
             case .brightness(let id, let value):
                 return Data("{\"displayId\":\"\(id)\",\"value\":\(value),\"status\":\"requested\"}".utf8)
+            case .reconnectAll:
+                // Synthetic recovery: the app hands this route to its live model; here the
+                // synthetic system's gateway stands in for it and answers with its envelope.
+                let envelope = await gateway.reconnectAll(actor: .httpAPI)
+                return (try? JSONEncoder().encode(envelope)) ?? Data("{}".utf8)
             default: return Data("{}".utf8)
             }
         }
         try require(server.port == nil && server.token == nil, "Construction must stay stopped")
-        try server.start(gateway: gateway, handler: handler)
+        try server.start(handler: handler)
         let (port, token) = try await ready(server)
         try require(token.count == 64, "Session token size")
-        try server.start(gateway: gateway, handler: handler)
+        try server.start(handler: handler)
         try require(server.token == token, "Duplicate start must preserve session")
         let unauthorized = await exchange(port: port, bytes: request(token: "invalid"))
         try require(status(unauthorized) == 401 && probe.calls == 0, "Wrong token must never dispatch")
@@ -102,7 +107,8 @@ struct LocalControlLoopback {
             try require(status(invalid) == 400 && probe.calls == 2, "Invalid brightness must not dispatch")
         }
         let recovery = await exchange(port: port, bytes: request(token: token))
-        try require(status(recovery) == 200 && String(decoding: recovery, as: UTF8.self).contains("noOp"), "Synthetic gateway recovery envelope")
+        try require(status(recovery) == 200 && probe.calls == 3
+                    && String(decoding: recovery, as: UTF8.self).contains("noOp"), "Synthetic gateway recovery envelope")
         let unknown = await exchange(port: port, bytes: request("POST", "/v1/disconnect", token: token))
         try require(status(unknown) == 404, "Unknown/destructive endpoint")
         let origin = await exchange(port: port, bytes: request(token: token, extra: "Origin: https://example.com\r\n"))
@@ -124,7 +130,7 @@ struct LocalControlLoopback {
         try require(cancelledResponse.isEmpty && probe.cancelled, "Stop cancels in-flight cooperative handler")
         try require(server.port == nil && server.token == nil, "Stop clears credentials")
         probe.slow = false
-        try server.start(gateway: gateway, handler: handler)
+        try server.start(handler: handler)
         let (newPort, newToken) = try await ready(server)
         try require(newToken != token, "Restart rotates token")
         let oldAuth = await exchange(port: newPort, bytes: request(token: token))
@@ -132,7 +138,7 @@ struct LocalControlLoopback {
         let restarted = await exchange(port: newPort, bytes: request("GET", "/v1/displays", token: newToken, body: ""))
         try require(status(restarted) == 200, "Restart serves authenticated list")
         server.stop(); server.stop()
-        try server.start(gateway: gateway, handler: handler)
+        try server.start(handler: handler)
         server.stop()
         try await Task.sleep(for: .milliseconds(100))
         try require(server.port == nil && server.token == nil, "Stop before readiness cannot revive listener")

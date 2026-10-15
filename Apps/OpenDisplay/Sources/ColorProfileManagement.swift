@@ -76,8 +76,11 @@ final class ColorProfileLibrary: ObservableObject {
             return
         }
         let url = profile.url
+        let expected = profile.identity
         let factories = model.colorProfileAssignment.values.flatMap(\.factoryURLs)
-        let result = await Self.run { try ColorProfileService.moveToTrash(url, factoryURLs: factories) }
+        let result = await Self.run {
+            try ColorProfileService.moveToTrash(url, factoryURLs: factories, expected: expected)
+        }
         switch result {
         case .success(let trashed):
             status = Status(text: String(localized: "Moved “\(profile.displayName)” to the Trash. Displays no longer offer it."),
@@ -129,11 +132,17 @@ final class ColorProfileLibrary: ObservableObject {
         status = Status(text: text, isError: true)
     }
 
-    /// The connected displays assigned this very file, named; nil when none is.
+    /// The connected displays assigned this very file, named; nil when none is. Compared by file
+    /// identity, so an assignment that reaches the file through another path (a link, a linked
+    /// folder) still counts; by path only when there is no file to compare.
     private static func displaysUsing(_ url: URL, model: AppModel) -> String? {
         let path = url.standardizedFileURL.path
+        let identity = ConfinedFile.identity(of: url)
         let users = model.displays.filter { display in
-            model.colorProfileAssignment[display.recordID]?.customURL.map { $0.standardizedFileURL.path == path } ?? false
+            model.colorProfileAssignment[display.recordID]?.customURL.map { custom in
+                if let identity, let assigned = ConfinedFile.identity(of: custom) { return assigned == identity }
+                return custom.standardizedFileURL.path == path
+            } ?? false
         }
         guard !users.isEmpty else { return nil }
         return users.map { model.displayName(for: $0) }.sorted().joined(separator: ", ")

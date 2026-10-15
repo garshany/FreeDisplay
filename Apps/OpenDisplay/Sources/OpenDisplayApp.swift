@@ -95,9 +95,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dockPolicyWatch: AnyCancellable?
     private var settingsWindowObservers: [NSObjectProtocol] = []
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        // App Intents run in this process; they reach the live model (and its ledger) through here.
+    override init() {
+        super.init()
+        // App Intents run in this process; they reach the live model (and its ledger) through
+        // here. Registered as the model is created rather than at didFinishLaunching: an intent
+        // arriving in between would find no model and work the ledger from disk while the model's
+        // own launch loads and rewrites the same file. With the model, it waits for that load.
         OpenDisplayAutomation.liveModel = model
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
         // Close the pop-out when an action that re-lays-out the displays is picked (e.g. Set as Main):
         // otherwise the open pop-out, anchored to the status item, gets displaced to a random spot when
         // set-main relocates the menu bar to the new main display.

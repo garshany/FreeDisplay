@@ -1,9 +1,10 @@
 import Foundation
 
-/// Persistence backend for saved scenes.
+/// Persistence backend for saved scenes. `save` reports a write that didn't happen: saving one
+/// scene stays best-effort, but a settings import must know (`SceneLibrary.replaceAll`).
 public protocol SceneStoring: Sendable {
     func load() async -> [Scene]
-    func save(_ scenes: [Scene]) async
+    func save(_ scenes: [Scene]) async throws
 }
 
 /// In-memory scene store for tests and previews.
@@ -38,13 +39,14 @@ public struct DiskSceneStore: SceneStoring {
         return scenes
     }
 
-    public func save(_ scenes: [Scene]) async {
+    /// Atomic: a write that fails leaves the previous file as it was, and throws.
+    public func save(_ scenes: [Scene]) async throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try? FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
         )
-        try? encoder.encode(scenes).write(to: fileURL, options: .atomic)
+        try encoder.encode(scenes).write(to: fileURL, options: .atomic)
     }
 }
 
@@ -62,23 +64,26 @@ public actor SceneLibrary {
     public func scene(named name: String) -> Scene? { scenes.first { $0.name == name } }
     public func scene(id: String) -> Scene? { scenes.first { $0.id == id } }
 
+    /// Best-effort persistence, as before: the next change writes the whole library again.
     public func save(_ scene: Scene) async {
         if let index = scenes.firstIndex(where: { $0.id == scene.id }) {
             scenes[index] = scene
         } else {
             scenes.append(scene)
         }
-        await store.save(scenes)
+        try? await store.save(scenes)
     }
 
     public func delete(id: String) async {
         scenes.removeAll { $0.id == id }
-        await store.save(scenes)
+        try? await store.save(scenes)
     }
 
     /// Replaces the whole library with `newScenes` and persists it — a settings import or reset.
-    public func replaceAll(with newScenes: [Scene]) async {
+    /// Throws when scenes.json couldn't be written: memory then holds `newScenes` while the file
+    /// still holds what was there, and the caller decides — an import puts the previous ones back.
+    public func replaceAll(with newScenes: [Scene]) async throws {
         scenes = newScenes
-        await store.save(scenes)
+        try await store.save(scenes)
     }
 }

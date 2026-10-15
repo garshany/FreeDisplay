@@ -117,3 +117,59 @@ public struct DesiredState: Hashable, Sendable, Codable {
         }
     }
 }
+
+// MARK: - Technical validity
+
+extension Scene {
+    /// One member value that can't be used as it is.
+    public struct InvalidValue: Hashable, Sendable, Codable {
+        public var selector: String
+        public var field: SceneApplyReport.Field
+
+        public init(selector: String, field: SceneApplyReport.Field) {
+            self.selector = selector
+            self.field = field
+        }
+    }
+
+    /// The member values that can't be used as they are, in member order. Scenes arrive from files
+    /// anyone can edit (scenes.json, a settings archive), and these are the numbers that can't mean
+    /// anything: a brightness that isn't a number in its 0...1 level domain (the same level every
+    /// brightness path takes), a refresh rate that isn't a finite, non-negative number of hertz, a
+    /// position Core Graphics can't take (its display origins are 32-bit). Technical validity only —
+    /// any level, mode or position a display could actually have passes. A settings import refuses
+    /// a file carrying one; scene apply refuses the scene before writing anything.
+    public var invalidValues: [InvalidValue] {
+        var invalid: [InvalidValue] = []
+        for member in members {
+            let desired = member.desired
+            if let position = desired.position,
+               Int32(exactly: position.x) == nil || Int32(exactly: position.y) == nil {
+                invalid.append(InvalidValue(selector: member.selector, field: .position))
+            }
+            if let mode = desired.mode, !mode.refreshHz.isFinite || mode.refreshHz < 0 {
+                invalid.append(InvalidValue(selector: member.selector, field: .mode))
+            }
+            if let brightness = desired.brightness, !brightness.isFinite || !(0...1).contains(brightness) {
+                invalid.append(InvalidValue(selector: member.selector, field: .brightness))
+            }
+        }
+        return invalid
+    }
+}
+
+/// Display text for a scene's numbers that can't trap, whatever the file held: a value the
+/// validity check above would refuse can still reach a dry-run plan or a report.
+enum SceneValueText {
+    /// "60" for a whole number of hertz, "59.94" otherwise — and for anything `Int` can't hold.
+    static func refresh(_ hz: Double) -> String {
+        if hz.rounded() == hz, let whole = Int(exactly: hz) { return String(whole) }
+        return String(format: "%.2f", hz)
+    }
+
+    /// "62%" for a 0...1 level; a value outside what `Int` can hold is shown as the number it is.
+    static func percent(_ level: Double) -> String {
+        guard let whole = Int(exactly: (level * 100).rounded()) else { return "\(level)" }
+        return "\(whole)%"
+    }
+}
