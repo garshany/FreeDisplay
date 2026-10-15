@@ -7795,6 +7795,17 @@
         }
       }
     },
+    "Feed requires a verified persistent display identity" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для передачи состояния требуется подтверждённая постоянная идентичность дисплея"
+          }
+        }
+      }
+    },
     "Feed response (no setter)" : {
       "localizations" : {
         "ru" : {

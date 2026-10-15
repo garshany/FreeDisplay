@@ -372,7 +372,7 @@ make test        # swift test --parallel
 ```
 
 This runs the platform-independent core (`DisplayDomain`, `SceneEngine`, `AutomationSchema`,
-`TopologyCore`): **2,015 unit and state-machine tests**, all passing on 15 October 2026, after a Codex review of the whole P1 diff and a follow-up fix round. The core
+`TopologyCore`): **2,032 unit and state-machine tests**, all passing on 15 October 2026, after a Codex review of the whole P1 diff and two follow-up fix rounds. The core
 is meant to build on Linux too (`make bootstrap` installs a Swift 6 toolchain there). There's no
 remote CI; the local test run is the gate.
 
