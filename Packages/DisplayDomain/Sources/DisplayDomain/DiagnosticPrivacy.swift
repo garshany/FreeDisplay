@@ -32,6 +32,8 @@ public struct DiagnosticPrivacy: Sendable, Equatable {
         }
         // URLs are omitted wholesale: userinfo, query, fragment and device-specific path may be secrets.
         text = replace(#"(?i)\b[a-z][a-z0-9+.-]*://[^\s<>\"']+"#, in: text)
+        // Header credentials can use any scheme and include spaces/commas (e.g. Digest).
+        text = replace(#"(?im)([\"']?(?:proxy-)?authorization[\"']?\s*[:=][ \t]*)(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^\r\n]+)"#, in: text, template: "$1<redacted>")
         text = replace(#"(?i)\bBearer\s+[^\s,;\"']+"#, in: text)
         text = replace(#"(?im)([\"']?(?:[a-z0-9_-]*(?:token|password|secret|credential|api[_ -]?key))[\"']?\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"#, in: text, template: "$1<redacted>")
         if removeUUIDs {
