@@ -27,6 +27,8 @@ final class IntegrationService: ObservableObject {
             .flatMap { try? JSONDecoder().decode(IntegrationHTTPConfiguration.self, from: $0) } ?? .init()
     }
 
+    var httpPaused: Bool { configuration.enabled && model.safeStartup }
+
     func start() {
         do {
             try socket.start(path: LocalAutomationSocket.defaultPath()) { [weak self] data in
@@ -42,7 +44,7 @@ final class IntegrationService: ObservableObject {
             await model.prepareForAutomation()
             guard !Task.isCancelled else { return }
             ipcState = .ready
-            if configuration.enabled { startHTTP() }
+            if configuration.shouldStart(safeStartup: model.safeStartup) { startHTTP() }
         }
     }
     func stop() {
@@ -55,8 +57,7 @@ final class IntegrationService: ObservableObject {
     }
     func configure(enabled: Bool, port: String, remoteAccess: Bool) {
         do {
-            let parsedPort = try IntegrationHTTPConfiguration.parsePort(port)
-            let next = IntegrationHTTPConfiguration(enabled: enabled, port: parsedPort, remoteAccess: remoteAccess)
+            let next = try configuration.updating(enabled: enabled, port: port, remoteAccess: remoteAccess)
             configurationFailure = nil
             guard next != configuration else { return }
             http.stop()
@@ -78,6 +79,7 @@ final class IntegrationService: ObservableObject {
         catch { configurationFailure = String(localized: "HTTP credential error: \(error.localizedDescription)"); return nil }
     }
     private func startHTTP() {
+        guard configuration.shouldStart(safeStartup: model.safeStartup) else { return }
         configurationFailure = nil
         do {
             try http.start(token: IntegrationCredential.loadOrCreate(), configuration: configuration, onReady: { [weak self] port in
@@ -95,6 +97,7 @@ final class IntegrationService: ObservableObject {
             AutomationHTTPResponse(status: status, body:
                 (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data("{}".utf8))
         }
+        guard !model.safeStartup else { return encode(["status": "paused", "error": "HTTP is paused during safe startup"], status: 503) }
         switch command {
         case .displays:
             let result = await AppAutomation.run(.init(.listDisplays), from: .http, model: model)

@@ -150,6 +150,19 @@ public struct ClockModeSession: Sendable {
         manualIntervals[id] = sample?.intervalStart
     }
 
+    /// A ramp's value changes while command preparation suspends. Its interval and hold policy
+    /// determine eligibility; the request keeps the single level sampled at planning time.
+    public func allowsDispatch(schedule: ClockDisplaySchedule, intervalStart: Date,
+                               sample: ClockCalendarPolicy.Sample?, enabled: Bool, safeStartup: Bool,
+                               sleeping: Bool, competingPolicy: Bool) -> Bool {
+        guard sample?.intervalStart == intervalStart else { return false }
+        if case .request = decision(schedule: schedule, sample: sample, enabled: enabled,
+                                    safeStartup: safeStartup, sleeping: sleeping, competingPolicy: competingPolicy) {
+            return true
+        }
+        return false
+    }
+
     public func decision(schedule: ClockDisplaySchedule, sample: ClockCalendarPolicy.Sample?,
                          enabled: Bool, safeStartup: Bool, sleeping: Bool, competingPolicy: Bool) -> Decision {
         guard PersistentDisplayIdentity.isPersistent(schedule.displayID) else { return .hold(.provisionalIdentity) }

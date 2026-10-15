@@ -34,13 +34,14 @@ public struct AutomationDisplayCandidate: Hashable, Sendable, Codable, Identifia
     public var productID: Int?
     public var serial: String?
     /// Whether the pointer is on this display; nil when the surface can't tell.
+    public var legacyListRow: LegacyDisplayListRow?
     public var containsPointer: Bool?
 
     public init(id: DisplayRecordID, registryID: DisplayRecordID? = nil, cgDisplayID: UInt32? = nil,
                 name: String, alias: String? = nil, tags: Set<String> = [], groups: Set<String> = [],
                 availability: Availability, reachability: Reachability? = nil, isMain: Bool = false,
                 isBuiltIn: Bool = false, vendorID: Int? = nil, productID: Int? = nil, serial: String? = nil,
-                containsPointer: Bool? = nil) {
+                containsPointer: Bool? = nil, legacyListRow: LegacyDisplayListRow? = nil) {
         self.id = id
         self.registryID = registryID
         self.cgDisplayID = cgDisplayID
@@ -62,6 +63,7 @@ public struct AutomationDisplayCandidate: Hashable, Sendable, Codable, Identifia
         self.productID = productID
         self.serial = serial
         self.containsPointer = containsPointer
+        self.legacyListRow = legacyListRow
     }
 }
 

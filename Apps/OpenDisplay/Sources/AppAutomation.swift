@@ -14,9 +14,9 @@ import TopologyCore
 @MainActor
 enum AppAutomation {
     static func run(_ request: AutomationRequest, from surface: AutomationSurface,
-                    model: AppModel) async -> AutomationResult {
+                    model: AppModel, beforeMutation: (@MainActor () -> AutomationIssue?)? = nil) async -> AutomationResult {
         AppDiagnostics.shared.record("command=\(request.command.name.rawValue) surface=\(surface.rawValue) started")
-        let result = await AutomationEngine(environment: AppAutomationEnvironment(model: model, surface: surface)).run(request)
+        let result = await AutomationEngine(environment: AppAutomationEnvironment(model: model, surface: surface, beforeMutation: beforeMutation)).run(request)
         AppDiagnostics.shared.record("command=\(request.command.name.rawValue) outcome=\(result.status.rawValue)")
         return result
     }
@@ -30,13 +30,16 @@ enum AppAutomation {
 final class AppAutomationEnvironment: AutomationEnvironment {
     nonisolated let surface: AutomationSurface
     private let model: AppModel
+    private let beforeMutation: (@MainActor () -> AutomationIssue?)?
     private let beforeClockWrite: (@MainActor () -> AutomationIssue?)?
 
     init(model: AppModel, surface: AutomationSurface,
-         beforeClockWrite: (@MainActor () -> AutomationIssue?)? = nil) {
+         beforeClockWrite: (@MainActor () -> AutomationIssue?)? = nil,
+         beforeMutation: (@MainActor () -> AutomationIssue?)? = nil) {
         self.model = model
         self.surface = surface
         self.beforeClockWrite = beforeClockWrite
+        self.beforeMutation = beforeMutation
     }
 
     nonisolated func unavailability(of command: AutomationCommandName) -> AutomationIssue? {
@@ -58,6 +61,21 @@ final class AppAutomationEnvironment: AutomationEnvironment {
         }
     }
 
+    func validateMutation() async throws(AutomationIssue) { try checkMutation() }
+
+    private func makeReceipt(_ level: AutomationLevel) -> BrightnessWriteReceipt {
+        BrightnessWriteReceipt(level, beforeDispatch: { [self] in
+            do throws(AutomationIssue) { try checkMutation(); return beforeClockWrite?() } catch { return error }
+        })
+    }
+
+    private func checkMutation() throws(AutomationIssue) {
+        if let issue = AutomationMutationPolicy.cancellationIssue ?? beforeMutation?() { throw issue }
+        if surface == .http, model.safeStartup {
+            throw AutomationIssue(.capabilityUnavailable, "HTTP is paused during safe startup")
+        }
+    }
+
     func prepare() async throws(AutomationIssue) {
         await model.prepareForAutomation()
         model.integrationSession.start(model: model)
@@ -68,6 +86,7 @@ final class AppAutomationEnvironment: AutomationEnvironment {
     }
 
     func feedIntegration(control: UUID, response: String, display: AutomationDisplayCandidate) async throws(AutomationIssue) -> IntegrationSample {
+        try checkMutation()
         do { return try model.integrationSession.feed(controlID: control, response: response, displayID: display.id) }
         catch { throw AutomationIssue(.invalidValue, (error as? IntegrationError)?.message ?? error.localizedDescription, subject: control.uuidString) }
     }
@@ -85,6 +104,7 @@ final class AppAutomationEnvironment: AutomationEnvironment {
 
     func tvControl(_ action: TVAction, on display: AutomationDisplayCandidate) async throws(AutomationIssue) -> TVCommandReceipt {
         guard !model.safeStartup else { throw AutomationIssue(.capabilityUnavailable, "TV control is disabled during safe startup") }
+        try checkMutation()
         return try await TVControlStore.shared.perform(action, display: display.id)
     }
 
@@ -112,9 +132,11 @@ final class AppAutomationEnvironment: AutomationEnvironment {
         // The app's own brightness funnel: same routes, coalescing, OSD event and group behaviour as
         // any other change.
         if let issue = beforeClockWrite?() { throw issue }
+        try checkMutation()
+        let receipt = makeReceipt(level)
         model.setBrightness(level.float, for: observation, eventSource: osdSource,
-                            syncBypass: beforeClockWrite != nil, policyWrite: beforeClockWrite != nil)
-        return await model.automationBrightnessWriteReport(level, for: observation)
+                            syncBypass: beforeClockWrite != nil, policyWrite: beforeClockWrite != nil, receipt: receipt)
+        return await receipt.report()
     }
 
     func adjustBrightness(by delta: AutomationLevelDelta, of display: AutomationDisplayCandidate,
@@ -129,12 +151,15 @@ final class AppAutomationEnvironment: AutomationEnvironment {
                                   subject: display.id.rawValue)
         }
         let target = AutomationLevel(clamping: Double(current)).offset(by: delta)
-        model.setBrightness(target.float, for: observation, eventSource: osdSource)
-        return await model.automationBrightnessWriteReport(target, for: observation)
+        try checkMutation()
+        let receipt = makeReceipt(target)
+        model.setBrightness(target.float, for: observation, eventSource: osdSource, receipt: receipt)
+        return await receipt.report()
     }
 
     func writeGroupBrightness(_ level: AutomationLevel, group: String, dryRun: Bool) async throws(AutomationIssue) -> ResultEnvelope {
-        try await model.automationGroupBrightness(level, groupName: group, dryRun: dryRun, actor: surface.actor)
+        try checkMutation()
+        return try await model.automationGroupBrightness(level, groupName: group, dryRun: dryRun, actor: surface.actor)
     }
 
     func readContrast(of display: AutomationDisplayCandidate) async throws(AutomationIssue) -> BrightnessReadback {
@@ -144,8 +169,10 @@ final class AppAutomationEnvironment: AutomationEnvironment {
     }
     func writeContrast(_ level: AutomationLevel, to display: AutomationDisplayCandidate) async throws(AutomationIssue) -> BrightnessWriteReport {
         let observation = try active(display)
-        model.setHardwareControl(.contrast, level.float, for: observation, eventSource: osdSource)
-        return await model.automationContrastWriteReport(level, for: observation)
+        try checkMutation()
+        let receipt = makeReceipt(level)
+        model.setHardwareControl(.contrast, level.float, for: observation, eventSource: osdSource, receipt: receipt)
+        return await receipt.report()
     }
 
     // MARK: Modes and main display
@@ -168,7 +195,11 @@ final class AppAutomationEnvironment: AutomationEnvironment {
         }
         // The menu's own path: exact-mode check, verified apply, rollback on mismatch, then the
         // keep-or-revert countdown.
-        await model.setMode(mode, for: observation)
+        try checkMutation()
+        await model.setMode(mode, for: observation, beforeMutation: { [self] in
+            do throws(AutomationIssue) { try checkMutation(); return nil } catch { return error }
+        })
+        try checkMutation()
         let actual = model.displays.first { $0.recordID == display.id }?.mode
         switch AutomationModeOptions.outcome(error: model.modeChangeError, revertPending: model.pendingRevert != nil,
                                              actual: actual, requested: mode) {
@@ -202,7 +233,10 @@ final class AppAutomationEnvironment: AutomationEnvironment {
         if !observation.isMain {
             // The app's own funnel opens the keep/revert window; a change that didn't open one
             // was refused or not confirmed by macOS.
-            guard await model.setMain(for: observation), model.pendingRevert?.kind == .mainDisplay else {
+            try checkMutation()
+            guard await model.setMain(for: observation, beforeMutation: { [self] in
+                do throws(AutomationIssue) { try checkMutation(); return nil } catch { return error }
+            }), model.pendingRevert?.kind == .mainDisplay else {
                 throw AutomationIssue(.notConfirmed,
                                       model.modeChangeError ?? "macOS didn't confirm \(display.name) as the main display",
                                       subject: display.id.rawValue)
@@ -235,8 +269,10 @@ final class AppAutomationEnvironment: AutomationEnvironment {
             guard let installed = model.availableColorProfilesCache.first(where: { $0.id == profile.id }) else {
                 throw AutomationIssue(.profileNotFound, "\(profile.name) is no longer installed", subject: profile.id)
             }
+            try checkMutation()
             await model.setColorProfile(installed, for: observation)
         } else {
+            try checkMutation()
             await model.resetColorProfile(for: observation)
         }
         if let failure = model.colorProfileError[display.id] {
@@ -257,6 +293,7 @@ final class AppAutomationEnvironment: AutomationEnvironment {
     }
     func disconnect(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> ResultEnvelope {
         try await validateDisconnect(display)
+        try checkMutation()
         let committed = await model.setDisplayActive(false, for: try active(display), as: surface.actor)
         return ResultEnvelope(transactionId: "txn_disconnect", status: committed ? .committed : .failed,
             actor: surface.actor, requestedAt: Date(), topologyGeneration: model.displays.map(\.generation.value).max() ?? 0,
@@ -268,6 +305,7 @@ final class AppAutomationEnvironment: AutomationEnvironment {
 
     func reconnectAll() async throws(AutomationIssue) -> ResultEnvelope {
         guard !model.busy else { throw AutomationIssue(.busy, "another display operation is in progress") }
+        try checkMutation()
         guard surface == .http else { return await model.reconnectAll(actor: surface.actor) }
         // A verified reconnect watches each display until it lights (with one escalation), which
         // outlasts an HTTP connection, so it runs as its own operation — the socket closing doesn't

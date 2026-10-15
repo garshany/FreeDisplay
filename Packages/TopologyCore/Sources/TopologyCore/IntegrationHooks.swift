@@ -44,6 +44,12 @@ public struct IntegrationConfiguration: Hashable, Codable, Sendable {
         }
         return result
     }
+    /// Validation may become stricter after an upgrade. Retain the definitions and disk bytes;
+    /// quarantine their execution flags until the user reviews the rejected invocation.
+    public func executionAdmission() -> (configuration: Self, failure: String?) {
+        do { try validateForStorage(); return (self, nil) }
+        catch { return (pausedForImport(), (error as? IntegrationError)?.message ?? error.localizedDescription) }
+    }
     public func validateForStorage() throws {
         try validate(in: .init(candidates: displays.map {
             AutomationDisplayCandidate(id: $0.id, name: $0.id.rawValue, availability: .disconnected)
@@ -125,6 +131,7 @@ public struct IntegrationHookState: Sendable {
     private var absent: Set<DisplayRecordID> = []
     private var pendingReady: Set<DisplayRecordID> = []
     private var sleeping = false
+    private var delayedEligible: Set<DisplayRecordID> = []
     private var delayedDelivered: Set<DisplayRecordID> = []
     private var softSeen: Set<IntegrationHookEvent> = []
     public private(set) var wakeGeneration = UUID()
@@ -135,6 +142,7 @@ public struct IntegrationHookState: Sendable {
             initialized = true; connected = next; absent = remembered.subtracting(next); return []
         }
         let lost = connected.subtracting(next)
+        delayedEligible.subtract(lost)
         absent.formUnion(lost)
         absent.formUnion(remembered.subtracting(next))
         pendingReady.formUnion(next.subtracting(connected).intersection(absent))
@@ -151,18 +159,18 @@ public struct IntegrationHookState: Sendable {
     }
     public mutating func sleep() -> [IntegrationHookEvent] {
         guard !sleeping else { return [] }
-        sleeping = true; wakeGeneration = UUID(); delayedDelivered.removeAll()
+        sleeping = true; wakeGeneration = UUID(); delayedDelivered.removeAll(); delayedEligible.removeAll()
         return connected.sorted(by: { $0.rawValue < $1.rawValue }).map { .init(phase: .systemSleep, display: $0) }
     }
     public mutating func wake() -> [IntegrationHookEvent] {
         guard sleeping else { return [] }
-        sleeping = false; wakeGeneration = UUID(); delayedDelivered.removeAll()
+        sleeping = false; wakeGeneration = UUID(); delayedDelivered.removeAll(); delayedEligible = connected
         return connected.sorted(by: { $0.rawValue < $1.rawValue }).map {
             .init(phase: .systemWakeImmediate, display: $0, wakeGeneration: wakeGeneration)
         }
     }
     public mutating func delayedWake(display: DisplayRecordID, generation: UUID) -> IntegrationHookEvent? {
-        guard !sleeping, generation == wakeGeneration, connected.contains(display), delayedDelivered.insert(display).inserted else { return nil }
+        guard !sleeping, generation == wakeGeneration, delayedEligible.contains(display), connected.contains(display), delayedDelivered.insert(display).inserted else { return nil }
         return .init(phase: .systemWake, display: display, transition: generation, wakeGeneration: generation)
     }
 }

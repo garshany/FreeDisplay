@@ -20,6 +20,15 @@ final class IntegrationActionTests: XCTestCase {
             XCTAssertThrowsError(try IntegrationActionPolicy.prepare(.process(executable: "/bin/bash", arguments: arguments, budget: budget), context: .init(display: display)))
         }
     }
+    func testEnvValidatesNestedInterpreterBeforeMetadataExpansion() throws {
+        for arguments in [["/bin/sh", "-lc", "[*:DEVICE_NAME:*]"],
+                          ["/usr/bin/env", "/bin/bash", "-lc", "[*:DEVICE_NAME:*]"],
+                          ["-S", "/bin/sh -lc [*:DEVICE_NAME:*]"],
+                          ["/usr/bin/arch", "/bin/sh", "-lc", "[*:DEVICE_NAME:*]"]] {
+            XCTAssertThrowsError(try IntegrationActionPolicy.prepare(.process(executable: "/usr/bin/env", arguments: arguments, budget: budget), context: .init(display: display)))
+        }
+        XCTAssertNoThrow(try IntegrationActionPolicy.prepare(.process(executable: "/usr/bin/env", arguments: ["/bin/sh", "/owned/script.sh", "[*:DEVICE_NAME:*]"], budget: budget), context: .init(display: display)))
+    }
     func testRelativeExecutableAndNULAreRejected() {
         for action in [IntegrationAction.process(executable: "tool", arguments: [], budget: budget), .process(executable: "/tool", arguments: ["x\0y"], budget: budget)] {
             XCTAssertThrowsError(try IntegrationActionPolicy.prepare(action, context: .init(display: display)))

@@ -14,7 +14,10 @@ final class AppIntegrationEnvironment: IntegrationActionEnvironment {
         case .brightness: return .init(.failed, detail: "Action was not prepared")
         case .command(let command):
             guard let model else { return .init(.failed, detail: "FreeDisplay is unavailable") }
-            let result = await AppAutomation.run(.byID(command, prepared.target), from: .console, model: model)
+            let execution = model.integrationSession.execution
+            let generation = execution.current
+            let result = await AppAutomation.run(.byID(command, prepared.target), from: .console, model: model,
+                beforeMutation: { execution.issue(for: generation) })
             return .init(.transportCompleted, commandResult: result)
         case .process(let executable, let arguments, let budget):
             let job = IntegrationProcessJob()

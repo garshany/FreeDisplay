@@ -144,14 +144,15 @@ public struct IntegrationSample: Hashable, Codable, Sendable {
     }
     private var tailIDs: [String: UUID] = [:]
     private func perform(_ action: IntegrationPreparedAction, key: String,
-                         environment: any IntegrationActionEnvironment) async -> IntegrationReceipt {
+                         environment: any IntegrationActionEnvironment,
+                         isCurrent: @escaping @MainActor () -> Bool = { true }) async -> IntegrationReceipt {
         let prior = tails[key]
         let revision = revisions[key]
         let token = tokens[key] ?? UUID(); tokens[key] = token
         let taskID = UUID(); tailIDs[key] = taskID
         let task = Task { @MainActor in
             if let prior { _ = await prior.value }
-            guard !Task.isCancelled, self.tokens[key] == token else { return IntegrationReceipt(.cancelled) }
+            guard !Task.isCancelled, self.tokens[key] == token, isCurrent() else { return IntegrationReceipt(.cancelled) }
             if action.action == .none { return IntegrationReceipt(.noOp) }
             return await environment.execute(action)
         }
@@ -160,7 +161,7 @@ public struct IntegrationSample: Hashable, Codable, Sendable {
         let receipt = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         jobs[key]?.removeValue(forKey: taskID)
         if tokens[key] == token {
-            if revisions[key] == revision {
+            if revisions[key] == revision, isCurrent() {
                 receipts[key] = receipt
                 if let failure = receipt.failureMessage { failures[key] = failure }
                 else { failures.removeValue(forKey: key) }
@@ -171,13 +172,14 @@ public struct IntegrationSample: Hashable, Codable, Sendable {
         return receipt
     }
     public func read(_ action: IntegrationPreparedAction, parser: IntegrationReadback, key: String,
-                     environment: any IntegrationActionEnvironment, now: @escaping @MainActor () -> Date = { Date() }) async {
+                     environment: any IntegrationActionEnvironment, now: @escaping @MainActor () -> Date = { Date() },
+                     isCurrent: @escaping @MainActor () -> Bool = { true }) async {
         defer { onChange?() }
         guard tails[key] == nil else { return }
         let revision = UUID(); revisions[key] = revision
         let token = tokens[key] ?? UUID(); tokens[key] = token
-        let receipt = await perform(action, key: key, environment: environment)
-        guard tokens[key] == token, revisions[key] == revision else { return }
+        let receipt = await perform(action, key: key, environment: environment, isCurrent: isCurrent)
+        guard tokens[key] == token, revisions[key] == revision, isCurrent() else { return }
         guard let text = receipt.readableText else { failures[key] = receipt.failureMessage ?? "Action returned no readable response"; return }
         do {
             samples[key] = .init(value: try parser.parse(text), at: now(), source: .readback)
@@ -188,13 +190,26 @@ public struct IntegrationSample: Hashable, Codable, Sendable {
                              parser: IntegrationReadback, environment: any IntegrationActionEnvironment,
                              failurePolicy: IntegrationPollingFailurePolicy,
                              sleep: @escaping @Sendable (Double) async throws -> Void) throws {
+        try startPolling(seconds: seconds, key: key, parser: parser, environment: environment,
+                         failurePolicy: failurePolicy, prepare: { action }, sleep: sleep)
+    }
+    public func startPolling(seconds: Double?, key: String, parser: IntegrationReadback,
+                             environment: any IntegrationActionEnvironment,
+                             failurePolicy: IntegrationPollingFailurePolicy,
+                             prepare: @escaping @MainActor () throws -> IntegrationPreparedAction?,
+                             sleep: @escaping @Sendable (Double) async throws -> Void) throws {
         cancel(key)
         guard let seconds else { return }
         guard IntegrationTiming.isRepresentable(seconds) else { throw IntegrationError.invalid("Configure a positive polling interval") }
         polls[key] = Task { @MainActor in
             while !Task.isCancelled {
                 do { try await sleep(seconds); try Task.checkCancellation() } catch { return }
-                await self.read(action, parser: parser, key: key, environment: environment)
+                do {
+                    guard let action = try prepare() else { return }
+                    await self.read(action, parser: parser, key: key, environment: environment,
+                                    isCurrent: { (try? prepare()) == action })
+                } catch { self.failures[key] = (error as? IntegrationError)?.message ?? error.localizedDescription }
+
                 if !Task.isCancelled, self.failures[key] != nil, failurePolicy == .stop {
                     self.stoppedPolls.insert(key); self.onChange?(); return
                 }

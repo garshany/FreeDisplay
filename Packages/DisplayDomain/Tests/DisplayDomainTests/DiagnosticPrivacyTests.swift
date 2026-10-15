@@ -5,6 +5,17 @@ import DisplayDomain
 final class DiagnosticPrivacyTests: XCTestCase {
     let uuid = "12345678-ABCD-4321-ABCD-1234567890AB"
 
+    func testEveryAuthorizationSchemeIsRemovedFromTextSinks() throws {
+        let policy = DiagnosticPrivacy(removeSerials: false, removeUUIDs: false, removeRegistryPaths: false)
+        let source = "Authorization: Basic dXNlcjpwYXNz\r\nProxy-Authorization: Digest username=alice, response=private\nAUTHORIZATION = Custom arbitrary credential text\nAuthorization: Custom\r\n folded-secret\nkeep=value"
+        let result = policy.redact(source)
+        for secret in ["dXNlcjpwYXNz", "alice", "private", "arbitrary", "credential text", "folded-secret"] {
+            XCTAssertFalse(result.contains(secret))
+            let artifact = try XCTUnwrap(policy.redactedArtifact(Data(source.utf8), pathExtension: "txt"))
+            XCTAssertFalse(String(decoding: artifact, as: UTF8.self).contains(secret))
+        }
+        XCTAssertTrue(result.contains("keep=value"))
+    }
     func testKnownUnlabelledSecretsAndSerials() {
         let policy = DiagnosticPrivacy(knownSecrets: ["shared-secret"], knownSerials: ["MONITOR-7"])
         XCTAssertEqual(policy.redact("failure shared-secret MONITOR-7"), "failure <redacted> <redacted>")

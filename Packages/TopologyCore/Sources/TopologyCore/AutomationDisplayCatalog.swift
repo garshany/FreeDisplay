@@ -143,7 +143,9 @@ public enum AutomationDisplayCatalog {
                 availability: availability, reachability: reachability, isMain: observation.isMain,
                 isBuiltIn: observation.displayClass == .builtIn, vendorID: known?.fingerprint.vendorID,
                 productID: known?.fingerprint.productID, serial: known?.fingerprint.serialNumber,
-                containsPointer: pointer(observation.cgDisplayID, present: !turnedOff)))
+                containsPointer: pointer(observation.cgDisplayID, present: !turnedOff),
+                legacyListRow: .init(observation, registryID: known?.id, alias: known?.alias,
+                                     tags: known?.tags ?? [], managedOffline: offlineIDs.contains(observation.recordID))))
         }
         for display in offline where listed.insert(display.recordID).inserted {
             let known = record(display.recordID)
@@ -156,7 +158,10 @@ public enum AutomationDisplayCatalog {
                 availability: .disconnected, reachability: .managedOffline,
                 isBuiltIn: display.displayClass == .builtIn, vendorID: known?.fingerprint.vendorID,
                 productID: known?.fingerprint.productID, serial: known?.fingerprint.serialNumber,
-                containsPointer: pointer(display.cgID, present: false)))
+                containsPointer: pointer(display.cgID, present: false),
+                legacyListRow: .init(.init(recordID: display.recordID, cgDisplayID: display.cgID, isActive: false,
+                                          displayClass: display.displayClass, generation: .init(generation)),
+                                     registryID: known?.id, alias: known?.alias, tags: known?.tags ?? [], managedOffline: true)))
         }
         var represented = Set(candidates.compactMap(\.registryID)).union(candidates.map(\.id))
         for (id, known) in remembered.sorted(by: { $0.key.rawValue < $1.key.rawValue })
@@ -167,7 +172,10 @@ public enum AutomationDisplayCatalog {
                 tags: known.tags, groups: groupNames([id, known.id]), availability: .disconnected,
                 isBuiltIn: known.displayClass == .builtIn, vendorID: known.fingerprint.vendorID,
                 productID: known.fingerprint.productID, serial: known.fingerprint.serialNumber,
-                containsPointer: false))
+                containsPointer: false,
+                legacyListRow: .init(.init(recordID: id, isActive: false, displayClass: known.displayClass,
+                                          generation: .init(generation)), registryID: known.id,
+                                     alias: known.alias, tags: known.tags, managedOffline: false)))
         }
         return AutomationDisplaySet(candidates: candidates, knownGroups: groups.map(\.name), topologyGeneration: generation)
     }

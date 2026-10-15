@@ -43,6 +43,8 @@ private struct IntegrationControlPanel: View {
                 Text("Remote HTTP sends credentials and commands without encryption. Use a trusted network or an authenticated TLS tunnel. Never expose this listener to the public internet.").font(.caption)
                 if let boundPort = server.port {
                     Text("Server running: http://\(service.configuration.host):\(boundPort)").textSelection(.enabled)
+                } else if service.httpPaused {
+                    Text("HTTP paused during safe startup; the saved preference is unchanged")
                 } else if service.configuration.enabled {
                     Text("HTTP enabled; listener is not ready")
                     Button("Retry HTTP Server") { service.retryHTTP() }

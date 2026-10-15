@@ -62,7 +62,9 @@ extension AppModel {
         for schedule in configuration.displays {
             guard !Task.isCancelled, settings.clockMode == configuration, settings.clockScheduleEnabled else { return }
             do {
-                switch try clockDecision(schedule, at: Date()) {
+                let plannedAt = Date()
+                let intervalStart = try clockSample(schedule, at: plannedAt)?.intervalStart
+                switch try clockDecision(schedule, at: plannedAt) {
                 case .hold(let reason):
                     clockModeHolds[schedule.displayID] = reason
                     clockModeLastRequests[schedule.displayID] = nil
@@ -70,7 +72,7 @@ extension AppModel {
                     clockModeHolds[schedule.displayID] = nil
                     // A settled absolute request needs no repeated transport write in the same state.
                     if clockModeLastRequests[schedule.displayID] == request { continue }
-                    let result = await runClockRequest(request, schedule: schedule, recurring: true)
+                    let result = await runClockRequest(request, schedule: schedule, recurring: true, intervalStart: intervalStart)
                     guard !Task.isCancelled, settings.clockMode == configuration,
                           settings.clockScheduleEnabled, !clockModeLifecycleSuspended else { return }
                     clockModeResults[schedule.displayID] = result
@@ -115,7 +117,7 @@ extension AppModel {
     }
 
     private func runClockRequest(_ request: AutomationRequest, schedule: ClockDisplaySchedule,
-                                 recurring: Bool) async -> AutomationResult {
+                                 recurring: Bool, intervalStart: Date? = nil) async -> AutomationResult {
         let configuration = settings.clockMode
         let environment = AppAutomationEnvironment(model: self, surface: .console, beforeClockWrite: { [weak self] in
             guard let self, self.settings.clockMode == configuration,
@@ -129,7 +131,12 @@ extension AppModel {
             // Route discovery and startup readiness suspend. Re-evaluate immediately before writing.
             if recurring {
                 do throws(AutomationIssue) {
-                    guard try self.clockDecision(schedule, at: Date()) == .request(request) else {
+                    guard let intervalStart,
+                          self.clockModeSession.allowsDispatch(schedule: schedule, intervalStart: intervalStart,
+                              sample: try self.clockSample(schedule, at: Date()),
+                              enabled: self.settings.clockScheduleEnabled, safeStartup: self.safeStartup,
+                              sleeping: self.clockModeTargetSleeping(schedule.displayID),
+                              competingPolicy: self.clockModeHasCompetitor(schedule.displayID)) else {
                         return AutomationIssue(.busy, "Clock Mode changed or paused before dispatch")
                     }
                 } catch { return error }

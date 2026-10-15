@@ -61,6 +61,17 @@ final class IntegrationHooksTests: XCTestCase {
         _ = state.topology(connected: [], remembered: [a], ready: [])
         XCTAssertNil(state.delayedWake(display: a, generation: current))
     }
+    func testDisconnectReconnectionInvalidatesOnlyThatDisplaysDelayedWake() {
+        var state = IntegrationHookState()
+        _ = state.topology(connected: [a, b], remembered: [], ready: [a, b])
+        _ = state.sleep(); _ = state.wake(); let generation = state.wakeGeneration
+        _ = state.topology(connected: [b], remembered: [a], ready: [b])
+        _ = state.topology(connected: [a, b], remembered: [], ready: [a, b])
+        XCTAssertNil(state.delayedWake(display: a, generation: generation))
+        XCTAssertNotNil(state.delayedWake(display: b, generation: generation))
+        _ = state.sleep(); _ = state.wake()
+        XCTAssertNotNil(state.delayedWake(display: a, generation: state.wakeGeneration))
+    }
     func testNewConfigurationsAreInactiveAndImportRequiresReview() throws {
         let hook = IntegrationHook(phase: .hardReconnect)
         XCTAssertFalse(hook.enabled); XCTAssertEqual(hook.action, .none)
@@ -111,6 +122,23 @@ final class IntegrationHooksTests: XCTestCase {
         try Data("broken".utf8).write(to: store.url)
         XCTAssertThrowsError(try store.load())
         XCTAssertEqual(try String(contentsOf: store.url, encoding: .utf8), "broken")
+    }
+    func testUnsafePreviouslySavedInvocationIsQuarantinedWithoutDroppingDefinitions() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = IntegrationConfigurationStore(directory: directory)
+        let action = IntegrationAction.process(executable: "/usr/bin/env", arguments: ["/bin/sh", "-lc", "[*:DEVICE_NAME:*]"], budget: .init(timeoutSeconds: 1, maximumOutputBytes: 100))
+        let original = IntegrationConfiguration(displays: [.init(id: a, enabled: true,
+            hooks: [.init(phase: .hardReconnect, enabled: true, action: action)])])
+        try store.save(original)
+        let bytes = try Data(contentsOf: store.url)
+        let admitted = try store.load().executionAdmission()
+        XCTAssertNotNil(admitted.failure)
+        XCTAssertFalse(admitted.configuration.displays[0].enabled)
+        XCTAssertFalse(admitted.configuration.displays[0].hooks[0].enabled)
+        XCTAssertEqual(admitted.configuration.displays[0].hooks[0].action, action)
+        XCTAssertEqual(try Data(contentsOf: store.url), bytes)
+        XCTAssertEqual(try store.load(), original)
     }
     func testArchiveReplacementPausesIncomingActionsAndBackupRetainsOriginal() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

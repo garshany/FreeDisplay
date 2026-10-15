@@ -46,6 +46,25 @@ final class LocalAutomationProtocolTests: XCTestCase, @unchecked Sendable {
         }
         return try JSONDecoder().decode(IPC.Response.self, from: JSONEncoder().encode(response))
     }
+    func testSafeStartupSuppressesSavedHTTPWithoutChangingPreference() throws {
+        let saved = IntegrationHTTPConfiguration(enabled: true, port: 8888, remoteAccess: true)
+        let loaded = try JSONDecoder().decode(IntegrationHTTPConfiguration.self, from: JSONEncoder().encode(saved))
+        XCTAssertFalse(loaded.shouldStart(safeStartup: true))
+        XCTAssertTrue(loaded.shouldStart(safeStartup: false))
+        XCTAssertEqual(loaded, saved)
+        XCTAssertFalse(IntegrationHTTPConfiguration().shouldStart(safeStartup: false))
+    }
+    func testInvalidDraftPortCannotBlockDisableOrRemoteRevocation() throws {
+        let saved = IntegrationHTTPConfiguration(enabled: true, port: 8888, remoteAccess: true)
+        let disabled = try saved.updating(enabled: false, port: "abc", remoteAccess: true)
+        XCTAssertFalse(disabled.enabled); XCTAssertEqual(disabled.port, 8888)
+        let local = try saved.updating(enabled: true, port: "abc", remoteAccess: false)
+        XCTAssertFalse(local.remoteAccess); XCTAssertEqual(local.port, 8888)
+        XCTAssertEqual(local.host, "127.0.0.1")
+        XCTAssertThrowsError(try saved.updating(enabled: true, port: "abc", remoteAccess: true))
+        XCTAssertThrowsError(try local.updating(enabled: true, port: "abc", remoteAccess: true))
+        XCTAssertEqual(try saved.updating(enabled: true, port: "9999", remoteAccess: false).port, 9999)
+    }
     func testIPCExplicitlyRefusesConsoleOnlyTVAndHTTPOnlyFeed() async throws {
         let fake = IPCFake()
         for command in [AutomationCommand.tvControl(.wake), .tvControl(.volumeUp),

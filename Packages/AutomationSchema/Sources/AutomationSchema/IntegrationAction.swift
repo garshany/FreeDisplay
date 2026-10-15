@@ -98,6 +98,7 @@ public struct IntegrationContext: Sendable {
 public struct IntegrationPreparedAction: Hashable, Sendable {
     public var action: IntegrationAction
     public var target: DisplayRecordID
+    public var binding: AutomationDisplayCandidate? = nil
 }
 
 public enum IntegrationActionPolicy {
@@ -127,12 +128,7 @@ public enum IntegrationActionPolicy {
             guard !arguments.contains(where: { ["-c", "-e", "--command", "--eval"].contains($0) }) else {
                 throw IntegrationError.invalid("Inline interpreter code is not supported; use a script file and argument array")
             }
-            let interpreter = URL(fileURLWithPath: path).lastPathComponent
-            if ["sh", "bash", "zsh", "dash", "ksh", "fish", "python", "python3", "ruby", "perl", "node", "osascript", "swift", "env"].contains(interpreter) {
-                guard let script = arguments.first, script.hasPrefix("/"), !script.contains("[*:") else {
-                    throw IntegrationError.invalid("Interpreters require an absolute literal script path as the first argument")
-                }
-            }
+            try validateInvocation(path, arguments: arguments[...])
             let args = try arguments.map { try context.expand($0) }
             guard !args.contains(where: { $0.utf8.contains(0) }) else { throw IntegrationError.invalid("NUL in argument") }
             prepared = .process(executable: path, arguments: args, budget: budget)
@@ -150,7 +146,28 @@ public enum IntegrationActionPolicy {
             guard !name.isEmpty, !name.contains("[*:") else { throw IntegrationError.invalid("Notification name must be a literal") }
             prepared = .notification(name: name, payload: try context.expand(payload))
         }
-        return .init(action: prepared, target: context.display.id)
+        return .init(action: prepared, target: context.display.id, binding: context.display)
+    }
+
+    private static func validateInvocation(_ path: String, arguments: ArraySlice<String>) throws {
+        let executable = URL(fileURLWithPath: path).lastPathComponent
+        let interpreters = ["sh", "bash", "zsh", "dash", "ksh", "fish", "python", "python3", "ruby", "perl", "node", "osascript", "swift"]
+        if executable == "env" {
+            // env is an executable wrapper, not a script interpreter. Validate the nested argv
+            // before expanding data; option forms such as -S can reinterpret an argument as code.
+            guard let nested = arguments.first, nested.hasPrefix("/"), !nested.contains("[*:") else {
+                throw IntegrationError.invalid("env requires an absolute literal executable and a validated argument array")
+            }
+            let nestedName = URL(fileURLWithPath: nested).lastPathComponent
+            guard nestedName == "env" || interpreters.contains(nestedName) else {
+                throw IntegrationError.invalid("env must wrap a supported interpreter with a literal script file")
+            }
+            try validateInvocation(nested, arguments: arguments.dropFirst())
+        } else if interpreters.contains(executable) {
+            guard let script = arguments.first, script.hasPrefix("/"), !script.contains("[*:") else {
+                throw IntegrationError.invalid("Interpreters require an absolute literal script path as the first argument")
+            }
+        }
     }
 
     private static func validatedURL(_ template: String, context: IntegrationContext, schemes: [String]?) throws -> String {

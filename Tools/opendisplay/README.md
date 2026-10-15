@@ -255,3 +255,7 @@ handshake also restores the claim; importing/resetting preferences ends receiver
 Archives export the user's preferences with the temporary receiver overlay removed. There is no
 lease, polling interval or automatic expiry. A receiver cannot assume a response or HUD listener
 exists when FreeDisplay is not running.
+
+`list --json` preserves the original top-level array and its `recordId`, `active`, `main`,
+`managedOffline`, `displayClass`, `mode` and `origin` fields on both app IPC and standalone paths.
+Use `opendisplay command listDisplays --json` for the typed AutomationResult envelope with `servedBy`.
