@@ -66,6 +66,55 @@ final class OSDBroadcastTests: XCTestCase {
     func testSourceVocabularyIsStable() {
         // Receivers and `listen` consumers match these strings; renaming one is a breaking change.
         XCTAssertEqual(OSDBroadcast.Source.allCases.map(\.rawValue),
-                       ["menu", "mediaKey", "hotkey", "http", "cli", "appIntent", "app"])
+                       ["menu", "mediaKey", "hotkey", "http", "cli", "appIntent", "app", "osd", "groupSync"])
+    }
+
+    // MARK: Richer payload and receiver tolerance (IN-16 / T30)
+
+    func testPresentationHintsTravelThroughUserInfo() {
+        let broadcast = OSDBroadcast(kind: .brightness, value: 0.4, maxValue: 1, displayID: "cg:1",
+                                     source: "mediaKey", timestamp: 5, screenID: 69_732_928,
+                                     symbol: "sun.max", control: "ddc", state: OSDBroadcast.State.requested.rawValue)
+        let info = broadcast.userInfo
+        XCTAssertEqual(info["screenID"], "69732928")
+        XCTAssertEqual(info["symbol"], "sun.max")
+        XCTAssertEqual(info["control"], "ddc")
+        XCTAssertEqual(info["state"], "requested")
+        XCTAssertNil(info["text"])
+        XCTAssertEqual(OSDBroadcast(userInfo: info), broadcast)
+    }
+
+    func testAnInputSwitchHasTextAndNoValue() {
+        let broadcast = OSDBroadcast(kind: .input, value: nil, displayID: "cg:1", source: "hotkey", timestamp: 1,
+                                     symbol: "arrow.triangle.swap", text: "HDMI 2")
+        XCTAssertNil(broadcast.userInfo["value"])
+        let decoded = OSDBroadcast(userInfo: broadcast.userInfo)
+        XCTAssertEqual(decoded, broadcast)
+        XCTAssertNil(decoded?.value)
+        XCTAssertEqual(decoded?.text, "HDMI 2")
+    }
+
+    func testALevelEventWithoutAUsableValueIsSkipped() {
+        var info = OSDBroadcast(kind: .volume, value: 0.5, displayID: "cg:1", source: "menu", timestamp: 1).userInfo
+        info["value"] = nil
+        XCTAssertNil(OSDBroadcast(userInfo: info))
+        info["value"] = "nan"
+        XCTAssertNil(OSDBroadcast(userInfo: info))
+    }
+
+    func testAnUnknownKindIsSkippedNotFatal() {
+        var info = OSDBroadcast(kind: .brightness, value: 0.5, displayID: "cg:1", source: "menu", timestamp: 1).userInfo
+        info["kind"] = "contrast"
+        XCTAssertNil(OSDBroadcast(userInfo: info))
+    }
+
+    func testOddHintsDegradeAlone() {
+        var info = OSDBroadcast(kind: .brightness, value: 0.5, displayID: "cg:1", source: "menu", timestamp: 1).userInfo
+        info["screenID"] = "not a number"
+        info["state"] = "somethingNewer"
+        let decoded = OSDBroadcast(userInfo: info)
+        XCTAssertNotNil(decoded)
+        XCTAssertNil(decoded?.screenID)
+        XCTAssertEqual(decoded?.state, "somethingNewer", "unknown states are passed on for the receiver to tolerate")
     }
 }

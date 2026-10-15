@@ -618,60 +618,8 @@ private struct HealthSection: View {
 
                 Divider()
 
-                Text("On-screen display").font(.title3)
-                Toggle(isOn: Binding(
-                    get: { model.settings.osdEnabled },
-                    set: { model.setOSDEnabled($0) }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Show an on-screen display for brightness & volume")
-                        Text("Shows a HUD on the affected display when brightness or volume changes, including changes made from the menu or the keys.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                if model.settings.osdEnabled {
-                    HStack {
-                        // FA-05: every local style is drawn by OpenDisplay. "Native" read as the
-                        // macOS system HUD, which this build doesn't use.
-                        Picker("Style", selection: Binding(
-                            get: { model.settings.osdStyle }, set: { model.setOSDStyle($0) })) {
-                            Text("Standard").tag(OSDStyle.native)
-                            Text("Minimal").tag(OSDStyle.minimal)
-                            Text("Classic").tag(OSDStyle.classicTahoe)
-                            Text("External HUD only").tag(OSDStyle.external)
-                        }
-                        .fixedSize()
-                        Picker("Position", selection: Binding(
-                            get: { model.settings.osdPosition }, set: { model.setOSDPosition($0) })) {
-                            Text("Bottom").tag(OSDPosition.bottomCenter)
-                            Text("Top").tag(OSDPosition.topCenter)
-                            Text("Center").tag(OSDPosition.center)
-                        }
-                        .fixedSize()
-                    }
-                    Text("OpenDisplay draws every style itself; none of them is the macOS system HUD.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    // SO-04: "External HUD only" hides this HUD so another app can draw it, which
-                    // needs the broadcast below. Without it nothing shows at all — say so, and offer
-                    // the one switch that fixes it rather than flipping it behind the user's back.
-                    if OSDFeedbackPolicy.externalOnlyDeliversNothing(model.settings) {
-                        ODInlineBanner(tone: .orange, systemImage: "exclamationmark.triangle",
-                                       title: String(localized: "No feedback is shown"),
-                                       message: String(localized: "“External HUD only” hides OpenDisplay’s HUD, and broadcasting is off, so no app receives the changes either.")) {
-                            Button("Turn On Broadcasting") { model.setPublishOSDEventsEnabled(true) }
-                        }
-                    }
-                }
-                Toggle(isOn: Binding(
-                    get: { model.settings.publishOSDEventsEnabled },
-                    set: { model.setPublishOSDEventsEnabled($0) }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Broadcast display events for notch / external HUD apps")
-                        Text("Publishes each brightness and volume change OpenDisplay makes — including slider, HTTP, command-line and Shortcuts brightness changes — over the dev.opendisplay.osd distributed notification, whether or not OpenDisplay shows its own HUD. Off by default.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
+                // SO-35/SO-04/IN-16/TR-17.
+                OSDSettingsRows()
 
                 Divider()
 

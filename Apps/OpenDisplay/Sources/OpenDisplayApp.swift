@@ -143,6 +143,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.target = self
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         statusItem = item
+        // SO-35: the HUD gives way to the open menu, and can sit under the icon.
+        model.setOSDEnvironment { [weak self] in
+            guard let self else { return OSDHUDEnvironment() }
+            return OSDHUDEnvironment(menuOpen: self.tray.isShown, iconFrame: self.visibleIconFrame)
+        }
 
         // Docs/screenshot mode: `-OpenDisplayShowTrayAtLaunch YES` opens the tray panel once launch
         // settles. Read from the launch-argument domain only; the app never writes this key.
@@ -197,6 +202,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             tray.toggle(from: button)
         }
+    }
+
+    /// The menu-bar icon's frame on screen, or nil when macOS isn't showing it (hidden behind the
+    /// notch or switched off in System Settings), so nothing is anchored to an icon that isn't there.
+    private var visibleIconFrame: NSRect? {
+        guard let window = statusItem?.button?.window, window.isVisible else { return nil }
+        let frame = window.frame
+        return NSScreen.screens.contains { $0.frame.intersects(frame) } ? frame : nil
     }
 
     @objc private func dismissPopover() {

@@ -17,6 +17,12 @@ final class OSDContentTests: XCTestCase {
         XCTAssertEqual(OSDContent(kind: .brightness, value: 2).filledSegments, 16)
     }
 
+    func testAssuranceClaimsNothingUnlessTold() {
+        // TR-17: a caller that doesn't say how far the level is known is a request, never verified.
+        XCTAssertEqual(OSDContent(kind: .brightness, value: 0.5).assurance, .requested)
+        XCTAssertEqual(OSDContent(kind: .brightness, value: 0.5, assurance: .applied).assurance, .applied)
+    }
+
     func testPercent() {
         XCTAssertEqual(OSDContent(kind: .volume, value: 0.5).percent, 50)
         XCTAssertEqual(OSDContent(kind: .volume, value: 0.336).percent, 34)

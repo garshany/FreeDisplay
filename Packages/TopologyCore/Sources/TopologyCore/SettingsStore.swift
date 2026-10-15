@@ -41,6 +41,9 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// When on, broadcast each OSD event over `DistributedNotificationCenter` for external/notch HUD
     /// apps (Batch-3 #6). Default off.
     public var publishOSDEventsEnabled: Bool
+    /// The rest of the OSD preferences (SO-35, IN-16): custom feedback, per-display volume HUD,
+    /// screen, value, bar, interaction and the receiver handshake.
+    public var osdFeedback: OSDFeedbackSettings
     /// FaceLight restore ledger, keyed by `DisplayRecordID.rawValue`: each display's brightness/
     /// contrast at the moment FaceLight turned it into a fill light. INVARIANT: a key is present if
     /// and only if FaceLight is currently active for that display and a restore is owed; persisted
@@ -193,6 +196,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         osdStyle: OSDStyle = .native,
         osdPosition: OSDPosition = .bottomCenter,
         publishOSDEventsEnabled: Bool = false,
+        osdFeedback: OSDFeedbackSettings = .default,
         faceLightPriorStateByDisplay: [String: FaceLightPolicy.PriorState] = [:],
         adaptiveBrightnessSyncEnabled: Bool = false,
         adaptiveWarmthEnabled: Bool = false,
@@ -247,6 +251,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.osdStyle = osdStyle
         self.osdPosition = osdPosition
         self.publishOSDEventsEnabled = publishOSDEventsEnabled
+        self.osdFeedback = osdFeedback
         self.faceLightPriorStateByDisplay = faceLightPriorStateByDisplay
         self.adaptiveBrightnessSyncEnabled = adaptiveBrightnessSyncEnabled
         self.adaptiveWarmthEnabled = adaptiveWarmthEnabled
@@ -303,6 +308,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case osdStyle
         case osdPosition
         case publishOSDEventsEnabled
+        case osdFeedback
         case faceLightPriorStateByDisplay
         case adaptiveBrightnessSyncEnabled
         case adaptiveWarmthEnabled
@@ -381,6 +387,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             ?? defaults.osdPosition
         publishOSDEventsEnabled = container.lenient(Bool.self, forKey: .publishOSDEventsEnabled)
             ?? defaults.publishOSDEventsEnabled
+        osdFeedback = container.lenient(OSDFeedbackSettings.self, forKey: .osdFeedback)
+            ?? defaults.osdFeedback
         faceLightPriorStateByDisplay = container.lenient([String: FaceLightPolicy.PriorState].self, forKey: .faceLightPriorStateByDisplay)
             ?? defaults.faceLightPriorStateByDisplay
         adaptiveBrightnessSyncEnabled = container.lenient(Bool.self, forKey: .adaptiveBrightnessSyncEnabled)

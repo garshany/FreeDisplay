@@ -208,3 +208,68 @@ final class HotkeyRegistrationTests: XCTestCase {
         XCTAssertEqual(KeyBindingFormatter.keyName(0xFF), "#255")  // unknown keys stay identifiable
     }
 }
+
+/// Owner decision #26: ⌃⌥⌘R belongs to Reconnect All while its shortcut is on.
+final class RecoveryChordReservationTests: XCTestCase {
+    private let recovery = KeyboardShortcutRegistry.recoveryChord
+    private let other = KeyBinding(keyCode: 0x07, modifiers: KeyBinding.controlOptionCommand)  // ⌃⌥⌘X
+
+    func testTheRecoveryChordIsReconnectAllsDefault() {
+        XCTAssertEqual(HotkeyAction.reconnectAll.defaultBinding, recovery)
+        XCTAssertEqual(KeyBindingFormatter.string(for: recovery), "⌃⌥⌘R")
+    }
+
+    func testNoOtherActionOrInputHotkeyMayTakeIt() {
+        let registry = KeyboardShortcutRegistry.defaults.effective(reconnectAllEnabled: true)
+        for action in HotkeyAction.allCases where action != .reconnectAll {
+            XCTAssertTrue(registry.isReservedForRecovery(recovery, slot: .action(action)), "\(action)")
+        }
+        XCTAssertTrue(registry.isReservedForRecovery(recovery, slot: .inputSwitch(id: "x")))
+        XCTAssertFalse(registry.isReservedForRecovery(recovery, slot: .action(.reconnectAll)))
+        XCTAssertFalse(registry.isReservedForRecovery(other, slot: .action(.faceLight)))
+    }
+
+    func testStillReservedWhenReconnectAllUsesAnotherChord() {
+        var saved = KeyboardShortcutRegistry.defaults
+        saved.setBinding(other, for: .reconnectAll)
+        XCTAssertTrue(saved.effective(reconnectAllEnabled: true).isReservedForRecovery(recovery, slot: .action(.faceLight)))
+    }
+
+    func testFreeOnceTheRecoveryShortcutIsOff() {
+        XCTAssertFalse(KeyboardShortcutRegistry.defaults.effective(reconnectAllEnabled: false)
+            .isReservedForRecovery(recovery, slot: .action(.faceLight)))
+        var cleared = KeyboardShortcutRegistry.defaults
+        cleared.setBinding(nil, for: .reconnectAll)
+        XCTAssertFalse(cleared.effective(reconnectAllEnabled: true).isReservedForRecovery(recovery, slot: .action(.faceLight)))
+    }
+
+    func testASavedBindingOnTheChordNeverTakesItFromReconnectAll() throws {
+        // A file saved before the reservation, with FaceLight on ⌃⌥⌘R.
+        let file = #"{"bindings":{"faceLight":{"keyCode":15,"modifiers":6400}},"inputSwitchBindings":[]}"#
+        let saved = try JSONDecoder().decode(KeyboardShortcutRegistry.self, from: Data(file.utf8))
+        let effective = saved.effective(reconnectAllEnabled: true)
+        XCTAssertEqual(effective.binding(for: .reconnectAll), recovery)
+        let plan = HotkeyRegistrationPlan(registry: effective)
+        XCTAssertEqual(plan.registrations.filter { $0.binding == recovery }.map(\.slot), [.action(.reconnectAll)])
+        XCTAssertEqual(plan.status(for: .faceLight, failed: [], paused: false), .conflict(holder: .action(.reconnectAll)))
+        XCTAssertEqual(plan.status(for: .reconnectAll, failed: [], paused: false), .registered)
+    }
+
+    func testAnOldBindingOnTheChordRegistersNothingWhileReconnectAllUsesAnotherOne() throws {
+        var saved = KeyboardShortcutRegistry.defaults
+        saved.setBinding(other, for: .reconnectAll)
+        saved.setBinding(recovery, for: .faceLight)  // as an older build could have saved it
+        let plan = HotkeyRegistrationPlan(registry: saved.effective(reconnectAllEnabled: true))
+        XCTAssertTrue(plan.registrations.filter { $0.binding == recovery }.isEmpty)
+        XCTAssertEqual(plan.status(for: .faceLight, failed: [], paused: false), .conflict(holder: .action(.reconnectAll)))
+        XCTAssertEqual(plan.status(for: .reconnectAll, failed: [], paused: false), .registered)
+    }
+
+    func testWithRecoveryOffTheChordWorksForAnotherAction() {
+        var saved = KeyboardShortcutRegistry.defaults
+        saved.setBinding(nil, for: .reconnectAll)
+        saved.setBinding(recovery, for: .faceLight)
+        let plan = HotkeyRegistrationPlan(registry: saved.effective(reconnectAllEnabled: true))
+        XCTAssertEqual(plan.status(for: .faceLight, failed: [], paused: false), .registered)
+    }
+}
