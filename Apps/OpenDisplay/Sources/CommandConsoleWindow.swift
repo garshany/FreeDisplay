@@ -46,6 +46,10 @@ final class CommandConsoleWindow {
 
     func close() { window?.close() }
 
+    func toggle(model: AppModel) {
+        if window?.isVisible == true { close() } else { show(model: model) }
+    }
+
     func show(model: AppModel) {
         if window == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 640),

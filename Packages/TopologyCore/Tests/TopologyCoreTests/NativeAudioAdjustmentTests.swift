@@ -30,6 +30,33 @@ final class NativeAudioAdjustmentTests: XCTestCase {
         }
     }
 
+    @MainActor func testExplicitMuteAndUnmuteAreIdempotentAndDoNotChangeVolume() async {
+        let audio = Audio()
+        XCTAssertTrue(NativeAudioAdjustment.setMuted(true, uid: "USB", controller: audio).handled)
+        XCTAssertTrue(audio.writes.isEmpty)
+        XCTAssertTrue(NativeAudioAdjustment.setMuted(false, uid: "USB", controller: audio).handled)
+        XCTAssertTrue(NativeAudioAdjustment.setMuted(false, uid: "USB", controller: audio).handled)
+        XCTAssertEqual(audio.writes, ["mute:USB:false"])
+        XCTAssertEqual(audio.output?.volumeLevel, 0.25)
+    }
+
+    @MainActor func testExplicitMuteRefusesMissingReadOnlyOrUnknownStateWithoutFallback() async {
+        let audio = Audio()
+        XCTAssertEqual(NativeAudioAdjustment.setMuted(true, uid: "missing", controller: audio), .unavailable)
+        audio.output?.mute = .readOnly
+        XCTAssertEqual(NativeAudioAdjustment.setMuted(true, uid: "USB", controller: audio), .unavailable)
+        audio.output?.mute = .settable
+        audio.output?.isMuted = nil
+        XCTAssertEqual(NativeAudioAdjustment.setMuted(true, uid: "USB", controller: audio), .unavailable)
+        XCTAssertTrue(audio.writes.isEmpty)
+    }
+
+    @MainActor func testExplicitMuteReportsRejectedWrite() async {
+        let audio = Audio()
+        audio.rejectMute = true
+        XCTAssertEqual(NativeAudioAdjustment.setMuted(false, uid: "USB", controller: audio), .failed(partiallyApplied: false))
+    }
+
     @MainActor func testRelativeStepUsesFreshUIDLevelAndUnmutesAfterVolume() async {
         let audio = Audio()
         let outcome = NativeAudioAdjustment.apply(.volumeUp, uid: "USB", delta: 0.0625, controller: audio)

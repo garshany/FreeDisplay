@@ -19,6 +19,23 @@ public enum HotkeyAction: String, Hashable, Sendable, Codable, CaseIterable {
     case openSettings
     /// Quits through the app's normal termination path, so quit-time restoration still runs (SO-38).
     case quit
+    case toggleConsole
+    case restart
+    case softwareContrastUp
+    case softwareContrastDown
+    case softwareContrastUpFine
+    case softwareContrastDownFine
+    case warmer
+    case cooler
+    case resetSoftwareAdjustments
+    case toggleSoftwareAdjustments
+    case volumeUp
+    case volumeDown
+    case volumeUpFine
+    case volumeDownFine
+    case toggleMute
+    case mute
+    case unmute
 
     public var label: String {
         switch self {
@@ -32,6 +49,23 @@ public enum HotkeyAction: String, Hashable, Sendable, Codable, CaseIterable {
         case .toggleMenu: return "Show or Hide the Menu"
         case .openSettings: return "Open Settings"
         case .quit: return "Quit FreeDisplay"
+        case .toggleConsole: return "Show or Hide the Console"
+        case .restart: return "Restart FreeDisplay"
+        case .softwareContrastUp: return "Software Contrast Up"
+        case .softwareContrastDown: return "Software Contrast Down"
+        case .softwareContrastUpFine: return "Software Contrast Up (Fine)"
+        case .softwareContrastDownFine: return "Software Contrast Down (Fine)"
+        case .warmer: return "Warmer"
+        case .cooler: return "Cooler"
+        case .resetSoftwareAdjustments: return "Reset Software Adjustments"
+        case .toggleSoftwareAdjustments: return "Suspend or Resume Software Adjustments"
+        case .volumeUp: return "CoreAudio Volume Up"
+        case .volumeDown: return "CoreAudio Volume Down"
+        case .volumeUpFine: return "CoreAudio Volume Up (Fine)"
+        case .volumeDownFine: return "CoreAudio Volume Down (Fine)"
+        case .toggleMute: return "Toggle CoreAudio Mute"
+        case .mute: return "Mute CoreAudio Output"
+        case .unmute: return "Unmute CoreAudio Output"
         }
     }
 

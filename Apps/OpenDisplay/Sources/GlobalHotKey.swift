@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import Carbon.HIToolbox
+import TopologyCore
 
 /// A single system-wide hotkey registered via Carbon `RegisterEventHotKey`. Carbon hotkeys do NOT
 /// require the Accessibility permission an event tap would, which matters because the whole point
@@ -14,6 +15,9 @@ final class GlobalHotKey {
     private nonisolated(unsafe) var eventHandler: EventHandlerRef?
     private let id: UInt32
     private let action: () -> Void
+    private let onRelease: () -> Void
+    private let repeats: Bool
+    private var gesture = ShortcutKeyGesture()
 
     /// Registers the default Reconnect-All chord, ⌃⌥⌘R. Returns nil if registration fails (e.g. the
     /// chord is already claimed) so the caller can fall back to the menu-bar item.
@@ -27,12 +31,16 @@ final class GlobalHotKey {
 
     /// Registers an arbitrary system-wide chord with a unique `id` (Batch-2 #4). Returns nil if
     /// registration fails so the caller can skip that binding.
-    init?(keyCode: UInt32, modifiers: UInt32, id: UInt32, action: @escaping () -> Void) {
+    init?(keyCode: UInt32, modifiers: UInt32, id: UInt32, repeats: Bool = false, onRelease: @escaping () -> Void = {}, action: @escaping () -> Void) {
         self.id = id
         self.action = action
+        self.onRelease = onRelease
+        self.repeats = repeats
 
-        var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
-                                      eventKind: UInt32(kEventHotKeyPressed))
+        var eventSpecs = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+        ]
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         let installStatus = InstallEventHandler(
             GetApplicationEventTarget(),
@@ -51,11 +59,16 @@ final class GlobalHotKey {
                 return MainActor.assumeIsolated {
                     let hotKey = Unmanaged<GlobalHotKey>.fromOpaque(userData).takeUnretainedValue()
                     guard firedID.id == hotKey.id else { return OSStatus(eventNotHandledErr) }
-                    hotKey.action()
+                    switch hotKey.gesture.event(isDown: GetEventKind(event) == UInt32(kEventHotKeyPressed),
+                                               repeats: hotKey.repeats) {
+                    case .invoke: hotKey.action()
+                    case .release: hotKey.onRelease()
+                    case .ignore: break
+                    }
                     return noErr
                 }
             },
-            1, &eventSpec, selfPtr, &eventHandler
+            eventSpecs.count, &eventSpecs, selfPtr, &eventHandler
         )
         guard installStatus == noErr else { return nil }
 

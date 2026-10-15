@@ -108,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showCommandConsole() { commandConsole.show(model: model) }
     func closeCommandConsole() { commandConsole.close() }
+    func toggleCommandConsole() { commandConsole.toggle(model: model) }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NotificationCenter.default.addObserver(self, selector: #selector(showCommandConsole),

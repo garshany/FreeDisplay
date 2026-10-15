@@ -493,6 +493,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var audioSnapshot = AudioOutputSnapshot()
     /// The feedback sound owed for a held volume key, played once on its release (FA-20).
     private var releaseFeedback = KeyReleaseFeedback()
+    private var shortcutFeedback = ShortcutReleaseFeedback()
     /// Remembered pre-mute DDC volume per display, so a zero-volume mute (monitors without a readable
     /// discrete mute) can restore the prior level. Cleared on unmute and when the user picks a new
     /// level; absent means unmute has nothing truthful to restore (TB-03).
@@ -6687,6 +6688,7 @@ final class AppModel: ObservableObject {
     /// earlier one is reported as a conflict and not registered; one macOS refuses is reported as
     /// failed. While a shortcut is being recorded nothing is registered (`hotkeysPaused`).
     private func registerHotkeys() {
+        shortcutFeedback.cancel()
         hotKeys.removeAll()  // unregisters the old chords first, or re-registering them would fail
         let registry = effectiveHotkeyRegistry
         let plan = HotkeyRegistrationPlan(registry: registry)
@@ -6704,7 +6706,15 @@ final class AppModel: ObservableObject {
                 }
                 if let hotkey = GlobalHotKey(keyCode: registration.binding.keyCode,
                                              modifiers: registration.binding.modifiers,
-                                             id: nextID, action: handler) {
+                                             id: nextID,
+                                             repeats: { if case .action(let action) = registration.slot {
+                                                 return ShortcutActionPolicy.repeats(action)
+                                             }; return false }(),
+                                             onRelease: { [weak self] in
+                                                 if case .action(let action) = registration.slot {
+                                                     self?.shortcutReleased(action)
+                                                 }
+                                             }, action: handler) {
                     hotKeys.append(hotkey)
                 } else {
                     failed.insert(registration.slot)
@@ -6729,6 +6739,12 @@ final class AppModel: ObservableObject {
     }
 
     private func hotkeyHandler(for action: HotkeyAction) -> () -> Void {
+        if ShortcutActionPolicy.repeats(action) {
+            return { [weak self] in
+                guard let self, let adjustment = ShortcutActionPolicy.adjustment(for: action, steps: self.settings.adjustmentSteps) else { return }
+                self.performShortcutAdjustment(action, adjustment: adjustment)
+            }
+        }
         switch action {
         case .reconnectAll:
             return { [weak self] in
@@ -6739,20 +6755,32 @@ final class AppModel: ObservableObject {
             }
         case .cycleMainDisplay:
             return { [weak self] in Task { await self?.cycleMainDisplay() } }
-        // SO-29: the same steps the native keys take, so a shortcut and a key press agree.
-        case .brightnessUp:
-            return { [weak self] in Task { await self?.adjustMainBrightness(fine: false, sign: 1) } }
-        case .brightnessDown:
-            return { [weak self] in Task { await self?.adjustMainBrightness(fine: false, sign: -1) } }
-        case .brightnessUpFine:
-            return { [weak self] in Task { await self?.adjustMainBrightness(fine: true, sign: 1) } }
-        case .brightnessDownFine:
-            return { [weak self] in Task { await self?.adjustMainBrightness(fine: true, sign: -1) } }
+        case .brightnessUp, .brightnessDown, .brightnessUpFine, .brightnessDownFine,
+             .softwareContrastUp, .softwareContrastDown, .softwareContrastUpFine, .softwareContrastDownFine,
+             .warmer, .cooler, .volumeUp, .volumeDown, .volumeUpFine, .volumeDownFine:
+            return {} // Continuous actions are dispatched by ShortcutActionPolicy above.
         case .faceLight:
             return { [weak self] in
                 guard let self, let main = self.displays.first(where: \.isMain) else { return }
                 self.toggleFaceLight(for: main)
             }
+        case .toggleSoftwareAdjustments, .resetSoftwareAdjustments:
+            return { [weak self] in
+                guard let self else { return }
+                for observation in self.shortcutVideoTargets() {
+                    if action == .toggleSoftwareAdjustments {
+                        self.setSoftwareAdjustmentsSuspended(!self.softwareAdjustmentsSuspended.contains(observation.recordID), for: observation)
+                    } else {
+                        Task { await self.resetSoftwareAdjustments(for: observation) }
+                    }
+                }
+            }
+        case .toggleMute, .mute, .unmute:
+            return { [weak self] in self?.performAudioShortcut(action, delta: nil) }
+        case .toggleConsole:
+            return { (NSApp.delegate as? AppDelegate)?.toggleCommandConsole() }
+        case .restart:
+            return { AppLanguage.relaunch(reopeningSettings: false) }
         // SO-38: the app delegate owns the panel and the Settings window.
         case .toggleMenu:
             return { NotificationCenter.default.post(name: .openDisplayToggleMenu, object: nil) }
@@ -6762,6 +6790,89 @@ final class AppModel: ObservableObject {
             // The ordinary termination path, so `applicationShouldTerminate` still restores what
             // quitting owes (offline displays, gamma, FaceLight) before the process exits.
             return { NSApp.terminate(nil) }
+        }
+    }
+
+    private func shortcutVideoTargets() -> [DisplayObservation] {
+        let ids = brightnessKeyDecision(intent: .plain, takeover: .anyControllableDisplay).targets.map(\.display)
+        return ids.compactMap { id in displays.first { $0.recordID == id } }
+    }
+
+    private func performShortcutAdjustment(_ action: HotkeyAction, adjustment: ShortcutActionPolicy.Adjustment) {
+        switch adjustment {
+        case .brightness(let delta):
+            Task { await adjustMainBrightness(fine: action == .brightnessUpFine || action == .brightnessDownFine,
+                                              sign: delta < 0 ? -1 : 1) }
+        case .contrast(let delta):
+            for observation in shortcutVideoTargets() {
+                guard !gammaBlockedByCustomProfile(for: observation.recordID) else {
+                    statusText = String(localized: "Software image shortcuts are unavailable while this display’s color profile protects gamma.")
+                    continue
+                }
+                setSoftwareContrast(ShortcutActionPolicy.contrast(softwareContrast[observation.recordID], delta: delta), for: observation)
+            }
+        case .temperature(let delta):
+            for observation in shortcutVideoTargets() {
+                guard !gammaBlockedByCustomProfile(for: observation.recordID) else {
+                    statusText = String(localized: "Software image shortcuts are unavailable while this display’s color profile protects gamma.")
+                    continue
+                }
+                setColorTemperature(ShortcutActionPolicy.temperature(colorTemperature[observation.recordID], delta: delta), for: observation)
+            }
+        case .volume(let delta): performAudioShortcut(action, delta: delta)
+        }
+    }
+
+    private func performAudioShortcut(_ action: HotkeyAction, delta: Float?) {
+        let snapshot = audioOutputs.snapshot()
+        audioSnapshot = snapshot
+        let mediaAction: MediaKeyAction = delta.map { $0 < 0 ? .volumeDown : .volumeUp } ?? .muteToggle
+        let target = settings.nativeKeys.audioTarget
+        let decision = ShortcutActionPolicy.audioDecision(mediaAction, preferences: settings.nativeKeys,
+            candidates: audioKeyCandidates(devices: snapshot.devices), currentOutput: snapshot.currentOutput,
+            pointer: cursorInCGCoordinates(),
+            focusedDisplay: target == .focusedWindow ? focusedWindowDisplayID() : nil)
+        var handled = false
+        var unavailable = decision.recipients.isEmpty
+        for recipient in decision.recipients {
+            let device: AudioOutputDevice
+            let observation: DisplayObservation?
+            switch recipient {
+            case .hardware: unavailable = true; continue
+            case .native(let id, let output):
+                device = output
+                observation = displays.first { $0.recordID == id }
+            case .currentOutput(let output): device = output; observation = nil
+            }
+            let outcome: NativeAudioAdjustment.Outcome
+            if let delta {
+                outcome = NativeAudioAdjustment.apply(mediaAction, uid: device.uid, delta: delta, controller: audioOutputs)
+            } else if action == .toggleMute {
+                outcome = NativeAudioAdjustment.apply(.muteToggle, uid: device.uid, delta: 0, controller: audioOutputs)
+            } else {
+                outcome = NativeAudioAdjustment.setMuted(action == .mute, uid: device.uid, controller: audioOutputs)
+            }
+            handled = outcome.handled || handled
+            if case .accepted(let after?) = outcome {
+                reportNativeAudio(after, for: observation, source: .hotkey, showsOSD: true)
+            } else { unavailable = true }
+        }
+        refreshAudioOutputs()
+        if unavailable {
+            statusText = String(localized: "A shortcut audio target is unavailable. CoreAudio shortcuts require a writable native output; they do not use DDC or toggle-only mute.")
+        }
+        if delta != nil {
+            let plays = VolumeFeedbackPolicy.plays(settings.nativeKeys.volumeFeedbackSound,
+                systemPreference: VolumeFeedbackSoundPlayer.systemPreference, inverted: false)
+            if handled, plays, case .adjust(_, let uid) = decision {
+                shortcutFeedback.pressHandled(action, request: .init(outputUID: uid))
+            } else { shortcutFeedback.pressHandled(action, request: nil) }
+        }
+    }
+
+    private func shortcutReleased(_ action: HotkeyAction) {
+        if let feedback = shortcutFeedback.released(action) {
+            VolumeFeedbackSoundPlayer.play(on: feedback.outputUID)
         }
     }
 
@@ -6843,6 +6954,7 @@ final class AppModel: ObservableObject {
         guard !hotkeysPaused else { return }
         hotkeysPaused = true
         releaseFeedback.cancel()
+        shortcutFeedback.cancel()
         registerHotkeys()
     }
 
@@ -7691,6 +7803,7 @@ final class AppModel: ObservableObject {
         guard updated != settings.nativeKeys else { return }
         settings.nativeKeys = updated
         releaseFeedback.cancel()
+        shortcutFeedback.cancel()
         persistSettings()
         reconcileMediaKeyTap()
         Task { [weak self] in await self?.confirmDisplayAudioForKeys() }

@@ -19,6 +19,23 @@ extension HotkeyAction {
         case .toggleMenu: return String(localized: "Show or Hide the FreeDisplay Menu")
         case .openSettings: return String(localized: "Open FreeDisplay Settings")
         case .quit: return String(localized: "Quit FreeDisplay")
+        case .toggleConsole: return String(localized: "Show or Hide the Console")
+        case .restart: return String(localized: "Restart FreeDisplay")
+        case .softwareContrastUp: return String(localized: "Software Contrast Up")
+        case .softwareContrastDown: return String(localized: "Software Contrast Down")
+        case .softwareContrastUpFine: return String(localized: "Software Contrast Up (Fine)")
+        case .softwareContrastDownFine: return String(localized: "Software Contrast Down (Fine)")
+        case .warmer: return String(localized: "Warmer")
+        case .cooler: return String(localized: "Cooler")
+        case .resetSoftwareAdjustments: return String(localized: "Reset Software Adjustments")
+        case .toggleSoftwareAdjustments: return String(localized: "Suspend or Resume Software Adjustments")
+        case .volumeUp: return String(localized: "CoreAudio Volume Up")
+        case .volumeDown: return String(localized: "CoreAudio Volume Down")
+        case .volumeUpFine: return String(localized: "CoreAudio Volume Up (Fine)")
+        case .volumeDownFine: return String(localized: "CoreAudio Volume Down (Fine)")
+        case .toggleMute: return String(localized: "Toggle CoreAudio Mute")
+        case .mute: return String(localized: "Mute CoreAudio Output")
+        case .unmute: return String(localized: "Unmute CoreAudio Output")
         }
     }
 }
@@ -55,13 +72,19 @@ private struct KeyboardShortcutsCard: View {
         ("Recovery", [.reconnectAll]),
         ("Displays", [.cycleMainDisplay, .faceLight]),
         ("Brightness", [.brightnessUp, .brightnessDown, .brightnessUpFine, .brightnessDownFine]),
-        ("FreeDisplay", [.toggleMenu, .openSettings, .quit]),
+        ("Software image adjustments", [.softwareContrastUp, .softwareContrastDown, .softwareContrastUpFine,
+                                         .softwareContrastDownFine, .warmer, .cooler,
+                                         .resetSoftwareAdjustments, .toggleSoftwareAdjustments]),
+        ("CoreAudio", [.volumeUp, .volumeDown, .volumeUpFine, .volumeDownFine, .toggleMute, .mute, .unmute]),
+        ("FreeDisplay", [.toggleMenu, .toggleConsole, .openSettings, .quit, .restart]),
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
             Text("Keyboard shortcuts").font(.title3)
             Text("These shortcuts work in every app while FreeDisplay is running. Click a shortcut, then press the new keys: a function key, or a key together with ⌘, ⌥ or ⌃. Esc cancels; Delete removes the shortcut. Shortcuts are paused while you record one. A registered shortcut can still be taken first by macOS or by another app that uses the same keys.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Image adjustments use the brightness-key targets and keep brightness active when suspended. CoreAudio shortcuts use the configured audio targets and native fallback; DDC-only targets are unavailable. Hold a level shortcut to repeat; volume feedback plays once on release. Quit and Restart act immediately. Gamma exponent, inversion and HDR boost shortcuts are unavailable.")
                 .font(.caption).foregroundStyle(.secondary)
             ForEach(Self.groups.indices, id: \.self) { index in
                 let group = Self.groups[index]
@@ -355,7 +378,7 @@ private struct AdjustmentStepsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
             Text("Adjustment steps").font(.title3)
-            Text("How far one press of a brightness or volume key, or of a brightness shortcut, moves the level. Leave a field empty for its default.")
+            Text("How far one press of a brightness or volume key, or a level shortcut, moves the level. Leave a field empty for its default.")
                 .font(.caption).foregroundStyle(.secondary)
             StepField(title: "Steps across the full range", defaultValue: AdjustmentSteps.defaultRange,
                       stored: steps.range) { value in update { $0.range = value } }

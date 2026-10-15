@@ -53,6 +53,18 @@ public enum NativeAudioAdjustment {
     }
 
     @MainActor
+    public static func setMuted(_ muted: Bool, uid: String,
+                                controller: any NativeAudioControlling) -> Outcome {
+        guard let device = controller.device(uid: uid), device.uid == uid,
+              device.muteIsToggleable else { return .unavailable }
+        // Explicit Mute/Unmute never degrade to toggle or volume-zero emulation.
+        guard device.isMuted != muted else { return .accepted(device) }
+        let result = controller.setMute(muted, uid: uid)
+        guard result == .accepted else { return .failed(partiallyApplied: result.wasApplied) }
+        return .accepted(controller.device(uid: uid))
+    }
+
+    @MainActor
     public static func setLevel(_ level: Float, uid: String,
                                 controller: any NativeAudioControlling) -> Outcome {
         guard level.isFinite, let device = controller.device(uid: uid), device.uid == uid,
