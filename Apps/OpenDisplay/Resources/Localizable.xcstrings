@@ -5133,6 +5133,16 @@
         }
       }
     },
+    "Couldn’t rename the display: %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось переименовать дисплей: %@"
+          }
+        }
+      }
+    },
     "Couldn’t restore your protected layout" : {
       "localizations" : {
         "ru" : {
