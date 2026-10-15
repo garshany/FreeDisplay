@@ -213,6 +213,32 @@ struct DisplayModeResultEntity: TransientAppEntity {
     }
 }
 
+enum MainDisplayOutcome: String, AppEnum {
+    case alreadyInEffect, awaitingConfirmation
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Main Display Change Outcome"
+    static let caseDisplayRepresentations: [MainDisplayOutcome: DisplayRepresentation] = [
+        .alreadyInEffect: "Already the main display",
+        .awaitingConfirmation: "Changed; waiting to be kept",
+    ]
+}
+
+struct MainDisplayResultEntity: TransientAppEntity {
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Main Display Result"
+    @Property(title: "Display") var display: DisplayEntity?
+    @Property(title: "Outcome") var outcome: MainDisplayOutcome
+    @Property(title: "Seconds Left to Keep It") var secondsToKeep: Int?
+
+    init() {
+        display = nil
+        outcome = .alreadyInEffect
+        secondsToKeep = nil
+    }
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: display?.displayRepresentation.title ?? "Display", subtitle: outcome.caseTitle)
+    }
+}
+
 /// What Reconnect All did.
 enum ReconnectOutcome: String, AppEnum {
     case nothingToReconnect, reconnected, partlyReconnected, notConfirmed
@@ -400,7 +426,7 @@ struct SetDisplayModeIntent: AppIntent {
 struct SetMainDisplayIntent: AppIntent {
     static let title: LocalizedStringResource = "Set Main Display"
     static let description = IntentDescription(
-        "Makes a connected display the main display, the one with the menu bar. The displays keep their arrangement. Returns the main display macOS reports afterwards."
+        "Makes a connected display the main display, keeping the arrangement. Confirm the change in OpenDisplay before the existing keep/revert window expires. Returns whether confirmation is pending."
     )
     static let openAppWhenRun = false
 
@@ -411,13 +437,17 @@ struct SetMainDisplayIntent: AppIntent {
         Summary("Make \(\.$display) the main display")
     }
 
-    func perform() async throws -> some IntentResult & ReturnsValue<DisplayEntity> & ProvidesDialog {
+    func perform() async throws -> some IntentResult & ReturnsValue<MainDisplayResultEntity> & ProvidesDialog {
         let report = try await DisplayIntentRunner.setMain(display)
         let main = DisplayEntity(report.main)
-        let dialog: IntentDialog = report.changed
-            ? "\(main.name) is now the main display."
+        var result = MainDisplayResultEntity()
+        result.display = main
+        result.outcome = report.outcome
+        result.secondsToKeep = report.secondsToKeep
+        let dialog: IntentDialog = report.outcome == .awaitingConfirmation
+            ? "\(main.name) is now the main display. Keep the change in OpenDisplay within \(report.secondsToKeep ?? 0) seconds, or it reverts."
             : "\(main.name) is already the main display."
-        return .result(value: main, dialog: dialog)
+        return .result(value: result, dialog: dialog)
     }
 }
 
@@ -449,7 +479,8 @@ enum DisplayIntentRunner {
 
     struct MainReport: Sendable {
         var main: AutomationDisplayEntry
-        var changed: Bool
+        var outcome: MainDisplayOutcome
+        var secondsToKeep: Int?
     }
 
     static func entities(for identifiers: [String]) async -> [DisplayEntity] {
@@ -559,13 +590,19 @@ enum DisplayIntentRunner {
         let observation = try activeTarget(display, in: model)
         let id = observation.recordID
         let wasMain = observation.isMain
-        if !wasMain { await model.setMain(for: observation) }
+        if !wasMain {
+            guard await model.setMain(for: observation), model.pendingRevert?.kind == .mainDisplay else {
+                throw DisplayIntentError.mainNotConfirmed(model.displayName(for: observation))
+            }
+        }
         // Judge by what macOS reports afterwards, not by the request.
         guard let main = model.displays.first(where: { $0.isMain && $0.isActive }), main.recordID == id,
               let entry = entry(for: id, in: model) else {
             throw DisplayIntentError.mainNotConfirmed(model.displayName(for: observation))
         }
-        return MainReport(main: entry, changed: !wasMain)
+        let pending = model.pendingRevert?.kind == .mainDisplay
+        return MainReport(main: entry, outcome: pending ? .awaitingConfirmation : .alreadyInEffect,
+                          secondsToKeep: pending ? model.pendingRevert?.secondsRemaining : nil)
     }
 
     // MARK: Helpers

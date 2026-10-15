@@ -328,10 +328,10 @@ struct ColorProfileCard: View {
             .controlSize(.small)
         }
         if isCustom && model.customProfileDisplays.contains(display.recordID) {
-            note(model.gammaBlockedByCustomProfile
-                 ? String(localized: "This counts as a custom profile, so while it’s assigned OpenDisplay pauses gamma changes on every display: dimming uses the overlay, colour temperature and XDR boost are off. The Dimming card can allow gamma anyway.")
+            note(model.gammaBlockedByCustomProfile(for: display.recordID)
+                 ? String(localized: "This custom profile pauses gamma changes on \(model.displayName(for: display)): dimming uses the overlay; colour temperature, contrast and XDR boost are off on this display. The Dimming card can allow gamma anyway.")
                  : String(localized: "This counts as a custom profile. Gamma changes are allowed anyway by the override in the Dimming card; if a screen turns black or tinted, turn the override off."),
-                 warning: model.gammaBlockedByCustomProfile)
+                 warning: model.gammaBlockedByCustomProfile(for: display.recordID))
         }
     }
 

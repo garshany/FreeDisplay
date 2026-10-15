@@ -33,6 +33,7 @@ public enum RevertMarkerPolicy {
     public enum Mismatch: Hashable, Sendable {
         case mode(DisplayRecordID)
         case origin(DisplayRecordID)
+        case main(DisplayRecordID)
         case mirror(DisplayRecordID)
         /// A recorded display isn't connected: nothing was restored on it, and its restore can't be
         /// judged until it is back.
@@ -77,6 +78,9 @@ public enum RevertMarkerPolicy {
             if sourceJudgeable, now.mirrorSourceID != recorded.mirrorSourceID {
                 result.append(.mirror(recorded.recordID))
             }
+            // Main selection must also round-trip: a reanchor can be accepted while macOS keeps
+            // the menu bar elsewhere. Judge it only with the same display set, like origins.
+            if sameSet, now.isMain != recorded.isMain { result.append(.main(recorded.recordID)) }
             // A mirror target on either side sits where its source is: its mirror state says it all.
             if sameSet, recorded.mirrorSourceID == nil, now.mirrorSourceID == nil,
                now.origin != recorded.origin {
