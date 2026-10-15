@@ -26,16 +26,32 @@ public enum IntegrationPlan {
         let candidate = try AutomationSelectorResolver.resolveOne(.display(.id(display.id)), in: displays)
         return try IntegrationActionPolicy.prepare(hook.action, context: .init(display: candidate, hook: event.phase.rawValue, parameters: display.parameters))
     }
-    /// Feed is state-only, but still requires the saved controller and control opt-ins.
-    public static func feedParser(controlID: UUID, displayID: DisplayRecordID,
-                                  configuration: IntegrationConfiguration,
-                                  displays: AutomationDisplaySet) throws -> IntegrationReadback {
+    public struct Feed: Sendable {
+        public var display: DisplayIntegration
+        public var parser: IntegrationReadback
+    }
+
+    /// Feed must use one verified definition for both parser selection and sample ownership.
+    public static func feed(controlID: UUID, displayID: DisplayRecordID,
+                            configuration: IntegrationConfiguration, displays: AutomationDisplaySet,
+                            identityVerified: Bool) throws -> Feed {
+        guard identityVerified, PersistentDisplayIdentity.isPersistent(displayID) else {
+            throw IntegrationError.invalid("Feed requires a verified persistent display identity")
+        }
         guard let display = definition(for: displayID, in: configuration, displays: displays), display.enabled,
               let control = display.controls.first(where: { $0.id == controlID }), control.enabled,
               let parser = control.readback else {
             throw IntegrationError.invalid("Feed needs an enabled controller, enabled control and configured parser")
         }
-        return parser
+        return Feed(display: display, parser: parser)
+    }
+
+    /// Callers without a live registry still validate persistent syntax and both saved opt-ins.
+    public static func feedParser(controlID: UUID, displayID: DisplayRecordID,
+                                  configuration: IntegrationConfiguration,
+                                  displays: AutomationDisplaySet) throws -> IntegrationReadback {
+        try feed(controlID: controlID, displayID: displayID, configuration: configuration,
+                 displays: displays, identityVerified: true).parser
     }
     public static func polls(configuration: IntegrationConfiguration, displays: AutomationDisplaySet,
                              safeStartup: Bool, sleeping: Bool) throws -> [IntegrationPollPlan] {
