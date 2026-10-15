@@ -216,10 +216,13 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
         return CGSetDisplayTransferByTable(displayID, UInt32(count), tables.red, tables.green, tables.blue)
     }
 
-    /// Restores every display's gamma to its ColorSync calibration, clearing any software dim. Call
-    /// on quit so a dim never outlives the app.
-    public nonisolated static func restoreGamma() {
-        CGDisplayRestoreColorSyncSettings()
+    /// Release OpenDisplay's adjustment on a display the caller tracked as successfully written.
+    /// Never use CGDisplayRestoreColorSyncSettings: it resets every display, including tables owned
+    /// by other apps. Identity clears our dim/warmth/contrast/boost only on this display; the ICC
+    /// assignment is unchanged. Guarded custom-profile displays normally never acquire our table.
+    @discardableResult
+    public nonisolated static func restoreGamma(for displayID: CGDirectDisplayID) -> CGError {
+        CGSetDisplayTransferByFormula(displayID, 0, 1, 1, 0, 1, 1, 0, 1, 1)
     }
 
     /// Last-resort recovery: asks the window server to restore the permanent display configuration,

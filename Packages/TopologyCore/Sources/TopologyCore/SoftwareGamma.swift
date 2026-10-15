@@ -7,12 +7,13 @@ import Foundation
 ///
 /// A "neutral" formula is not a bypass: writing an identity transfer still replaces the table the
 /// display's ColorSync profile installed. So when nothing needs gamma, OpenDisplay makes no
-/// colour-table call at all — or, if its own table is still there, hands the slot back to ColorSync.
+/// colour-table call at all — or, if its own table is still there, releases only that display's
+/// adjustment with an identity transfer. A global ColorSync restore would reset other apps too.
 public enum GammaSlotPolicy {
     public enum Action: Hashable, Sendable {
         /// Express the composed dim × warmth × contrast × boost transfer (`SoftwareImageTransfer`).
         case write
-        /// Restore ColorSync's table: OpenDisplay's is installed but nothing may (or needs to) use it.
+        /// Clear only this display's owned adjustment: nothing may (or needs to) use it.
         case release
         /// No colour-table call: nothing needs gamma and ColorSync already owns the slot.
         case none
@@ -42,8 +43,8 @@ public enum GammaSlotPolicy {
     }
 }
 
-/// The default custom-profile safeguard: a user or shared custom ICC profile assigned to ANY
-/// connected display blocks OpenDisplay's gamma writes on EVERY display, because colour-table
+/// The default custom-profile safeguard blocks gamma only on the display carrying a user/shared
+/// custom ICC profile (or whose assignment is still unknown), because colour-table
 /// writes combined with such profiles can leave a screen black or tinted while it is still
 /// connected. Factory and system profiles don't trigger it; an assignment ColorSync has not yet
 /// reported for a connected display does, until it is read (fail closed — "couldn't read" is not
@@ -102,6 +103,17 @@ public enum ColorProfileGuard {
         return result
     }
 
+    /// A missing entry is pending the first read, just like `.unverified`. The override is
+    /// explicit, but one display's custom/unknown assignment must never block another display.
+    public static func blocksGamma(for id: DisplayRecordID, knowledge: [DisplayRecordID: Knowledge],
+                                   allowGammaWithCustomProfiles: Bool) -> Bool {
+        guard !allowGammaWithCustomProfiles else { return false }
+        switch knowledge[id] ?? .unverified {
+        case .verified(.factory), .verified(.system): return false
+        case .verified(.custom), .unverified: return true
+        }
+    }
+
     /// The connected displays that keep the guard engaged: a custom profile, or an assignment that
     /// has never been verified.
     public static func blockingDisplays(_ knowledge: [DisplayRecordID: Knowledge]) -> Set<DisplayRecordID> {
@@ -112,5 +124,37 @@ public enum ColorProfileGuard {
     /// message saying why gamma is paused.
     public static func unverifiedDisplays(_ knowledge: [DisplayRecordID: Knowledge]) -> Set<DisplayRecordID> {
         Set(knowledge.filter { $0.value == .unverified }.keys)
+    }
+}
+
+/// Successful gamma writes owned by this process. Keep the Core Graphics number with the stable
+/// record: after a hot-plug, neither a returning record nor a reused number authorizes a reset.
+/// No persisted ownership: safe startup must not reset another app's tables from a prior session.
+public struct GammaWriteTracker: Sendable {
+    private var written: [DisplayRecordID: UInt32] = [:]
+
+    public init() {}
+
+    public func contains(_ id: DisplayRecordID) -> Bool { written[id] != nil }
+
+    /// A failed first write owns nothing; a failed update doesn't relinquish the earlier table.
+    public mutating func recordWrite(for id: DisplayRecordID, displayID: UInt32, succeeded: Bool) {
+        if succeeded { written[id] = displayID }
+    }
+
+    /// Restore selection is deliberately per display, never "all displays". A missing/different
+    /// current number means the original surface is gone, so it must receive no transfer call.
+    public func displayToRestore(for id: DisplayRecordID, currentDisplayID: UInt32?) -> UInt32? {
+        guard let original = written[id], original == currentDisplayID else { return nil }
+        return original
+    }
+
+    /// Keep ownership after a rejected identity transfer so a later explicit cleanup can try again.
+    public mutating func recordRestore(for id: DisplayRecordID, succeeded: Bool) {
+        if succeeded { written[id] = nil }
+    }
+
+    public mutating func retainConnected(_ connected: [DisplayRecordID: UInt32]) {
+        written = written.filter { connected[$0.key] == $0.value }
     }
 }

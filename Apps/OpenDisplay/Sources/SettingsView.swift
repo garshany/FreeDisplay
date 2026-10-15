@@ -435,6 +435,7 @@ private struct DiagnosticsExportSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
             Text("Diagnostics").font(.title3)
+            PendingRevertRecordCard()
             Text("If a display misbehaves, export a diagnostics file and attach it to your issue. It is saved to your Desktop and is not sent anywhere. It contains:")
                 .font(.caption).foregroundStyle(.secondary)
             ForEach(DiagnosticsBundle.contents, id: \.self) { item in

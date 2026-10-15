@@ -142,7 +142,10 @@ targets:
     platform: macOS
     settings: *frameworkSettings
     sources: [Providers/ExperimentalLifecycleProvider/Sources]
-    dependencies: *providerDeps
+    dependencies:
+      - target: DisplayDomain
+      - target: ProviderInterfaces
+      - target: TopologyCore
 
   VirtualDisplayProvider:
     type: framework
