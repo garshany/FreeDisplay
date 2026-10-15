@@ -74,6 +74,20 @@ final class AppAutomationEnvironment: AutomationEnvironment {
 
     // MARK: Brightness
 
+    func tvCanPerform(_ action: TVAction, on display: AutomationDisplayCandidate) async -> Bool {
+        !model.safeStartup && TVControlStore.shared.canPerform(action, display: display.id)
+    }
+
+    func tvCapabilities(for display: AutomationDisplayCandidate) async -> TVCapabilityReport? {
+        guard !model.safeStartup else { return nil }
+        return TVControlStore.shared.capabilities(display: display.id)
+    }
+
+    func tvControl(_ action: TVAction, on display: AutomationDisplayCandidate) async throws(AutomationIssue) -> TVCommandReceipt {
+        guard !model.safeStartup else { throw AutomationIssue(.capabilityUnavailable, "TV control is disabled during safe startup") }
+        return try await TVControlStore.shared.perform(action, display: display.id)
+    }
+
     func brightnessRoutes(for display: AutomationDisplayCandidate) async -> BrightnessRouteAvailability {
         if model.brightnessMethod[display.id] == nil, let observation = observation(display) {
             await model.refreshBrightness(for: observation)

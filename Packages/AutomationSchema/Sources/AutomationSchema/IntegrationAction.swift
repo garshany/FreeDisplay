@@ -111,8 +111,8 @@ public enum IntegrationActionPolicy {
         case .command(let command):
             // Lifecycle mutations from lifecycle hooks would create a recursive event source.
             guard AutomationCatalog.descriptor(for: command.name).target != .none,
-                  command.name != .disconnect, command.name != .feedIntegration else {
-                throw IntegrationError.invalid("Integration commands require one display and cannot change its connection")
+                  command.name != .disconnect, command.name != .feedIntegration, command.name != .tvControl else {
+                throw IntegrationError.invalid("Integration commands require one display and cannot change its connection or invoke feeds or TV remotes")
             }
             if case .setMode(_, keepWithoutConfirmation: true) = command {
                 throw IntegrationError.invalid("Integration cannot bypass mode confirmation")

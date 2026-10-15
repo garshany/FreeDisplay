@@ -42,6 +42,7 @@ struct DisplayDetailView: View {
                     // selected, and the card's command state (a reset or power result, its
                     // follow-up offer, a pending confirmation) belongs to the display it was sent to.
                     ControlsCard(display: display).id(display.recordID)
+                    TVControlCard(display: display).id(display.recordID)
                 }
                 // SD-11/SD-16: keyboard participation for every display, sound binding for externals.
                 KeyboardAndSoundCard(display: display).id(display.recordID)

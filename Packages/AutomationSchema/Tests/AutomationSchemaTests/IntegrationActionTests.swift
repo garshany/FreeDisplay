@@ -65,7 +65,7 @@ final class IntegrationActionTests: XCTestCase {
     func testTypedActionsKeepSharedUnitsAndRejectRecursiveConnectionCommands() throws {
         let command = AutomationCommand.setBrightness(AutomationLevel(normalized: 0.4)!, method: .hardware)
         XCTAssertEqual(try IntegrationActionPolicy.prepare(.command(command), context: .init(display: display)).action, .command(command))
-        for command in [AutomationCommand.disconnect, .reconnectAll] {
+        for command in [AutomationCommand.disconnect, .reconnectAll, .tvControl(.wake), .tvControl(.powerOff), .tvControl(.volumeUp)] {
             XCTAssertThrowsError(try IntegrationActionPolicy.prepare(.command(command), context: .init(display: display)))
         }
     }

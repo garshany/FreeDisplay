@@ -39,6 +39,22 @@ final class CommandConsoleTests: XCTestCase {
         XCTAssertEqual(try ConsoleGrammar.parse(#"brightness display='alias:Рабочий стол' offset=-5% method=hardware"#), .command(expected))
     }
 
+    func testMergedCommandsAppearOnceAndUseSharedConsoleGrammar() throws {
+        let catalog = AutomationCatalog.descriptors(for: .console)
+        for name in [AutomationCommandName.getContrast, .setContrast, .feedIntegration, .tvControl] {
+            XCTAssertEqual(catalog.filter { $0.name == name }.count, 1)
+        }
+        XCTAssertEqual(AutomationSurface.allCases.filter { $0 == .console }.count, 1)
+        for line in ["contrast display=id:desk value=40%", "tvControl display=id:desk action=wake",
+                     "feed display=id:desk control=00000000-0000-0000-0000-000000000001 response='ON'"] {
+            guard case .command(let request) = try ConsoleGrammar.parse(line) else { return XCTFail(line) }
+            XCTAssertTrue(AutomationCatalog.descriptor(for: request.command.name).surfaces.contains(.console))
+        }
+        XCTAssertFalse(AutomationCatalog.descriptors(for: .http).contains { $0.name == .tvControl })
+        XCTAssertFalse(AutomationCatalog.descriptors(for: .cli).contains { $0.name == .feedIntegration || $0.name == .tvControl })
+        XCTAssertTrue(AutomationCatalog.descriptors(for: .http).contains { $0.name == .feedIntegration })
+    }
+
     func testDuplicateUnknownAndInvalidArgumentsRefuse() {
         for input in ["brightness display=builtin display=main value=40%", "brightness display=builtin --display main value=40%",
                       "brightness display=builtin value=NaN", "list extra=true", "list --bad x", "brightness --display", "bogus"] {

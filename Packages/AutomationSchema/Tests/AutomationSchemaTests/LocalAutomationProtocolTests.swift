@@ -46,6 +46,21 @@ final class LocalAutomationProtocolTests: XCTestCase, @unchecked Sendable {
         }
         return try JSONDecoder().decode(IPC.Response.self, from: JSONEncoder().encode(response))
     }
+    func testIPCExplicitlyRefusesConsoleOnlyTVAndHTTPOnlyFeed() async throws {
+        let fake = IPCFake()
+        for command in [AutomationCommand.tvControl(.wake), .tvControl(.volumeUp),
+                        .feedIntegration(control: UUID(), response: "ON")] {
+            let request = IPC.Request(command: .byID(command, .init(rawValue: "screen")))
+            guard case .result(let result) = try await exchange(request, fake: fake).validated(for: request) else {
+                return XCTFail("Admission refusal must remain a typed command result")
+            }
+            XCTAssertEqual(result.issue?.code, .refusedFromSurface)
+            XCTAssertEqual(AutomationHTTPStatus.code(for: result), 403)
+        }
+        let writes = await fake.writes
+        XCTAssertEqual(writes, 0)
+    }
+
     func testConcurrentClientsCorrelateAndAccumulateOnOneEnvironment() async throws {
         let fake = IPCFake()
         let command = try AutomationRequestParser.parse(verb: "brightness", parameters: [

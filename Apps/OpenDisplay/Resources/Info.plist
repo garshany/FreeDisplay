@@ -31,6 +31,15 @@
 	     entry is always available instead. -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>FreeDisplay uses your location once to calculate local sunrise, noon, and sunset times for Clock Mode brightness schedules. You can also enter your coordinates manually.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>FreeDisplay discovers TVs, connects to the TV you explicitly pair, and sends wake requests only when you ask.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Device-local ws endpoints are an explicit controller choice. This does not disable TLS
+		     validation for wss or allow arbitrary remote insecure loads. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<!-- FreeDisplay-owned configuration; an empty key keeps Sparkle off. The local-build guard
 	     remains true until the owner validates signed fork releases end to end. See scripts/sparkle-setup.md. -->
 	<key>SUFeedURL</key>

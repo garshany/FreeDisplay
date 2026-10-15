@@ -328,6 +328,7 @@ private struct RememberedDisplayCleanupSheet: View {
             ForEach(removals(plan), id: \.self) { bullet($0) }
         }
         VStack(alignment: .leading, spacing: 4) {
+            Text("TV endpoints, pairing and remote preferences stay on this Mac under their original display identifiers. They are excluded from settings archives, app reset, per-display Forget or Reset, and transfer. Use TV control to disable a controller or delete its local pairing; device-side authorization is unchanged.")
             Text("Keeps").font(.subheadline.weight(.semibold))
             ForEach(kept(plan), id: \.self) { bullet($0) }
             Text("Integration actions and hooks stay under their original identifiers, including after Forget or Reset. They may contain device-specific executable arguments or URLs. Review or remove them in Actions & Hooks; transfer never retargets them.")

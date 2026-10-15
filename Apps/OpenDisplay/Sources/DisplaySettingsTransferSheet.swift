@@ -63,6 +63,7 @@ struct DisplaySettingsTransferSheet: View {
                         }
                     }
                     Text("Integration actions and hooks stay under their original identifiers, including after Forget or Reset. They may contain device-specific executable arguments or URLs. Review or remove them in Actions & Hooks; transfer never retargets them.")
+                    Text("TV endpoints, pairing and remote preferences stay on this Mac under their original display identifiers. They are excluded from settings archives, app reset, per-display Forget or Reset, and transfer. Use TV control to disable a controller or delete its local pairing; device-side authorization is unchanged.")
                     Text("No monitor settings, macOS modes or colour profiles are written by this transfer.")
                     if plan.needsDifferentDisplayAcknowledgement {
                         Toggle("I am replacing a different physical display", isOn: $acknowledged)

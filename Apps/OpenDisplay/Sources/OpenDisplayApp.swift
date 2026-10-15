@@ -364,6 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         model.integrationService.stop()
         model.integrationSession.stop()
+        TVControlStore.shared.stop()
         guard model.needsQuitReversion else { return .terminateNow }
         Task {
             await model.teardownForQuit()
@@ -375,6 +376,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A quit or relaunch with Settings still open sends no `willClose`, so its size and place
     /// (SD-08) are saved here too.
     func applicationWillTerminate(_ notification: Notification) {
+        model.integrationService.stop()
+        model.integrationSession.stop()
+        TVControlStore.shared.stop()
         if let window = settingsWindow, window.isVisible { Self.rememberSettingsSize(of: window) }
     }
 

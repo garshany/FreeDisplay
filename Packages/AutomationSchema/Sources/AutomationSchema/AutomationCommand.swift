@@ -45,6 +45,7 @@ public enum AutomationCommandName: String, Hashable, Sendable, Codable, CaseIter
     case reconnectAll
     case disconnect
     case feedIntegration
+    case tvControl
 }
 
 /// One typed command with its validated arguments. Building one is the only way into the engine, so
@@ -72,6 +73,7 @@ public enum AutomationCommand: Hashable, Sendable, Codable {
     case reconnectAll
     case disconnect
     case feedIntegration(control: UUID, response: String)
+    case tvControl(TVAction)
 
     public var name: AutomationCommandName {
         switch self {
@@ -93,6 +95,7 @@ public enum AutomationCommand: Hashable, Sendable, Codable {
         case .reconnectAll: return .reconnectAll
         case .disconnect: return .disconnect
         case .feedIntegration: return .feedIntegration
+        case .tvControl: return .tvControl
         }
     }
 }
@@ -229,6 +232,12 @@ public enum AutomationCatalog {
               parameters: [display, .init("control", .text, required: true, "Configured control UUID."),
                            .init("response", .text, required: true, "Exact parser input, including newlines.")],
               surfaces: [.http, .console]),
+        .init(name: .tvControl,
+              summary: "Sends an explicit action to the TV controller paired to this display; a sent request does not confirm a physical effect.",
+              effect: .disruptive, target: .anyDisplay,
+              parameters: [display, .init("action", .text, required: true, "volumeUp, volumeDown, muteToggle, powerOff, source, hdmi, refreshInputs, switchInput or wake."),
+                           .init("input", .text, required: false, "An LG-reported input identifier; only with switchInput.")],
+              surfaces: [.console]),
         .init(name: .listDisplays, aliases: ["list", "displays"],
               summary: "Lists the displays automation can name, connected or remembered.",
               effect: .read, target: .none, surfaces: [.cli, .http, .appIntent, .console]),

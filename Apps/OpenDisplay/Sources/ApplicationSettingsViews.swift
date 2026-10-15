@@ -344,18 +344,20 @@ struct ManageAppSettingsSheet: View {
                 Button("Export Settings…") { export() }
             }
             section(title: String(localized: "Restore"),
-                    text: String(localized: "Replaces every FreeDisplay setting with a file exported earlier. The current settings are backed up first.")) {
+                    text: String(localized: "Replaces FreeDisplay settings covered by the archive with a file exported earlier. The current settings are backed up first.")) {
                 Button("Import Settings…") { chooseImport() }
                 Button("Show Backups in Finder") { revealBackups() }
             }
             section(title: String(localized: "Reset"),
-                    text: String(localized: "Returns every FreeDisplay setting to its default. The current settings are backed up first.")) {
+                    text: String(localized: "Returns FreeDisplay settings covered by the archive to defaults. The current settings are backed up first.")) {
                 Button("Reset to Defaults…", role: .destructive) { confirmingReset = true }
             }
             Text("Not part of the app settings, so never replaced or reset: the macOS display arrangement and resolutions, recovery checkpoints, logs, Launch at Login and the interface language. Import and reset end with a relaunch, which — like any quit — turns the displays FreeDisplay turned off back on.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            Text("Actions and hooks are included; importing pauses them until review. TV configuration, pairing, remote preferences and HTTP access settings stay on this Mac and are excluded from archives and reset. Manage them in TV control and Automation.")
+                .font(.caption).foregroundStyle(.secondary)
             Divider()
 
             HStack(spacing: ODSpacing.sm) {

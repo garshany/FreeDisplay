@@ -60,7 +60,7 @@ private struct IntegrationControlPanel: View {
                 if let failure = service.ipcFailure { Text(failure).foregroundStyle(.red) }
                 Text(verbatim: "GET /v1/displays · GET /v1/commands · POST /v1/brightness · POST /v1/reconnect-all · POST /v1/command")  // routes, not prose
                     .font(.system(.caption, design: .monospaced))
-                Text("A brightness change returns its settled status and readback when available; physical luminance is not verified. Display brightness in the list is FreeDisplay’s last requested or read value, with its age; it is empty until a value is known. Reconnect All starts in the background and answers with the displays it is reconnecting. TV and AV-receiver protocols and HDMI-CEC are not implemented in this build.").font(.caption)
+                Text("A brightness change returns its settled status and readback when available; physical luminance is not verified. Display brightness in the list is FreeDisplay’s last requested or read value, with its age; it is empty until a value is known. Reconnect All starts in the background and answers with the displays it is reconnecting. LG and Samsung TV controls are configured separately in each display’s TV control card; they are not enabled through HTTP. AV-receiver protocols and HDMI-CEC are not implemented in this build.").font(.caption)
             }
         }
         .formStyle(.grouped)

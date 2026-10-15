@@ -39,6 +39,7 @@ public struct AutomationCapabilityReport: Hashable, Sendable, Codable {
     public var surface: AutomationSurface
     public var commands: [AutomationCommandAvailability]
     public var brightnessRoutes: BrightnessRouteAvailability
+    public var tv: TVCapabilityReport?
 }
 
 /// A brightness read or write as it settled.
@@ -188,6 +189,7 @@ public struct AutomationResult: Hashable, Sendable, Codable {
     public var colorProfile: AutomationColorProfileReport?
     public var colorProfiles: [AutomationProfileInfo]?
     public var integrationSample: IntegrationSample?
+    public var tv: TVCommandReceipt?
     /// For a dry run: what would have been done.
     public var plan: String?
 

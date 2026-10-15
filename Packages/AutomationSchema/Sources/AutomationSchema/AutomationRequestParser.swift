@@ -136,6 +136,11 @@ public enum AutomationRequestParser {
                 throw .missing("response", for: name.rawValue)
             }
             return .feedIntegration(control: control, response: response)
+        case .tvControl:
+            guard let action = try string(parameters["action"], parameter: "action") else {
+                throw .missing("action", for: name.rawValue)
+            }
+            return .tvControl(try TVAction.parse(action, input: string(parameters["input"], parameter: "input")))
         }
     }
 
