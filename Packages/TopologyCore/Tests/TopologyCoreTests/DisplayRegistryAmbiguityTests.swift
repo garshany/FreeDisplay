@@ -118,6 +118,42 @@ final class DisplayRegistryAmbiguityTests: XCTestCase {
         XCTAssertEqual(kept?.alias, "Original")
     }
 
+    /// R1 P1: a paired record of the same model must not be *scored* onto a display whose serial says
+    /// it is another unit — pairing plus model alone clear the recognition threshold. Checked both
+    /// under the CG UUID the record is indexed by (where the index lookup already refuses it) and
+    /// under a UUID this Mac never saw.
+    func testAPairedRecordIsNotScoredOntoTheSameModelWithAnotherSerial() async {
+        for cgUUID in ["U1", "U2"] {
+            let registry = await DisplayRegistry(store: InMemoryRegistryStore())
+            let original = await registry.resolve(fingerprint: fingerprint(serial: "A"), cgUUID: "U1")
+            await registry.setAlias("Left", for: original.id)
+            await registry.addTag("desk", to: original.id)
+            await registry.confirmPairing(for: original.id)
+
+            let other = await registry.resolve(fingerprint: fingerprint(serial: "B"), cgUUID: cgUUID)
+            XCTAssertNotEqual(other.id, original.id, cgUUID)
+            XCTAssertNil(other.alias, cgUUID)
+            XCTAssertTrue(other.tags.isEmpty, cgUUID)
+            XCTAssertFalse(other.pairingConfirmed, cgUUID)
+            let kept = await registry.record(for: original.id)
+            XCTAssertEqual(kept?.fingerprint.serialNumber, "A", "the record's identity is not overwritten (\(cgUUID))")
+            XCTAssertEqual(kept?.alias, "Left", cgUUID)
+        }
+    }
+
+    /// The exclusion is for evidence that contradicts, not for evidence that is missing: the paired
+    /// display reporting no serial this time is still recognized by pairing plus model.
+    func testAPairedRecordStillServesItsDisplayWhenTheSerialGoesMissing() async {
+        let registry = await DisplayRegistry(store: InMemoryRegistryStore())
+        let original = await registry.resolve(fingerprint: fingerprint(serial: "A"), cgUUID: "U1")
+        await registry.setAlias("Left", for: original.id)
+        await registry.confirmPairing(for: original.id)
+        let again = await registry.resolve(fingerprint: fingerprint(serial: nil), cgUUID: "U2")
+        XCTAssertEqual(again.id, original.id)
+        XCTAssertEqual(again.alias, "Left")
+        XCTAssertEqual(again.fingerprint.serialNumber, "A", "a missing serial keeps the one on record")
+    }
+
     /// A third unit with the shared serial and an unknown CG UUID, once records were split: there is
     /// nothing to choose between them, so it gets none of their settings.
     func testSeveralRecordsSharingTheSerialAndNoIndexIsAmbiguous() async {

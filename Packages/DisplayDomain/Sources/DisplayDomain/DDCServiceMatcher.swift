@@ -61,23 +61,65 @@ public enum DDCServiceMatcher {
     /// serial match can never be outvoted by the weaker signals — mirroring how EDID identity is
     /// trusted elsewhere (`IdentityScorer`). A field only scores when *both* sides know it and it's
     /// non-zero (CG reports 0 for unknown; EDID serials of 0 are "not programmed").
+    ///
+    /// The score only counts agreement; a field that *disagrees* is not a weaker match but proof of
+    /// another monitor — see `contradicts`, which `resolve` applies before any score is compared.
     public static func score(_ candidate: Candidate, against target: Target) -> Int {
         var total = 0
-        let candidateVendor = candidate.legacyManufacturerID
-            ?? candidate.manufacturerID.flatMap(vendorNumber(fromPNP:))
-        if let vendor = candidateVendor, vendor != 0, vendor == target.vendorNumber { total += 1 }
+        if let vendor = candidateVendor(candidate), vendor != 0, vendor == target.vendorNumber { total += 1 }
         if let product = candidate.productID, product != 0, product == target.productNumber { total += 2 }
-        if let serial = candidate.serialNumber, serial != 0, serial == target.serialNumber { total += 4 }
+        if let serial = serialWord(of: candidate), serial != 0, serial == serialWord(of: target) { total += 4 }
         return total
+    }
+
+    /// Whether a candidate positively names a *different* display than `target`: some identity field
+    /// both sides know (non-zero) disagrees — another vendor, another product code, or the same model
+    /// with another serial. Such a service can never be this display's, however well the remaining
+    /// fields agree: two same-model monitors with different serials share vendor and product, and
+    /// letting that partial agreement count would bind one monitor's I2C channel to the other.
+    /// Missing fields never contradict — IOKit and CG both omit identity in the wild.
+    public static func contradicts(_ candidate: Candidate, _ target: Target) -> Bool {
+        if let vendor = candidateVendor(candidate), vendor != 0, target.vendorNumber != 0,
+           vendor != target.vendorNumber { return true }
+        if let product = candidate.productID, product != 0, target.productNumber != 0,
+           product != target.productNumber { return true }
+        let targetSerial = serialWord(of: target)
+        if let serial = serialWord(of: candidate), serial != 0, targetSerial != 0, serial != targetSerial { return true }
+        return false
+    }
+
+    /// The candidate's vendor: the numeric id, or the PnP string converted when that is missing.
+    private static func candidateVendor(_ candidate: Candidate) -> Int? {
+        candidate.legacyManufacturerID ?? candidate.manufacturerID.flatMap(vendorNumber(fromPNP:))
+    }
+
+    /// EDID serials are 32-bit words. CG hands them over unsigned, while a registry property can carry
+    /// the same bits as a signed number — compared raw, one serial with its top bit set would look like
+    /// two different monitors. Both sides are reduced to the 32-bit word before comparing.
+    private static func serialWord(of candidate: Candidate) -> UInt32? {
+        candidate.serialNumber.map { UInt32(truncatingIfNeeded: $0) }
+    }
+
+    private static func serialWord(of target: Target) -> UInt32 {
+        UInt32(truncatingIfNeeded: target.serialNumber)
+    }
+
+    /// The score a candidate can claim for `target`, or nil when it names a different display.
+    private static func compatibleScore(_ candidate: Candidate?, against target: Target) -> Int? {
+        guard let candidate else { return 0 }
+        return contradicts(candidate, target) ? nil : score(candidate, against: target)
     }
 
     /// Which service to bind for a display — or why none may be bound.
     public enum Resolution: Equatable, Sendable {
-        /// One candidate matches the display's identity strictly better than every other.
+        /// One candidate matches the display's identity strictly better than every other, contradicts
+        /// none of it, and no other external display claims that candidate as strongly.
         case matched(index: Int)
         /// The only AV service on the Mac, for the only external display that could own one. Nothing
         /// identifies it (e.g. a TV or adapter that strips the identity attributes), but there is no
-        /// other monitor a command could reach by mistake.
+        /// other monitor a command could reach by mistake. Never a service whose own identity names
+        /// another monitor: that one belongs to a display Core Graphics isn't listing (one turned
+        /// off in software, one still arriving) rather than to this one.
         case sole(index: Int)
         /// Several services (or several displays) are possible owners and identity can't tell them
         /// apart. Nothing must be written: any choice would be a guess.
@@ -91,23 +133,36 @@ public enum DDCServiceMatcher {
     /// - `externals`: the CG identities of every external display that could own a service,
     ///   including `target` itself (OpenDisplay's own virtual screens excluded by the caller).
     ///
-    /// A unique highest positive score wins — unless another external reports exactly the same
-    /// identity as `target`: then a match proves only the model, not which of the twins owns the
-    /// service (identical monitors where IOKit labels one service and strips the other would
-    /// otherwise both bind to the labelled one). A tie for the best score is refused for the same
-    /// reason. Nothing scoring is refused too, except for the single-monitor setup — exactly one
-    /// service and exactly one external — where the service can't belong to anything else.
+    /// A candidate that contradicts `target` (`contradicts`) is out before anything is scored. Among
+    /// the rest, a unique highest positive score wins — and only if the assignment is exclusive: no
+    /// other external may claim that same service at least as strongly. Two same-model monitors and a
+    /// service labelled with the model but not the serial match both of them equally, so binding it
+    /// to either would be a guess; the same holds for identical twins that report exactly the same
+    /// identity, where IOKit labels one service and strips the other. A tie for the best score is
+    /// refused for the same reason. Nothing scoring is refused too, except for the single-monitor
+    /// setup — exactly one service and exactly one external — where the service can't belong to
+    /// anything else, unless its identity says it does.
     public static func resolve(_ candidates: [Candidate?], against target: Target,
                                among externals: [Target]) -> Resolution {
         guard !candidates.isEmpty else { return .none }
-        let scores = candidates.map { $0.map { score($0, against: target) } ?? 0 }
-        let best = scores.max() ?? 0
+        let scores = candidates.map { compatibleScore($0, against: target) }
+        let best = scores.compactMap { $0 }.max() ?? 0
         if best > 0 {
-            if externals.filter({ $0 == target }).count > 1 { return .refused(.ambiguousIdentity) }
             let winners = scores.indices.filter { scores[$0] == best }
-            return winners.count == 1 ? .matched(index: winners[0]) : .refused(.ambiguousIdentity)
+            guard winners.count == 1 else { return .refused(.ambiguousIdentity) }
+            // The other externals: everyone in `externals` except one entry for the target itself.
+            var rivals = externals
+            if let own = rivals.firstIndex(of: target) { rivals.remove(at: own) }
+            let chosen = candidates[winners[0]]
+            let contested = rivals.contains { rival in
+                guard let claim = compatibleScore(chosen, against: rival) else { return false }
+                return claim >= best
+            }
+            return contested ? .refused(.ambiguousIdentity) : .matched(index: winners[0])
         }
-        if candidates.count == 1, externals.count <= 1 { return .sole(index: 0) }
+        if candidates.count == 1, externals.count <= 1 {
+            return scores[0] == nil ? .refused(.contradictingIdentity) : .sole(index: 0)
+        }
         return .refused(.unidentified)
     }
 }
@@ -120,6 +175,9 @@ public enum DDCBindingRefusal: Equatable, Sendable {
     /// Several monitors could own the available I2C service(s) and none of them carries enough
     /// identity to pick the right one.
     case unidentified
+    /// The only I2C service macOS reports carries another monitor's identity (vendor, model or
+    /// serial) — it belongs to a display Core Graphics isn't listing, not to this one.
+    case contradictingIdentity
     /// An Apple-made display (see `DDCEligibility`): generic DDC is withheld unless the user
     /// explicitly overrides it for this display.
     case appleDisplay

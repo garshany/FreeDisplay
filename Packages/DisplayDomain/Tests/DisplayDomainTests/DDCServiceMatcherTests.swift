@@ -93,6 +93,64 @@ final class DDCServiceMatcherTests: XCTestCase {
                        .refused(.ambiguousIdentity))
     }
 
+    func testContradictionNeedsAFieldBothSidesKnow() {
+        let target = Matcher.Target(vendorNumber: 0x4C2D, productNumber: 0x1001, serialNumber: 777)
+        XCTAssertTrue(Matcher.contradicts(.init(legacyManufacturerID: 0x4C2D, productID: 0x1001, serialNumber: 888), target))
+        XCTAssertTrue(Matcher.contradicts(.init(productID: 0x2002), target))
+        XCTAssertTrue(Matcher.contradicts(.init(manufacturerID: "DEL"), target))
+        // Missing or unprogrammed fields, on either side, say nothing.
+        XCTAssertFalse(Matcher.contradicts(.init(legacyManufacturerID: 0x4C2D, productID: 0x1001), target))
+        XCTAssertFalse(Matcher.contradicts(.init(legacyManufacturerID: 0x4C2D, productID: 0x1001, serialNumber: 0), target))
+        let serialless = Matcher.Target(vendorNumber: 0x4C2D, productNumber: 0x1001, serialNumber: 0)
+        XCTAssertFalse(Matcher.contradicts(.init(legacyManufacturerID: 0x4C2D, productID: 0x1001, serialNumber: 888), serialless))
+    }
+
+    func testSerialsCompareAsTheirThirtyTwoBitWord() {
+        // CG reports the serial unsigned; a registry number can hold the same bits signed. Those are
+        // one serial — neither a contradiction nor a miss.
+        let target = Matcher.Target(vendorNumber: 0x4C2D, productNumber: 0x1001, serialNumber: 0x8000_0001)
+        let signed = Matcher.Candidate(legacyManufacturerID: 0x4C2D, productID: 0x1001,
+                                       serialNumber: Int(Int32(bitPattern: 0x8000_0001)))
+        XCTAssertFalse(Matcher.contradicts(signed, target))
+        XCTAssertEqual(Matcher.score(signed, against: target), 7)
+    }
+
+    func testResolveNeverBindsAServiceWhoseSerialNamesTheOtherTwin() {
+        // R1 P0: two same-model monitors with different serials, IOKit labelling only A's service.
+        // A's service shares vendor and product with B, but its serial says it is A's — binding it
+        // for B would send B's brightness, input and power commands to A.
+        let a = Matcher.Target(vendorNumber: 0x4C2D, productNumber: 0x1001, serialNumber: 111)
+        let b = Matcher.Target(vendorNumber: 0x4C2D, productNumber: 0x1001, serialNumber: 222)
+        let candidates: [Matcher.Candidate?] = [
+            .init(legacyManufacturerID: 0x4C2D, productID: 0x1001, serialNumber: 111), nil,
+        ]
+        XCTAssertEqual(Matcher.resolve(candidates, against: b, among: [a, b]), .refused(.unidentified))
+        XCTAssertEqual(Matcher.resolve(candidates, against: b, among: [b, a]), .refused(.unidentified))
+        // A still binds its own, labelled service.
+        XCTAssertEqual(Matcher.resolve(candidates, against: a, among: [a, b]), .matched(index: 0))
+    }
+
+    func testResolveRefusesAServiceTwoDisplaysClaimEqually() {
+        // The service names only the model, which both monitors share: it is exactly as much A's as
+        // B's, so it is bound to neither, even though each display is the only one asking.
+        let a = Matcher.Target(vendorNumber: 0x4C2D, productNumber: 0x1001, serialNumber: 111)
+        let b = Matcher.Target(vendorNumber: 0x4C2D, productNumber: 0x1001, serialNumber: 222)
+        let candidates: [Matcher.Candidate?] = [.init(legacyManufacturerID: 0x4C2D, productID: 0x1001), nil]
+        XCTAssertEqual(Matcher.resolve(candidates, against: a, among: [a, b]), .refused(.ambiguousIdentity))
+        XCTAssertEqual(Matcher.resolve(candidates, against: b, among: [a, b]), .refused(.ambiguousIdentity))
+    }
+
+    func testResolveBindsEachTwinToItsOwnLabelledService() {
+        let a = Matcher.Target(vendorNumber: 0x4C2D, productNumber: 0x1001, serialNumber: 111)
+        let b = Matcher.Target(vendorNumber: 0x4C2D, productNumber: 0x1001, serialNumber: 222)
+        let candidates: [Matcher.Candidate?] = [
+            .init(legacyManufacturerID: 0x4C2D, productID: 0x1001, serialNumber: 222),
+            .init(legacyManufacturerID: 0x4C2D, productID: 0x1001, serialNumber: 111),
+        ]
+        XCTAssertEqual(Matcher.resolve(candidates, against: a, among: [a, b]), .matched(index: 1))
+        XCTAssertEqual(Matcher.resolve(candidates, against: b, among: [a, b]), .matched(index: 0))
+    }
+
     func testResolveRefusesUnidentifiedServicesWithSeveralDisplays() {
         // No attributes anywhere and two monitors: the old order fallback is exactly the guess removed.
         let target = Matcher.Target(vendorNumber: 0x4C2D, productNumber: 0x1001, serialNumber: 777)
@@ -124,10 +182,24 @@ final class DDCServiceMatcherTests: XCTestCase {
         // The common single-TV setup keeps working: one service, one external — nothing else to reach.
         let target = Matcher.Target(vendorNumber: 0x4C2D, productNumber: 0x1001, serialNumber: 0)
         XCTAssertEqual(Matcher.resolve([nil], against: target, among: [target]), .sole(index: 0))
-        // Same when the only service's attributes don't line up with CG's (e.g. an EDID override):
-        // still the only monitor, so still bound as before.
+        // …and when its attributes merely don't overlap what CG knows.
+        let partial: [Matcher.Candidate?] = [.init(serialNumber: 42)]
+        XCTAssertEqual(Matcher.resolve(partial, against: target, among: [target]), .sole(index: 0))
+    }
+
+    func testResolveNeverBindsTheOnlyServiceWhenItNamesAnotherMonitor() {
+        // R1 P0: a service whose own identity is another monitor's is not this display's even when it
+        // is the only one — e.g. the monitor OpenDisplay turned off (no longer in CG's online list)
+        // next to a DisplayLink panel or a virtual screen, which have no DDC channel of their own.
+        // This used to bind (`.sole`) on the theory of an EDID override; a wrong guess here sends
+        // brightness, input and power commands to the other monitor.
+        let target = Matcher.Target(vendorNumber: 0x4C2D, productNumber: 0x1001, serialNumber: 0)
         let mismatched: [Matcher.Candidate?] = [.init(legacyManufacturerID: 0x10AC, productID: 0x2002)]
-        XCTAssertEqual(Matcher.resolve(mismatched, against: target, among: [target]), .sole(index: 0))
+        XCTAssertEqual(Matcher.resolve(mismatched, against: target, among: [target]),
+                       .refused(.contradictingIdentity))
+        let twin = Matcher.Target(vendorNumber: 0x4C2D, productNumber: 0x1001, serialNumber: 222)
+        let otherUnit: [Matcher.Candidate?] = [.init(legacyManufacturerID: 0x4C2D, productID: 0x1001, serialNumber: 111)]
+        XCTAssertEqual(Matcher.resolve(otherUnit, against: twin, among: [twin]), .refused(.contradictingIdentity))
     }
 
     func testResolveWithNoServices() {
