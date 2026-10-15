@@ -230,15 +230,15 @@ public actor ExternalDisplayDDC {
 
     /// Sets a VCP feature to a value in the display's native units. Returns false if the write failed.
     @discardableResult
-    public func write(_ feature: Feature, _ value: Int) async -> Bool {
-        await write(vcp: feature.rawValue, value)
+    public func write(_ feature: Feature, _ value: Int, authorization: WriteAuthorization? = nil) async -> Bool {
+        await write(vcp: feature.rawValue, value, authorization: authorization)
     }
 
     /// Raw-VCP variant of `write(_:_:)` — see `read(vcp:)`. False also when the binding was
     /// withdrawn (`invalidate`) while the write waited for the bus.
     @discardableResult
-    public func write(vcp code: UInt8, _ value: Int) async -> Bool {
-        await transport.write(vcp: code, value)
+    public func write(vcp code: UInt8, _ value: Int, authorization: WriteAuthorization? = nil) async -> Bool {
+        await transport.write(vcp: code, value, authorization: authorization)
     }
 
     /// Reads the display's DDC/CI capabilities string (the response to VCP `0xF3`, MCCS spec) by

@@ -1,4 +1,5 @@
 import Foundation
+import DisplayDomain
 
 // Application timing, motion and Settings-window preferences (SO-10/SD-08). Pure value types and
 // the decisions made from them; the app reads the clock, the screens and macOS's Reduce Motion
@@ -295,11 +296,20 @@ public enum SettingsWindowPlacementPolicy {
 /// cancellation invalidates that run's token; hosts check again after awaits and before mutations.
 public struct ConfiguredReactionGeneration: Sendable {
     private var current = UUID()
+    private var authorization = WriteAuthorization()
     public init() {}
     @discardableResult
     public mutating func invalidate() -> UUID {
+        authorization.revoke()
+        authorization = WriteAuthorization()
         current = UUID()
         return current
     }
     public func isCurrent(_ token: UUID) -> Bool { current == token }
+    public func admission(for token: UUID) -> WriteAuthorization {
+        if isCurrent(token) { return authorization }
+        let refused = WriteAuthorization()
+        refused.revoke()
+        return refused
+    }
 }

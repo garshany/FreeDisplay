@@ -1,21 +1,29 @@
 import Foundation
+import DisplayDomain
 
 /// One request owns its transport/readback evidence, even when a writer coalesces later requests.
 @MainActor public final class BrightnessWriteReceipt {
     public let requested: AutomationLevel
-    private let cancellation = WriteCancellation()
+    public nonisolated let authorization: WriteAuthorization
     private var result: BrightnessWriteReport?
     private var waiters: [CheckedContinuation<BrightnessWriteReport, Never>] = []
     private let beforeDispatch: (() -> AutomationIssue?)?
-    public init(_ requested: AutomationLevel, beforeDispatch: (() -> AutomationIssue?)? = nil) {
+    public init(_ requested: AutomationLevel, authorization: WriteAuthorization = WriteAuthorization(),
+                beforeDispatch: (() -> AutomationIssue?)? = nil) {
+        self.authorization = authorization
         self.requested = requested
         self.beforeDispatch = beforeDispatch
     }
     public func admitDispatch() -> Bool {
         guard result == nil else { return false }
-        guard !cancellation.isCancelled else { reject("Automation request cancelled before dispatch"); return false }
-        if let issue = beforeDispatch?() { reject(issue.message); return false }
+        guard authorization.isAuthorized else { reject("Automation request cancelled before dispatch"); return false }
+        if let issue = beforeDispatch?() { authorization.revoke(); reject(issue.message); return false }
         return true
+    }
+    /// Followers own their evidence while sharing the leader request's revocation. Completion or
+    /// supersession of one member must not cancel another member that is still authorized.
+    public func follower(_ requested: AutomationLevel) -> BrightnessWriteReceipt {
+        BrightnessWriteReceipt(requested, authorization: authorization, beforeDispatch: beforeDispatch)
     }
     public func complete(accepted: Bool, readback: BrightnessReadback) {
         finish(.init(requested: requested, accepted: accepted, readback: readback,
@@ -34,7 +42,7 @@ import Foundation
         await withTaskCancellationHandler {
             if let result { return result }
             return await withCheckedContinuation { waiters.append($0) }
-        } onCancel: { cancellation.cancel() }
+        } onCancel: { authorization.revoke() }
     }
 }
 
@@ -52,10 +60,22 @@ import Foundation
     }
 }
 
-/// Cancellation handlers run outside the main actor; the transport admission reads this flag there.
-private final class WriteCancellation: @unchecked Sendable {
-    private let lock = NSLock()
-    private var cancelled = false
-    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
-    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
+
+/// A cancelled writer can resume after its replacement has queued work for the same display.
+/// Only the current instance may consume targets or clean up shared receipts and writer state.
+@MainActor public final class CoalescedWriterOwnership<Key: Hashable> {
+    private var current: [Key: UUID] = [:]
+    public init() {}
+    public func begin(_ key: Key) -> UUID {
+        let generation = UUID()
+        current[key] = generation
+        return generation
+    }
+    public func isCurrent(_ generation: UUID, for key: Key) -> Bool { current[key] == generation }
+    public func invalidate(_ key: Key) { current[key] = nil }
+    public func finish(_ generation: UUID, for key: Key, cleanup: () -> Void) {
+        guard isCurrent(generation, for: key) else { return }
+        current[key] = nil
+        cleanup()
+    }
 }
