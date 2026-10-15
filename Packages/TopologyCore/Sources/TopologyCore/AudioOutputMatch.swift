@@ -2,14 +2,25 @@ import DisplayDomain
 import Foundation
 
 /// The physical route a CoreAudio output device sits on. Only `hdmi`/`displayPort` can be a monitor's
-/// own audio; everything else (built-in speakers, USB DACs, Bluetooth/AirPods, aggregate/multi-output)
-/// is `other`. Held as plain values so the cross-platform core needn't import CoreAudio — the macOS
+/// own audio as far as automatic matching goes; built-in speakers, USB DACs, Bluetooth/AirPods and
+/// aggregate/multi-output devices reach a display only through an explicit per-display binding
+/// (TR-16/FA-26). Held as plain values so the cross-platform core needn't import CoreAudio — the macOS
 /// glue maps `kAudioDeviceTransportType*` onto this (mirrors how `NXKeyType` keeps IOKit constants out
 /// of the core).
 public enum AudioOutputTransport: String, Hashable, Sendable {
     case hdmi
     case displayPort
+    case builtIn
+    case usb
+    case bluetooth
+    /// An aggregate or multi-output device the user built in Audio MIDI Setup.
+    case aggregate
+    case virtual
+    case airPlay
     case other
+
+    /// Whether automatic (unconfigured) matching may take this output for a display's own audio.
+    public var mayBeDisplayAudio: Bool { self == .hdmi || self == .displayPort }
 }
 
 /// Resolves which display, if any, carries the system's default audio output (Batch-3, media-key fix).
@@ -33,7 +44,7 @@ public enum AudioOutputDisplayMatcher {
     ) -> DisplayRecordID? {
         // Only monitor audio (HDMI / DisplayPort) can belong to a display. Speakers, USB, AirPods,
         // aggregate devices, etc. are never a display → pass through so macOS adjusts them natively.
-        guard transport == .hdmi || transport == .displayPort else { return nil }
+        guard transport.mayBeDisplayAudio else { return nil }
 
         // Audio can only be coming through an active, non-built-in panel.
         let candidates = displays.filter { $0.isActive && $0.displayClass != .builtIn }
@@ -58,12 +69,12 @@ public enum AudioOutputDisplayMatcher {
             if contained.count > 1 { return nil }
         }
 
-        // No name match, but if exactly one external display exists the HDMI/DP audio must be coming
-        // through it. Two or more → ambiguous, so pass through (fail safe).
-        return candidates.count == 1 ? candidates[0].recordID : nil
+        // A sole external is not identity evidence (an HDMI receiver may be unrelated). The user
+        // can explicitly bind its output UID instead of having a key silently choose a monitor.
+        return nil
     }
 
     private static func normalize(_ string: String) -> String {
-        string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        AudioDeviceSelector.normalize(string)
     }
 }

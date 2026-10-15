@@ -232,6 +232,8 @@ public enum RememberedDisplayCleanup {
         public var softwareBrightness: Bool
         public var appleDDCOverride: Bool
         public var adaptiveOffset: Bool
+        /// Keyboard participation, volume-key matching or a native audio binding (SD-11/SD-16).
+        public var keyboardAudioPreferences: Bool
         /// `forget` of a display OpenDisplay switched off: its recovery record goes with it.
         public var removesTurnedOffRecord: Bool
         public var keptRestores: [PendingRestore]
@@ -245,7 +247,7 @@ public enum RememberedDisplayCleanup {
         public var removesOnlyRecord: Bool {
             alias == nil && tagCount == 0 && favoriteModeCount == 0 && groupNames.isEmpty
                 && protectedLayoutKeys.isEmpty && !hasMenuPreferences && !softwareBrightness
-                && !appleDDCOverride && !adaptiveOffset && !removesTurnedOffRecord
+                && !appleDDCOverride && !adaptiveOffset && !keyboardAudioPreferences && !removesTurnedOffRecord
         }
     }
 
@@ -285,6 +287,7 @@ public enum RememberedDisplayCleanup {
             softwareBrightness: !raw.isDisjoint(with: settings.softwareBrightnessDisplayIDs),
             appleDDCOverride: !raw.isDisjoint(with: settings.ddcAppleDisplayOverrideIDs),
             adaptiveOffset: !raw.isDisjoint(with: settings.adaptiveBrightnessOffsetByDisplay.keys),
+            keyboardAudioPreferences: !raw.isDisjoint(with: settings.keyboardAudioByDisplay.keys),
             removesTurnedOffRecord: mode == .forget && ledger.contains { ids.contains($0.recordID) },
             keptRestores: kept,
             keptInputSwitchHotkeys: settings.hotkeyShortcuts.inputSwitchBindings.filter { ids.contains($0.displayID) }.count,
@@ -306,7 +309,10 @@ public enum RememberedDisplayCleanup {
         for key in plan.protectedLayoutKeys { updated.protectedLayouts[key] = nil }
         updated.softwareBrightnessDisplayIDs.subtract(raw)
         updated.ddcAppleDisplayOverrideIDs.subtract(raw)
-        for key in raw { updated.adaptiveBrightnessOffsetByDisplay[key] = nil }
+        for key in raw {
+            updated.adaptiveBrightnessOffsetByDisplay[key] = nil
+            updated.keyboardAudioByDisplay[key] = nil
+        }
         return updated
     }
 

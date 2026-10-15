@@ -123,13 +123,14 @@ public struct SettingsArchive: Hashable, Sendable {
     }
 
     /// Every display the archived preferences are keyed to: per-display brightness routes and DDC
-    /// overrides, learned offsets, app-preset targets, group members, input-switch shortcuts,
-    /// protected layouts and favourite resolutions.
+    /// overrides, learned offsets, keyboard/audio preferences, app-preset targets, group members,
+    /// input-switch shortcuts, protected layouts and favourite resolutions.
     public var referencedDisplayIDs: Set<DisplayRecordID> {
         var ids = Set<DisplayRecordID>()
         ids.formUnion(settings.softwareBrightnessDisplayIDs.map(DisplayRecordID.init(rawValue:)))
         ids.formUnion(settings.ddcAppleDisplayOverrideIDs.map(DisplayRecordID.init(rawValue:)))
         ids.formUnion(settings.adaptiveBrightnessOffsetByDisplay.keys.map(DisplayRecordID.init(rawValue:)))
+        ids.formUnion(settings.keyboardAudioByDisplay.keys.map(DisplayRecordID.init(rawValue:)))
         for preset in settings.appPresets {
             if case .display(let raw) = preset.target { ids.insert(DisplayRecordID(rawValue: raw)) }
         }

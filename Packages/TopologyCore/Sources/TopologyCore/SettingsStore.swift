@@ -177,6 +177,12 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// How far one brightness/volume step moves, for the native keys and the custom shortcuts alike
     /// (SO-29). Defaults to macOS's 1/16 and 1/64 steps.
     public var adjustmentSteps: AdjustmentSteps
+    /// Native-key capture, takeover, target and feedback policies (SO-25–SO-28, FA-19, FA-20).
+    /// Only consulted while `mediaKeyInterceptionEnabled` is on.
+    public var nativeKeys: NativeKeyPreferences
+    /// Per-display keyboard participation and audio binding, by `DisplayRecordID.rawValue`. A
+    /// display without an entry uses `DisplayKeyboardAudioPreferences.default`.
+    public var keyboardAudioByDisplay: [String: DisplayKeyboardAudioPreferences]
 
     public init(
         persistencePolicy: PersistencePolicy = .reconnectOnQuit,
@@ -231,7 +237,9 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         notificationStyle: NotificationStyle = .notificationCenter,
         routineProtectionNoticesEnabled: Bool = true,
         dockIconPolicy: DockIconPolicy = .whileSettingsOpen,
-        adjustmentSteps: AdjustmentSteps = .default
+        adjustmentSteps: AdjustmentSteps = .default,
+        nativeKeys: NativeKeyPreferences = .default,
+        keyboardAudioByDisplay: [String: DisplayKeyboardAudioPreferences] = [:]
     ) {
         self.persistencePolicy = persistencePolicy
         self.confirmationCountdownSeconds = confirmationCountdownSeconds
@@ -286,6 +294,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.routineProtectionNoticesEnabled = routineProtectionNoticesEnabled
         self.dockIconPolicy = dockIconPolicy
         self.adjustmentSteps = adjustmentSteps
+        self.nativeKeys = nativeKeys
+        self.keyboardAudioByDisplay = keyboardAudioByDisplay
     }
 
     public static let `default` = OpenDisplaySettings()
@@ -342,6 +352,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case routineProtectionNoticesEnabled
         case dockIconPolicy
         case adjustmentSteps
+        case nativeKeys
+        case keyboardAudioByDisplay
     }
 
     /// Tolerant decoder: every missing OR undecodable key falls back to its default and unknown
@@ -466,13 +478,39 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             ?? defaults.dockIconPolicy
         adjustmentSteps = container.lenient(AdjustmentSteps.self, forKey: .adjustmentSteps)
             ?? defaults.adjustmentSteps
+        nativeKeys = container.lenient(NativeKeyPreferences.self, forKey: .nativeKeys) ?? defaults.nativeKeys
+        // One unreadable display entry costs that display's preferences, not everyone's.
+        keyboardAudioByDisplay = (container.lenient([String: LenientValue<DisplayKeyboardAudioPreferences>].self,
+                                                    forKey: .keyboardAudioByDisplay) ?? [:])
+            .compactMapValues(\.value)
+    }
+
+    /// The keyboard/audio preferences of one display: its stored entry or the defaults.
+    public func keyboardAudioPreferences(for display: DisplayRecordID) -> DisplayKeyboardAudioPreferences {
+        keyboardAudioByDisplay[display.rawValue] ?? .default
+    }
+
+    /// Stores `preferences` for `display`; an entry equal to the defaults is removed rather than kept.
+    public mutating func setKeyboardAudioPreferences(_ preferences: DisplayKeyboardAudioPreferences,
+                                                     for display: DisplayRecordID) {
+        let normalized = preferences.normalized
+        keyboardAudioByDisplay[display.rawValue] = normalized.isDefault ? nil : normalized
+    }
+}
+
+/// Decodes a value or nothing, never throwing — so one damaged dictionary entry is dropped alone.
+struct LenientValue<T: Decodable>: Decodable {
+    let value: T?
+
+    init(from decoder: Decoder) throws {
+        value = try? T(from: decoder)
     }
 }
 
 extension KeyedDecodingContainer {
     /// `decodeIfPresent` that also tolerates a present-but-undecodable value, returning nil instead
     /// of throwing — the per-key half of `OpenDisplaySettings`' tolerant decoding.
-    fileprivate func lenient<T: Decodable>(_ type: T.Type, forKey key: Key) -> T? {
+    func lenient<T: Decodable>(_ type: T.Type, forKey key: Key) -> T? {
         (try? decodeIfPresent(type, forKey: key)) ?? nil
     }
 }
