@@ -56,6 +56,10 @@ public enum SafeStartup {
         case displayGroupSync
         /// Paying the brightness/contrast/preset restores a previous session still owed at launch.
         case launchRestores
+        /// Battery, Low Power Mode and timed XDR boost changes.
+        case xdrPowerAutomation
+        /// Keeping the displays awake while an external screen is attached.
+        case displaySleepPrevention
     }
 
     /// The suspensions that hold something back under `settings` — what would have acted this
@@ -76,12 +80,20 @@ public enum SafeStartup {
             case .appPresets:
                 return settings.appPresetsEnabled && !settings.appPresets.isEmpty
             case .displayGroupSync:
-                return settings.displayGroups.contains {
+                return settings.defaultDisplayGroup.syncBrightness || settings.defaultDisplayGroup.syncContrast
+                    || settings.displayGroups.contains {
                     ($0.syncBrightness || $0.syncContrast) && $0.memberRecordIDs.count > 1
                 }
             case .launchRestores:
                 return !settings.faceLightPriorStateByDisplay.isEmpty
                     || !settings.appPresetPriorStateByDisplay.isEmpty
+                    || !settings.adaptiveDayPresetByDisplay.isEmpty
+            case .xdrPowerAutomation:
+                return settings.xdrBrightnessEnabled && (settings.xdrDisableOnBattery
+                    || settings.xdrLowBatteryCutoffPercent != nil || settings.xdrDisableInLowPowerMode
+                    || settings.xdrAutoOffMinutes != nil)
+            case .displaySleepPrevention:
+                return settings.preventDisplaySleepWithExternal
             }
         }
     }

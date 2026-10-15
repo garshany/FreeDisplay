@@ -20,14 +20,14 @@ struct SafeStartupBanner: View {
         let held = SafeStartup.activeSuspensions(settings: model.settings,
                                                  turnedOffDisplays: !model.managedOffline.isEmpty)
         ODInlineBanner(tone: .orange, systemImage: "shield.lefthalf.filled",
-                       title: String(localized: "Safe startup: OpenDisplay makes no automatic changes this session"),
+                       title: String(localized: "Safe startup: FreeDisplay makes no automatic changes this session"),
                        message: message(held)) {
             Button("Relaunch Normally") { AppLanguage.relaunch() }
         }
     }
 
     private func message(_ held: [SafeStartup.Suspension]) -> String {
-        let intro = String(localized: "Shift was held at launch, or OpenDisplay was started with --safe-mode. No setting was changed: this session only holds them back. The menu, keys, command line and Shortcuts still work, and so does the safety net that brings a screen back.")
+        let intro = String(localized: "Shift was held at launch, or FreeDisplay was started with --safe-mode. Settings and virtual-screen reconnections are not restored automatically. Saved configuration is kept. The menu, keys, command line and Shortcuts still work, and so does the safety net that brings a screen back.")
         guard !held.isEmpty else {
             return intro + "\n" + String(localized: "Nothing you have set up would have acted on its own.")
         }
@@ -44,6 +44,8 @@ struct SafeStartupBanner: View {
         case .appPresets: return String(localized: "App presets")
         case .displayGroupSync: return String(localized: "Display groups following one another")
         case .launchRestores: return String(localized: "Restoring brightness left over from the last session")
+        case .xdrPowerAutomation: return String(localized: "Automatic XDR boost changes")
+        case .displaySleepPrevention: return String(localized: "Keeping displays awake with an external screen")
         }
     }
 }
@@ -350,7 +352,7 @@ struct ManageAppSettingsSheet: View {
             Text("Manage App Settings").font(.title2.weight(.semibold))
 
             section(title: String(localized: "Back up"),
-                    text: String(localized: "Saves OpenDisplay’s preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts and scenes to a file you choose.")) {
+                    text: String(localized: "Saves FreeDisplay’s preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts, scenes, menu layout and luminance values to a file you choose.")) {
                 Button("Export Settings…") { export() }
             }
             section(title: String(localized: "Restore"),
@@ -408,7 +410,7 @@ struct ManageAppSettingsSheet: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts and scenes return to their defaults. A backup of the current settings is written first, and OpenDisplay then relaunches — like any quit, turning the displays it turned off back on.")
+            Text("Preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts, scenes, menu layout and luminance values return to their defaults. A backup of the current settings is written first, and FreeDisplay then relaunches — like any quit, turning the displays it turned off back on.")
         }
         .confirmationDialog("Relaunch OpenDisplay?", isPresented: $confirmingRelaunch) {
             Button("Relaunch") { AppLanguage.relaunch() }

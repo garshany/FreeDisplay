@@ -1493,7 +1493,7 @@ final class AppModel: ObservableObject {
             power: xdrPowerSnapshot,
             boostFraction: boosted.flatMap { xdrBoostFraction[$0.recordID] },
             builtInActive: builtIn != nil,
-            now: Date())
+            now: Date(), safeStartup: safeStartup)
         switch decision {
         case .none:
             break
@@ -1514,6 +1514,11 @@ final class AppModel: ObservableObject {
     /// settings. Pure setup — it never evaluates, so the evaluate → reconcile → evaluate cycle a
     /// self-refreshing monitor callback would create can't form.
     private func reconcileXDRPowerAutomation() {
+        guard !safeStartup else {
+            xdrPowerMonitor.stop()
+            xdrAutoOffTimer.cancel()
+            return
+        }
         let rules = xdrAutomationRules
         if settings.xdrBrightnessEnabled, rules.needsPowerMonitoring {
             let wasRunning = xdrPowerMonitor.isRunning
@@ -5546,7 +5551,7 @@ final class AppModel: ObservableObject {
     /// Idempotent — safe to call on every topology change and every settings change.
     private func reconcileDisplaySleepGuard() {
         sleepGuard.update(
-            enabled: settings.preventDisplaySleepWithExternal,
+            enabled: settings.preventDisplaySleepWithExternal && !safeStartup,
             externalPresent: hasExternalDisplay
         )
     }
@@ -6177,6 +6182,24 @@ final class AppModel: ObservableObject {
         sleepGuard.releaseAll()
     }
 
+    // MARK: - Luminance anchors (SD-13/TB-13)
+
+    /// The luminance anchors stored for a display, nil when nothing is stored.
+    func luminanceAnchors(for observation: DisplayObservation) -> LuminanceAnchorSettings? {
+        settings.luminanceAnchorsByDisplay[observation.recordID.rawValue]
+    }
+
+    /// Stores a display's luminance anchors. Labels only: nothing here reaches the display. A
+    /// record back at its first-run state (manual values on, nothing entered) is dropped rather
+    /// than kept empty.
+    func setLuminanceAnchors(_ anchors: LuminanceAnchorSettings, for observation: DisplayObservation) {
+        let key = observation.recordID.rawValue
+        let stored: LuminanceAnchorSettings? = anchors.isDefault ? nil : anchors
+        guard settings.luminanceAnchorsByDisplay[key] != stored else { return }
+        settings.luminanceAnchorsByDisplay[key] = stored
+        persistSettings()
+    }
+
     // MARK: - App settings archive (SO-11/FA-10): export, import, reset
 
     /// What an import confirmation shows, worked out before anything changes.
@@ -6215,7 +6238,8 @@ final class AppModel: ObservableObject {
         return SettingsArchive(
             createdAt: Date(), appVersion: Self.archiveAppVersion, settings: settings, favorites: favorites,
             registry: registryState, scenes: savedScenes,
-            defaults: ArchivedDefaults(experimentalRotationEnabled: experimentalRotationEnabled))
+            defaults: ArchivedDefaults(experimentalRotationEnabled: experimentalRotationEnabled),
+            menuLayout: menuLayout)
     }
 
     /// Writes the current configuration to `url` (a user-chosen file).
@@ -6286,7 +6310,7 @@ final class AppModel: ObservableObject {
 
     /// The stores an archive installs into, in the order `install` writes them.
     private enum InstallStep: CaseIterable {
-        case settings, favorites, registry, scenes, defaults
+        case settings, favorites, registry, scenes, defaults, menuLayout
     }
 
     /// Puts `archive` into memory and on disk together. The in-memory half matters as much as the
@@ -6346,6 +6370,9 @@ final class AppModel: ObservableObject {
             }
         case .defaults:
             experimentalRotationEnabled = archive.defaults.experimentalRotationEnabled
+        case .menuLayout:
+            menuLayout = archive.menuLayout
+            try menuLayoutStore?.save(menuLayout)
         }
     }
 

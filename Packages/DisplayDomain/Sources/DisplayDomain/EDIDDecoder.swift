@@ -320,6 +320,12 @@ public struct EDIDDecoded: Hashable, Sendable {
             public var imageHeightMM: Double?
             public var nativeWidth: Int?
             public var nativeHeight: Int?
+            /// DisplayID 2.x only: the panel's native maximum luminance with the whole screen lit,
+            /// with a 10% window lit, and its native minimum, in cd/m². Nil when the block is too
+            /// short to carry them, and a maximum of 0 means not stated.
+            public var maxLuminanceFullCoverage: Double? = nil
+            public var maxLuminanceTenPercent: Double? = nil
+            public var minLuminance: Double? = nil
         }
 
         public struct Tile: Hashable, Sendable {

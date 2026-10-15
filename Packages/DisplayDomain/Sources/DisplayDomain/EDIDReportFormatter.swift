@@ -96,9 +96,10 @@ public enum EDIDReportFormatter {
         var rows: [InfoReport.Row] = [
             .init(l("Manufacturer"), "\(base.manufacturerID) (\(hexWord(base.manufacturerCode)))"),
             .init(l("Product code"), "\(base.productCode) (\(hexWord(base.productCode)))"),
-            .init(l("Serial number"), base.serialNumber == 0 ? l("Not set") : "\(base.serialNumber)"),
+            .init(l("Serial number"), base.serialNumber == 0 ? l("Not set") : "\(base.serialNumber)",
+                  identifying: base.serialNumber != 0),
         ]
-        if let text = base.serialText { rows.append(.init(l("Serial number (text)"), text)) }
+        if let text = base.serialText { rows.append(.init(l("Serial number (text)"), text, identifying: true)) }
         if let name = base.monitorName { rows.append(.init(l("Monitor name"), name)) }
         if !base.otherText.isEmpty { rows.append(.init(l("Text"), base.otherText.joined(separator: "\n"))) }
         rows.append(.init(l("Manufactured"), manufactureText(base.manufacture, l)))
@@ -167,6 +168,7 @@ public enum EDIDReportFormatter {
             section.rows = [.init(l("Checksum"), validText(ext.checksumValid, l)),
                             .init(l("Section checksum"), validText(id.sectionChecksumValid, l))]
                 + displayIDRows(id, l)
+            section.notes = [l("DisplayID here is the VESA data structure inside the EDID. It is unrelated to the display ID macOS assigns to a connected display.")]
             return section
         case .undecoded:
             return InfoReport.Section(
@@ -260,7 +262,8 @@ public enum EDIDReportFormatter {
         if let product = id.product {
             rows.append(.init(l("Vendor"), product.vendor))
             rows.append(.init(l("Product code"), "\(product.productCode) (\(hexWord(product.productCode)))"))
-            rows.append(.init(l("Serial number"), product.serialNumber == 0 ? l("Not set") : "\(product.serialNumber)"))
+            rows.append(.init(l("Serial number"), product.serialNumber == 0 ? l("Not set") : "\(product.serialNumber)",
+                              identifying: product.serialNumber != 0))
             rows.append(.init(l("Manufactured"), manufactureText(product.manufacture, l)))
             if let name = product.name, !name.isEmpty { rows.append(.init(l("Product name"), name)) }
         }
@@ -271,6 +274,15 @@ public enum EDIDReportFormatter {
             if let width = parameters.nativeWidth, let height = parameters.nativeHeight {
                 rows.append(.init(l("Native resolution"), l.fill("%1 × %2 pixels", "\(width)", "\(height)")))
             }
+            if let value = parameters.maxLuminanceFullCoverage {
+                rows.append(.init(l("Native maximum luminance, full screen"), l.fill("%1 cd/m²", l.decimal(value, 1))))
+            }
+            if let value = parameters.maxLuminanceTenPercent {
+                rows.append(.init(l("Native maximum luminance, 10% window"), l.fill("%1 cd/m²", l.decimal(value, 1))))
+            }
+            if let value = parameters.minLuminance {
+                rows.append(.init(l("Native minimum luminance"), l.fill("%1 cd/m²", l.decimal(value, 4))))
+            }
         }
         if !id.timings.isEmpty {
             rows.append(.init(l("Timings"), id.timings.map { timing in
@@ -278,14 +290,16 @@ public enum EDIDReportFormatter {
             }.joined(separator: "\n")))
         }
         for tile in id.tiles {
-            var lines = [l.fill("%1 × %2 tiles; this tile is column %3, row %4",
+            let lines = [l.fill("%1 × %2 tiles; this tile is column %3, row %4",
                                 "\(tile.horizontalTiles)", "\(tile.verticalTiles)", "\(tile.column + 1)", "\(tile.row + 1)"),
                          l.fill("Tile size %1 × %2 pixels", "\(tile.tileWidth)", "\(tile.tileHeight)"),
                          tile.singleEnclosure ? l("All tiles in one enclosure") : l("Tiles in separate enclosures")]
-            if let vendor = tile.vendor, let product = tile.productCode, let serial = tile.serialNumber {
-                lines.append(l.fill("Topology ID: vendor %1, product %2, serial %3", vendor, "\(product)", "\(serial)"))
-            }
             rows.append(.init(l("Tiled display"), lines.joined(separator: "\n")))
+            // Its own row: the topology ID carries the tile group's serial number.
+            if let vendor = tile.vendor, let product = tile.productCode, let serial = tile.serialNumber {
+                rows.append(.init(l("Tile topology ID"), l.fill("vendor %1, product %2, serial %3", vendor, "\(product)", "\(serial)"),
+                                  identifying: serial != 0))
+            }
         }
         if !id.otherBlockTags.isEmpty {
             rows.append(.init(l("Other data blocks"), id.otherBlockTags.map { "\(EDIDDecoder.displayIDBlockName($0, l)) (\(hexByte($0)))" }
@@ -394,5 +408,26 @@ public enum EDIDByteFormat: String, CaseIterable, Sendable, Identifiable {
             }.joined(separator: ",\n")
             return "const unsigned char edid[\(bytes.count)] = {\n\(body)\n};"
         }
+    }
+
+    public enum Base64Error: Error, Hashable, Sendable {
+        /// Nothing but whitespace.
+        case empty
+        /// Characters outside the Base64 alphabet, or a length/padding no encoder writes.
+        case invalid
+        /// It decodes, but isn't how the bytes encode (stray bits in the last character, say):
+        /// refused so that pasted text and the bytes it stands for are always the same thing.
+        case nonCanonical
+    }
+
+    /// The bytes of pasted Base64 (SD-15): whitespace and line breaks anywhere are ignored,
+    /// anything else must be canonical standard Base64 — the inverse of `.base64.render`, so a
+    /// copied EDID pastes back byte for byte. Says nothing about whether the bytes are an EDID.
+    public static func decodeBase64(_ text: String) throws(Base64Error) -> [UInt8] {
+        let compact = String(text.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) })
+        guard !compact.isEmpty else { throw .empty }
+        guard let data = Data(base64Encoded: compact) else { throw .invalid }
+        guard data.base64EncodedString() == compact else { throw .nonCanonical }
+        return Array(data)
     }
 }

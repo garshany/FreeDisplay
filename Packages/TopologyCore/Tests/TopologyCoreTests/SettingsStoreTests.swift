@@ -477,4 +477,24 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(malformed.ddcAppleDisplayOverrideIDs.isEmpty)
     }
 
+
+    func testLuminanceAnchorsDefaultEmptyAndRoundTrip() throws {
+        let store = SettingsStore(directory: directory)
+        XCTAssertTrue(store.load().luminanceAnchorsByDisplay.isEmpty)
+        var settings = OpenDisplaySettings.default
+        var anchors = try LuminanceAnchorSettings().setting(.sdrMinimum, nits: 0.5, basis: .specification).settings
+        anchors = try anchors.setting(.hdrPeak, nits: 1000).settings
+        anchors.manualValuesEnabled = false
+        settings.luminanceAnchorsByDisplay = ["cg:DESK": anchors]
+        try store.save(settings)
+        XCTAssertEqual(store.load().luminanceAnchorsByDisplay, ["cg:DESK": anchors])
+    }
+
+    func testAnUndecodableLuminanceValueLosesOnlyThatKey() throws {
+        let url = directory.appendingPathComponent("settings.json")
+        try Data(#"{"confirmationCountdownSeconds": 7, "luminanceAnchorsByDisplay": "garbage"}"#.utf8).write(to: url)
+        let loaded = SettingsStore(directory: directory).load()
+        XCTAssertEqual(loaded.confirmationCountdownSeconds, 7)
+        XCTAssertTrue(loaded.luminanceAnchorsByDisplay.isEmpty)
+    }
 }

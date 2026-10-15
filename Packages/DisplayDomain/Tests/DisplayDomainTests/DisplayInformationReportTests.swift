@@ -79,8 +79,8 @@ final class DisplayInformationReportTests: XCTestCase {
         XCTAssertEqual(report.title, "Display report: Studio")
         XCTAssertEqual(report.header, ["FreeDisplay 1.2 (34)", "Generated 2026-10-15 10:00"])
         XCTAssertEqual(report.sections.map(\.title),
-                       ["Identity", "State", "Current mode", "Physical size", "Display modes", "Capabilities",
-                        "Connection", "EDID"])
+                       ["Identity", "State", "Current mode", "Refresh timing", "Physical size", "Display modes",
+                        "Capabilities", "Luminance", "Connection", "EDID"])
         XCTAssertTrue(report.footer.first?.contains("serial numbers, UUIDs and registry paths") ?? false)
         XCTAssertTrue(report.plainText().hasSuffix("Review it before sharing.\n"))
     }
@@ -195,7 +195,7 @@ final class DisplayInformationReportTests: XCTestCase {
         facts.lastSeen = "yesterday"
         let report = DisplayInformationReport.build(facts)
         XCTAssertTrue(report.header.contains("This display isn’t connected: only saved information is shown."))
-        XCTAssertEqual(report.sections.map(\.title), ["Identity", "Connection", "EDID"])
+        XCTAssertEqual(report.sections.map(\.title), ["Identity", "Luminance", "Connection", "EDID"])
         let text = report.plainText()
         XCTAssertTrue(text.contains("Display ID (this session): Not connected"))
         XCTAssertTrue(text.contains("Last seen: yesterday"))
@@ -236,5 +236,92 @@ final class DisplayInformationReportTests: XCTestCase {
         XCTAssertEqual(size.density(width: 3840, height: 2160), size.density(width: 2160, height: 3840))
         XCTAssertNil(size.density(width: 0, height: 2160))
         XCTAssertNil(DisplayPhysicalSize(widthMM: .nan, heightMM: 300))
+    }
+
+    // MARK: Refresh and luminance
+
+    func testRefreshSectionKeepsNominalAndReportedRangeApart() {
+        var facts = connectedFacts()
+        facts.currentMode = mode(2560, 1440, scale: 2, hz: 59.94)
+        facts.refreshRange = ReportedRefreshRange(minimumInterval: 1.0 / 120, maximumInterval: 1.0 / 48)
+        let section = DisplayInformationReport.build(facts).sections.first { $0.title == "Refresh timing" }
+        let rows = Dictionary(uniqueKeysWithValues: (section?.rows ?? []).map { ($0.label, $0.value) })
+        XCTAssertEqual(rows["Mode rate (nominal)"], "59.94 Hz")
+        XCTAssertEqual(rows["Refresh range macOS reports"], "48–120 Hz, variable")
+        XCTAssertNil(rows["Measured cadence"], "the report states no measurement it didn't make")
+    }
+
+    func testLuminanceEstimateFollowsTheBrightnessRoute() throws {
+        var facts = connectedFacts()
+        facts.luminanceAnchors = try LuminanceAnchorSettings().setting(.sdrMinimum, nits: 0).settings
+            .setting(.sdrMaximum, nits: 400).settings
+        facts.brightnessLevel = 0.25
+        func estimateRow(_ facts: DisplayReportFacts) -> InfoReport.Row? {
+            DisplayInformationReport.build(facts).sections.first { $0.title == "Luminance" }?
+                .rows.first { $0.label.hasPrefix("At the current brightness") }
+        }
+        XCTAssertEqual(estimateRow(facts), .init("At the current brightness (25%)", "about 100 nits (estimated, not measured)"))
+        facts.brightness = .softwareGamma
+        XCTAssertEqual(estimateRow(facts)?.value,
+                       "No estimate for software brightness: it scales the signal, and how the panel turns that into light isn’t known")
+        facts.brightness = .notResolved
+        XCTAssertEqual(estimateRow(facts)?.value, "No estimate: brightness hasn’t been read yet")
+        facts.brightness = .system
+        facts.brightnessLevel = nil
+        XCTAssertEqual(estimateRow(facts)?.value, "No estimate: the brightness position isn’t known")
+    }
+
+    func testASavedOnlyReportKeepsEnteredLuminanceWithoutAnEstimate() throws {
+        var facts = DisplayReportFacts(appName: "FreeDisplay", appVersion: "1.2", generatedAt: "now",
+                                       presence: .savedOnly, name: "Old monitor", displayClass: .external,
+                                       recordID: "cg:OLD")
+        facts.luminanceAnchors = try LuminanceAnchorSettings().setting(.sdrMaximum, nits: 350).settings
+        facts.brightnessLevel = 0.5
+        let section = try XCTUnwrap(DisplayInformationReport.build(facts).sections.first { $0.title == "Luminance" })
+        XCTAssertTrue(section.rows.contains(.init("SDR maximum (highest brightness)", "350 nits — entered by you")))
+        XCTAssertFalse(section.rows.contains { $0.label.hasPrefix("At the current brightness") })
+    }
+
+    func testDecodedEDIDIsNotPresentedAsMeasured() {
+        var bytes = [UInt8](repeating: 0, count: 128)
+        bytes.replaceSubrange(0..<8, with: [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00])
+        bytes[8] = 0x10; bytes[9] = 0xAC; bytes[18] = 1; bytes[19] = 4
+        bytes[127] = UInt8((256 - bytes.reduce(0) { $0 + Int($1) } % 256) % 256)
+        var facts = connectedFacts()
+        facts.edid = .matched(bytes)
+        let edid = DisplayInformationReport.build(facts).sections.first { $0.title == "EDID" }
+        XCTAssertTrue(edid?.notes.first?.contains("not measured values or the current link") ?? false)
+    }
+
+    // MARK: Redaction
+
+    func testHidingIdentifiersReplacesOnlyIdentifyingValues() throws {
+        var bytes = [UInt8](repeating: 0, count: 128)
+        bytes.replaceSubrange(0..<8, with: [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00])
+        bytes[8] = 0x10; bytes[9] = 0xAC; bytes[12] = 0x39; bytes[13] = 0x30; bytes[18] = 1; bytes[19] = 4
+        bytes[127] = UInt8((256 - bytes.reduce(0) { $0 + Int($1) } % 256) % 256)
+        var facts = connectedFacts()
+        facts.serialNumber = 12345
+        facts.ioServicePath = "IOService:/AppleARMPE/dispext0"
+        facts.edid = .matched(bytes)
+        let full = DisplayInformationReport.build(facts)
+        let hidden = DisplayInformationReport.hidingIdentifiers(full)
+        let text = hidden.plainText()
+        for secret in ["12345", "ABCD-1234", "cg:ABCD", "IOService:/AppleARMPE", Data(bytes).base64EncodedString()] {
+            XCTAssertTrue(full.plainText().contains(secret), secret)
+            XCTAssertFalse(text.contains(secret), secret)
+        }
+        XCTAssertTrue(text.contains("Serial number: Hidden"))
+        XCTAssertTrue(text.contains("UUID: Hidden"))
+        XCTAssertTrue(text.contains("Model number: 4660 (0x1234)"), "a model number identifies a model, not a device")
+        XCTAssertEqual(hidden.footer, ["Serial numbers, UUIDs, registry paths and the EDID bytes are hidden in this copy of the report."])
+        XCTAssertEqual(hidden.sections.map(\.title), full.sections.map(\.title), "every section stays")
+        XCTAssertEqual(hidden.sections.flatMap(\.rows).count, full.sections.flatMap(\.rows).count)
+    }
+
+    func testAnUnsetSerialIsNotTreatedAsAnIdentifier() {
+        let rows = DisplayInformationReport.build(connectedFacts()).sections.flatMap(\.rows)
+        XCTAssertEqual(rows.first { $0.label == "Serial number" }?.identifying, false)
+        XCTAssertEqual(rows.first { $0.label == "UUID" }?.identifying, true)
     }
 }

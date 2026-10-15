@@ -8,6 +8,7 @@ import CoreGraphicsProvider
 import DisplayDomain
 import OpenDisplayDesignSystem
 import SwiftUI
+import TopologyCore
 import UniformTypeIdentifiers
 
 extension ReportLocalizer {
@@ -32,16 +33,33 @@ enum DisplayScreenLookup {
 }
 
 extension AppModel {
+    func informationReportFacts(for remembered: RememberedDisplay) async -> DisplayReportFacts {
+        if let live = displays.first(where: { remembered.observationIDs.contains($0.recordID) }) {
+            return await informationReportFacts(for: live)
+        }
+        let info = Bundle.main.infoDictionary
+        let version = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+        return remembered.savedReportFacts(
+            appVersion: version, generatedAt: Date().formatted(date: .abbreviated, time: .standard),
+            name: rememberedName(of: remembered),
+            lastSeen: remembered.record?.lastSeen?.formatted(date: .abbreviated, time: .shortened),
+            luminanceSettings: settings.luminanceAnchorsByDisplay)
+    }
+
     /// Gathers what the report states about a display, at the moment it is opened. Only reads:
     /// Core Graphics, NSScreen, IORegistry (EDID) and FreeDisplay's own caches. The EDID registry
     /// walk runs off the main actor.
     func informationReportFacts(for observation: DisplayObservation) async -> DisplayReportFacts {
+        // A sheet keeps its opening observation. Refresh/reopen must use today's topology and mode,
+        // rather than presenting that captured value as a new read.
+        let observation = displays.first { $0.recordID == observation.recordID } ?? observation
         let info = Bundle.main.infoDictionary
-        let appName = info?["CFBundleDisplayName"] as? String ?? info?["CFBundleName"] as? String ?? "OpenDisplay"
+        let appName = "FreeDisplay"
         let version = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
         let id = observation.recordID
         // `displays` is the current topology: a record that isn't in it is remembered, not online.
-        let online = observation.cgDisplayID != nil && displays.contains { $0.recordID == id }
+        let online = observation.cgDisplayID.map { CGDisplayIsOnline($0) != 0 } == true
+            && displays.contains { $0.recordID == id }
         var facts = DisplayReportFacts(
             appName: appName, appVersion: version,
             generatedAt: Date().formatted(date: .abbreviated, time: .standard),
@@ -54,6 +72,7 @@ extension AppModel {
         facts.uuid = observation.cgUUID
         facts.ioServicePath = observation.ioServicePath
         facts.transport = observation.transport
+        facts.luminanceAnchors = luminanceAnchors(for: observation)
         if let fingerprint = record?.fingerprint {
             facts.vendorNumber = fingerprint.vendorID.flatMap { UInt32(exactly: $0) }
             facts.modelNumber = fingerprint.productID.flatMap { UInt32(exactly: $0) }
@@ -75,7 +94,11 @@ extension AppModel {
         }
         facts.origin = observation.origin
         facts.rotationDegrees = observation.rotation.rawValue
-        facts.currentMode = observation.mode
+        facts.currentMode = CGDisplayCopyDisplayMode(cgID).map {
+            DisplayMode(pixelWidth: $0.pixelWidth, pixelHeight: $0.pixelHeight,
+                        pointWidth: $0.width, pointHeight: $0.height,
+                        refreshHz: $0.refreshRate, isHiDPI: $0.pixelWidth > $0.width)
+        }
         facts.backingScaleFactor = screen.map { Double($0.backingScaleFactor) }
         facts.listedModes = DisplayModeReader.listedOptions(for: cgID)
         let size = CGDisplayScreenSize(cgID)
@@ -108,7 +131,10 @@ extension AppModel {
         if let screen {
             facts.edrHeadroom = Double(screen.maximumExtendedDynamicRangeColorComponentValue)
             facts.potentialEDRHeadroom = Double(screen.maximumPotentialExtendedDynamicRangeColorComponentValue)
+            facts.refreshRange = ReportedRefreshRange(minimumInterval: screen.minimumRefreshInterval,
+                                                      maximumInterval: screen.maximumRefreshInterval)
         }
+        facts.brightnessLevel = brightness[id].map(Double.init)
         facts.hdrOutput = observation.hdrEnabled
         let lookup = await Task.detached(priority: .userInitiated) { EDIDReader.lookup(for: cgID) }.value
         switch lookup {
@@ -143,10 +169,33 @@ enum ReportExport {
 struct DisplayInformationReportSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
-    let display: DisplayObservation
+    private enum Source {
+        case display(DisplayObservation)
+        case remembered(RememberedDisplay)
+    }
+    private let source: Source
+
+    init(display: DisplayObservation) { source = .display(display) }
+    init(remembered: RememberedDisplay) { source = .remembered(remembered) }
+
+    private var displayName: String {
+        switch source {
+        case .display(let display): return model.displayName(for: display)
+        case .remembered(let remembered): return model.rememberedName(of: remembered)
+        }
+    }
     @State private var report: InfoReport?
     @State private var loading = false
     @State private var status: String?
+    /// SD-14's redaction choice: show, copy and export the report without serial numbers, UUIDs,
+    /// registry paths and EDID bytes. Off by default — the full report is what explains a problem.
+    @State private var hidingIdentifiers = false
+
+    /// The report as shown, copied and exported: full, or with identifiers hidden.
+    private var shownReport: InfoReport? {
+        guard let report else { return nil }
+        return hidingIdentifiers ? DisplayInformationReport.hidingIdentifiers(report, .app) : report
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -157,8 +206,10 @@ struct DisplayInformationReportSheet: View {
             }
             Text("The report can include serial numbers, UUIDs and registry paths that identify your hardware. Review it before sharing.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Toggle("Hide serial numbers, UUIDs, registry paths and EDID bytes", isOn: $hidingIdentifiers)
+                .font(.caption)
             ScrollView {
-                if let report { reportBody(report) }
+                if let report = shownReport { reportBody(report) }
             }
             .frame(minHeight: 320)
             .background(ODColor.fillQuaternary, in: RoundedRectangle(cornerRadius: 8))
@@ -169,15 +220,15 @@ struct DisplayInformationReportSheet: View {
                 Button("Refresh Report") { Task { await load() } }.disabled(loading)
                 Spacer()
                 Button("Copy") {
-                    guard let report else { return }
+                    guard let report = shownReport else { return }
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(report.plainText(), forType: .string)
                     status = String(localized: "Report copied.")
                 }
                 .disabled(report == nil)
                 Button("Export…") {
-                    guard let report else { return }
-                    let name = DisplayInformationReport.suggestedFileName(displayName: model.displayName(for: display))
+                    guard let report = shownReport else { return }
+                    let name = DisplayInformationReport.suggestedFileName(displayName: displayName)
                     if let outcome = ReportExport.saveText(report.plainText(), suggestedName: name) { status = outcome }
                 }
                 .disabled(report == nil)
@@ -192,7 +243,13 @@ struct DisplayInformationReportSheet: View {
     private func load() async {
         loading = true
         defer { loading = false }
-        let facts = await model.informationReportFacts(for: display)
+        let facts: DisplayReportFacts
+        switch source {
+        case .display(let display): facts = await model.informationReportFacts(for: display)
+        case .remembered(let remembered):
+            let current = model.rememberedDisplays.first { $0.id == remembered.id } ?? remembered
+            facts = await model.informationReportFacts(for: current)
+        }
         report = DisplayInformationReport.build(facts, .app)
         status = nil
     }

@@ -190,6 +190,10 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// `DDCChannelMappingPolicy`). One per display at most, keyed by stable id. Empty by default:
     /// such monitors get no DDC until the user tests and confirms a channel.
     public var ddcChannelMappings: [DDCChannelMapping]
+    /// Luminance anchors per display (SD-13/TB-13): values the user entered, with their stated
+    /// basis, for labelling and estimating nits. Keyed like the other per-display preferences; a
+    /// display with nothing entered has no entry. They describe, they never drive the display.
+    public var luminanceAnchorsByDisplay: [String: LuminanceAnchorSettings]
 
     public init(
         persistencePolicy: PersistencePolicy = .reconnectOnQuit,
@@ -248,7 +252,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         adjustmentSteps: AdjustmentSteps = .default,
         rememberedDisplayRetentionDays: Int? = nil,
         ddcChannelMappings: [DDCChannelMapping] = [],
-        newDisplayIdentityStrategy: DisplayIdentityStrategy = .automatic
+        newDisplayIdentityStrategy: DisplayIdentityStrategy = .automatic,
+        luminanceAnchorsByDisplay: [String: LuminanceAnchorSettings] = [:]
     ) {
         self.persistencePolicy = persistencePolicy
         self.confirmationCountdownSeconds = confirmationCountdownSeconds
@@ -307,6 +312,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.rememberedDisplayRetentionDays = RememberedDisplayRetention.normalizedDays(rememberedDisplayRetentionDays)
         self.ddcChannelMappings = ddcChannelMappings
         self.newDisplayIdentityStrategy = newDisplayIdentityStrategy
+        self.luminanceAnchorsByDisplay = luminanceAnchorsByDisplay
     }
 
     public static let `default` = OpenDisplaySettings()
@@ -367,6 +373,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case newDisplayIdentityStrategy
         case rememberedDisplayRetentionDays
         case ddcChannelMappings
+        case luminanceAnchorsByDisplay
     }
 
     /// Tolerant decoder: every missing OR undecodable key falls back to its default and unknown
@@ -500,6 +507,9 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             container.lenient(Int.self, forKey: .rememberedDisplayRetentionDays))
         ddcChannelMappings = container.lenient([DDCChannelMapping].self, forKey: .ddcChannelMappings)
             ?? defaults.ddcChannelMappings
+        luminanceAnchorsByDisplay = container.lenient([String: LuminanceAnchorSettings].self,
+                                                      forKey: .luminanceAnchorsByDisplay)
+            ?? defaults.luminanceAnchorsByDisplay
     }
 }
 

@@ -156,6 +156,7 @@ private struct RememberedDisplayRow: View {
     let onShow: (DisplayRecordID) -> Void
     let onIdentity: () -> Void
     let onCleanup: () -> Void
+    @State private var showingReport = false
 
     private var live: DisplayObservation? {
         model.displays.first { entry.observationIDs.contains($0.recordID) }
@@ -171,6 +172,7 @@ private struct RememberedDisplayRow: View {
             HStack(spacing: 8) {
                 statusBadge
                 Button("Identity…", action: onIdentity).controlSize(.small)
+                Button("Show Report…") { showingReport = true }.controlSize(.small)
                 if let live {
                     Button("Settings") { onShow(live.recordID) }.controlSize(.small)
                 }
@@ -189,6 +191,9 @@ private struct RememberedDisplayRow: View {
                     .controlSize(.small).disabled(model.busy || forgetBlocked)
                     .help(cleanupHelp)
             }
+        }
+        .sheet(isPresented: $showingReport) {
+            DisplayInformationReportSheet(remembered: entry).environmentObject(model)
         }
     }
 

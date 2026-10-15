@@ -32,6 +32,9 @@ struct DisplayDetailView: View {
                     }
                 }
                 ResolutionCard(display: display)
+                // Keyed by display: a measurement belongs to the screen it was started on, and
+                // selecting another display closes it (AM-13).
+                RefreshTimingCard(display: display).id(display.recordID)
                 AppearanceCard(display: display)
                 ColorProfileCard(display: display)
                 if display.displayClass != .builtIn {
@@ -41,6 +44,7 @@ struct DisplayDetailView: View {
                     ControlsCard(display: display).id(display.recordID)
                 }
                 DimmingCard(display: display)
+                LuminanceCard(display: display).id(display.recordID)
                 UseAsCard(display: display)
                 IdentityCard(display: display)
                 DisplayIdentityCard(display: display).id(display.recordID)
