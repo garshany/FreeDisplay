@@ -61,6 +61,41 @@ final class PersistentDisplayIdentityTests: XCTestCase {
         XCTAssertFalse(awake.shouldHold)
     }
 
+    func testConnectedPendingAndUnresolvedIdentityNeverFallsBackToRememberedRecord() {
+        let id = DisplayRecordID.forCGUUID("X")
+        let remembered = DisplayRecord(id: .generate(), fingerprint: .init(), displayClass: .external, lastSeen: Date())
+        var provisional = remembered
+        provisional.unresolvedCandidates = []
+        var live = LiveDisplayIdentityState()
+        var generation = live.begin(connected: [id])
+        XCTAssertFalse(live.isVerified(id, remembered: remembered), "a Clock tick during fingerprint I/O must hold")
+        XCTAssertTrue(live.complete([id: provisional], generation: generation))
+        XCTAssertFalse(live.isVerified(id, remembered: remembered))
+        generation = live.begin(connected: [id])
+        XCTAssertFalse(live.isVerified(id, remembered: remembered), "refresh cannot clear the previous refusal")
+        XCTAssertTrue(live.complete([:], generation: generation))
+        XCTAssertFalse(live.isVerified(id, remembered: remembered), "a missing live answer is unresolved")
+        generation = live.begin(connected: [id])
+        XCTAssertTrue(live.complete([id: remembered], generation: generation))
+        XCTAssertTrue(live.isVerified(id, remembered: nil))
+        _ = live.begin(connected: [])
+        XCTAssertTrue(live.isVerified(id, remembered: remembered), "offline settings remain editable")
+        XCTAssertFalse(live.isVerified(numeric, remembered: remembered))
+    }
+
+    func testOlderRefreshCannotPublishIdentityForNewerTopology() {
+        let id = DisplayRecordID.forCGUUID("X")
+        let record = DisplayRecord(id: .generate(), fingerprint: .init(), displayClass: .external, lastSeen: Date())
+        var live = LiveDisplayIdentityState()
+        let old = live.begin(connected: [id])
+        let current = live.begin(connected: [id])
+        XCTAssertFalse(live.updateConnected([], generation: old))
+        XCTAssertFalse(live.complete([id: record], generation: old))
+        XCTAssertFalse(live.isVerified(id, remembered: record))
+        XCTAssertTrue(live.complete([:], generation: current))
+        XCTAssertFalse(live.isVerified(id, remembered: record))
+    }
+
     func testStableObservationStillRequiresUnambiguousRegistryEvidence() {
         let stable = DisplayRecordID.forCGUUID("A")
         var record = DisplayRecord(id: .generate(), fingerprint: .init(), displayClass: .external, lastSeen: Date())

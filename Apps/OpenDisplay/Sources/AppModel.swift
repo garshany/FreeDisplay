@@ -100,6 +100,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var recentActivity: [AuditEntry] = []
     /// Identity records for the current displays, keyed by the observation's record id.
     @Published private(set) var records: [DisplayRecordID: DisplayRecord] = [:]
+    private var liveDisplayIdentities = LiveDisplayIdentityState()
     /// Every display the registry remembers — including ones that aren't plugged in right now —
     /// keyed by the same observation record id `records` uses. This is what lets the Groups card
     /// offer (and name) a display that is currently unplugged or turned off.
@@ -854,15 +855,16 @@ final class AppModel: ObservableObject {
 
     /// Resolves each live display's fingerprint into the registry (recognizing or minting), so the
     /// menu bar and Settings can show user aliases and remember them across reconnects.
-    private func resolveRecords(_ snapshot: TopologySnapshot) async {
-        guard let registry else { return }
+    private func resolveRecords(_ snapshot: TopologySnapshot, generation: UUID) async -> Bool {
+        guard let registry else { return false }
         let observer = self.observer
         let observations = snapshot.observations.filter { $0.cgDisplayID != nil }
         guard !observations.isEmpty else {
+            guard liveDisplayIdentities.complete([:], generation: generation) else { return false }
             if !records.isEmpty { records = [:] }
             if !identityExplanations.isEmpty { identityExplanations = [:] }
             await refreshRegistryKnownRecords()
-            return
+            return true
         }
         // EDID fingerprint reads are nonisolated CG/IOKit accessors — gather them OFF the main actor,
         // then resolve the whole set in ONE batched (single disk-write) registry call.
@@ -883,9 +885,11 @@ final class AppModel: ObservableObject {
             byID[input.0] = result.record
             explanations[input.0] = result.explanation
         }
+        guard liveDisplayIdentities.complete(byID, generation: generation) else { return false }
         records = byID
         if identityExplanations != explanations { identityExplanations = explanations }
         await refreshRegistryKnownRecords()
+        return true
     }
 
     /// Reloads the remembered-display index (every display the registry has ever minted a record
@@ -895,9 +899,7 @@ final class AppModel: ObservableObject {
         guard let registry else { return }
         registryKnownRecords = await registry.recordsByObservationID()
         let known = registryKnownRecords.merging(records) { _, live in live }
-        TVControlStore.shared.updateVerifiedDisplays(Set(known.compactMap { id, record in
-            PersistentDisplayIdentity.isVerified(id, record: record) ? id : nil
-        }))
+        TVControlStore.shared.updateVerifiedDisplays(Set(known.keys.filter(canPersistDisplaySettings)))
         // Republish only on a change: every view observing the model re-evaluates on a publish. While a
         // display is present its `lastSeen` moves on every resolve, so this mainly spares the refreshes
         // of a registry with nothing live — comparing without `lastSeen` would leave "last seen" stale.
@@ -2684,6 +2686,8 @@ final class AppModel: ObservableObject {
 
     func refresh() async {
         guard !settingsTransferInProgress else { return }
+        let identityGeneration = liveDisplayIdentities.begin(connected: displays.map(\.recordID))
+        TVControlStore.shared.updateVerifiedDisplays(Set(registryKnownRecords.keys.filter(canPersistDisplaySettings)))
         #if !PUBLIC_API_ONLY
         ddcPairingEpoch &+= 1
         testedDDCMapping = nil
@@ -2701,11 +2705,14 @@ final class AppModel: ObservableObject {
             snapshot = await observer.currentSnapshot()
             attempts += 1
         }
+        guard liveDisplayIdentities.updateConnected(snapshot.observations.map(\.recordID),
+                                                   generation: identityGeneration) else { return }
         displays = snapshot.observations.sorted { $0.recordID.rawValue < $1.recordID.rawValue }
+        TVControlStore.shared.updateVerifiedDisplays(Set(registryKnownRecords.keys.filter(canPersistDisplaySettings)))
         // Discovery may yield to key-capture settings changes: no previous registry answer can
         // authorize hardware reads while the new topology's identity is still being resolved.
         records = [:]
-        await resolveRecords(snapshot)
+        guard await resolveRecords(snapshot, generation: identityGeneration) else { return }
         observeAutoDisconnectArrival()
         reconcileDisplaySleepGuard()
         refreshRevertRecord()
@@ -5837,7 +5844,7 @@ final class AppModel: ObservableObject {
     }
 
     func canPersistDisplaySettings(_ id: DisplayRecordID) -> Bool {
-        PersistentDisplayIdentity.isVerified(id, record: records[id] ?? registryKnownRecords[id])
+        liveDisplayIdentities.isVerified(id, remembered: registryKnownRecords[id])
     }
 
     func keyboardAudioPreferences(for id: DisplayRecordID) -> DisplayKeyboardAudioPreferences {
