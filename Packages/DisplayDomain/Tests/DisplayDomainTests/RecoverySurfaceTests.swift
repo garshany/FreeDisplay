@@ -153,3 +153,55 @@ final class RecoverySurfacePolicyTests: XCTestCase {
         XCTAssertTrue(RecoverySurfacePolicy.isPhysical(decoded))
     }
 }
+
+/// Black Out (R1 P0): the opaque overlay may only cover a screen when another one the user can be
+/// left on stays lit — physical, unmirrored, not blacked out itself.
+final class BlackOutPolicyTests: XCTestCase {
+    private func obs(_ id: String, active: Bool = true, klass: DisplayClass = .external,
+                     presence: PhysicalPresence? = .physical, mirrorOf: String? = nil) -> DisplayObservation {
+        DisplayObservation(recordID: DisplayRecordID(rawValue: id), isActive: active,
+                           mirrorSourceID: mirrorOf.map(DisplayRecordID.init(rawValue:)),
+                           displayClass: klass, physicalPresence: presence, generation: .initial)
+    }
+
+    private func id(_ raw: String) -> DisplayRecordID { DisplayRecordID(rawValue: raw) }
+
+    func testAVirtualOrUnverifiedScreenIsNoReasonToBlackOutTheOnlyPhysicalOne() {
+        let builtIn = obs("builtin", klass: .builtIn)
+        for other in [obs("ours", presence: .virtual), obs("displaylink", presence: .unverified),
+                      obs("sidecar", klass: .sidecar, presence: nil)] {
+            XCTAssertFalse(BlackOutPolicy.mayBlackOut(builtIn.recordID, in: [builtIn, other], blackedOut: []),
+                           "\(other.recordID)")
+        }
+    }
+
+    func testASecondLitPhysicalScreenAllowsIt() {
+        XCTAssertTrue(BlackOutPolicy.mayBlackOut(id("a"), in: [obs("a"), obs("b")], blackedOut: []))
+    }
+
+    func testTheOtherScreenMustNotBeBlackedOutInactiveOrAMirror() {
+        XCTAssertFalse(BlackOutPolicy.mayBlackOut(id("a"), in: [obs("a"), obs("b")], blackedOut: [id("b")]),
+                       "both blacked out leaves nothing to undo it from")
+        XCTAssertFalse(BlackOutPolicy.mayBlackOut(id("a"), in: [obs("a"), obs("b", active: false)], blackedOut: []))
+        XCTAssertFalse(BlackOutPolicy.mayBlackOut(id("a"), in: [obs("a"), obs("b", mirrorOf: "a")], blackedOut: []),
+                       "a mirror of the target shows the target's black")
+    }
+
+    func testStampingMarksTheBlackedOutDisplaysAndTheirMirrors() {
+        let stamped = BlackOutPolicy.stamping([id("a")], into: [obs("a"), obs("b"), obs("c", mirrorOf: "a"),
+                                                                obs("d", mirrorOf: "b")])
+        XCTAssertEqual(stamped.map(\.overlay), [.blackedOut, .visible, .blackedOut, .visible])
+        XCTAssertEqual(BlackOutPolicy.stamping([], into: [obs("a")]).map(\.overlay), [.visible])
+    }
+
+    func testRecoveryLiftsEveryBlackOutOnceNoOtherScreenIsLeft() {
+        // A blacked out, B unplugged (or turned off by another process): only A is left.
+        XCTAssertEqual(BlackOutPolicy.blackOutsToLift(in: [obs("a")], blackedOut: [id("a")]), [id("a")])
+        // A and C blacked out, only a virtual screen besides: lift both.
+        XCTAssertEqual(BlackOutPolicy.blackOutsToLift(in: [obs("a"), obs("c"), obs("v", presence: .virtual)],
+                                                      blackedOut: [id("a"), id("c")]), [id("a"), id("c")])
+        // B still lit: the blackout stays.
+        XCTAssertEqual(BlackOutPolicy.blackOutsToLift(in: [obs("a"), obs("b")], blackedOut: [id("a")]), [])
+        XCTAssertEqual(BlackOutPolicy.blackOutsToLift(in: [obs("a")], blackedOut: []), [])
+    }
+}

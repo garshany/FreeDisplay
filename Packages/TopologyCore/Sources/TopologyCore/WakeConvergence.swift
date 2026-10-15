@@ -165,8 +165,13 @@ public enum WakeConvergencePolicy {
     /// and the covering-surface test — asks this, because a virtual screen (ours or another app's,
     /// DisplayLink, Sidecar) is lit and enumerated while showing the user nothing on the desk.
     /// `visibleSurfaces` stays the answer to "is this particular display lit again?".
+    ///
+    /// A blacked-out screen is lit too, and shows nothing: it is no screen to be left on. Black Out
+    /// is the app's own overlay, so it counts only once the caller stamps it into the observations
+    /// (`BlackOutPolicy.stamping`).
     public static func recoverySurfaces(in observations: [DisplayObservation]) -> [DisplayObservation] {
         RecoverySurfacePolicy.liveSurfaces(in: visibleSurfaces(in: observations))
+            .filter { $0.overlay != .blackedOut }
     }
 
     /// The whole net decision: is anything lit, is anything coming, and what is there to fall back
@@ -178,6 +183,36 @@ public enum WakeConvergencePolicy {
         let remaining = context.recoveryDeadline - darkFor
         guard remaining > 0, isDisplayOnItsWayBack(context) else { return .restore(fallback) }
         return .waitForWakingDisplay(min(context.recheckStep, remaining))
+    }
+
+    /// What rule 1 does about Black Out.
+    public enum BlackOutRescue: Hashable, Sendable {
+        /// A screen the user can be left on is lit, or nothing is blacked out.
+        case none
+        /// Only blacked-out screens are left, but another display is plainly on its way back — look
+        /// again in this many seconds.
+        case wait(TimeInterval)
+        /// Only blacked-out screens are left and nothing is coming: lift these blackouts — the
+        /// cheapest rescue there is, ahead of lighting a display the user turned off.
+        case lift(Set<DisplayRecordID>)
+    }
+
+    /// Black Out under rule 1. Once only blacked-out screens are left (`BlackOutPolicy.blackOutsToLift`)
+    /// the net gives a display on its way back the same benefit of the doubt as anywhere else, within
+    /// the same deadline: a wake, or a monitor still enumerated while it renegotiates its link,
+    /// doesn't end a blackout the user chose. The blacked-out screens themselves never count as on
+    /// their way back — they are the ones in question. `context.observations` must carry the
+    /// blackouts (`BlackOutPolicy.stamping`).
+    public static func blackOutRescue(_ context: Context, blackedOut: Set<DisplayRecordID>) -> BlackOutRescue {
+        guard recoverySurfaces(in: context.observations).isEmpty else { return .none }
+        let lift = BlackOutPolicy.blackOutsToLift(in: context.observations, blackedOut: blackedOut)
+        guard !lift.isEmpty else { return .none }
+        let darkFor = context.now.timeIntervalSince(context.darkSince ?? context.now)
+        let remaining = context.recoveryDeadline - darkFor
+        var others = context
+        others.observations = context.observations.filter { $0.overlay != .blackedOut }
+        guard remaining > 0, isDisplayOnItsWayBack(others) else { return .lift(lift) }
+        return .wait(min(context.recheckStep, remaining))
     }
 
     /// The display to light when nothing else will: the built-in first (it is attached to the
@@ -335,6 +370,9 @@ public enum WakeConvergencePolicy {
     /// Command recorded when the net escalates to the public permanent-configuration restore
     /// because the fallback it lit still produced no visible surface.
     public static let netEscalateAuditCommand = "netEscalate"
+    /// Command recorded when rule 1 lifts Black Out because the blacked-out displays were the only
+    /// screens left (`BlackOutPolicy.blackOutsToLift`).
+    public static let netLiftBlackOutAuditCommand = "netLiftBlackOut"
 
     /// The audit entry for one re-assert attempt (rule 2). Every one of these writes goes into the
     /// same trail the CLI and App Intents report to; the distinct actor/command pair is what lets
@@ -357,6 +395,13 @@ public enum WakeConvergencePolicy {
     public static func netEscalateAudit(at now: Date) -> AuditEntry {
         AuditEntry(timestamp: now, actor: .wakeConvergence, command: netEscalateAuditCommand,
                    transactionId: "txn_\(netEscalateAuditCommand)", status: "attempted", targets: [])
+    }
+
+    /// The audit entry for the net lifting Black Out. Always "committed": lifting is the app's own
+    /// overlay and colour-table state, with nothing for macOS to refuse.
+    public static func netLiftBlackOutAudit(of displays: Set<DisplayRecordID>, at now: Date) -> AuditEntry {
+        entry(command: netLiftBlackOutAuditCommand, committed: true,
+              targets: displays.map(\.rawValue).sorted(), at: now)
     }
 
     private static func entry(command: String, committed: Bool, targets: [String],
