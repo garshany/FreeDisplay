@@ -115,7 +115,8 @@ public enum AutomationDisplayCatalog {
                                   name: (DisplayObservation) -> String,
                                   record: (DisplayRecordID) -> DisplayRecord?,
                                   groups: [DisplayGroup], pointerDisplayID: UInt32?,
-                                  generation: UInt64) -> AutomationDisplaySet {
+                                  generation: UInt64,
+                                  remembered: [DisplayRecordID: DisplayRecord] = [:]) -> AutomationDisplaySet {
         let offlineIDs = Set(offline.map(\.recordID))
         func groupNames(_ ids: [DisplayRecordID]) -> Set<String> {
             Set(groups.filter { group in ids.contains(where: group.contains) }.map(\.name))
@@ -156,6 +157,17 @@ public enum AutomationDisplayCatalog {
                 isBuiltIn: display.displayClass == .builtIn, vendorID: known?.fingerprint.vendorID,
                 productID: known?.fingerprint.productID, serial: known?.fingerprint.serialNumber,
                 containsPointer: pointer(display.cgID, present: false)))
+        }
+        var represented = Set(candidates.compactMap(\.registryID)).union(candidates.map(\.id))
+        for (id, known) in remembered.sorted(by: { $0.key.rawValue < $1.key.rawValue })
+            where !known.isProvisional && !listed.contains(id) && !represented.contains(known.id) {
+            listed.insert(id); represented.insert(known.id)
+            candidates.append(AutomationDisplayCandidate(
+                id: id, registryID: known.id == id ? nil : known.id, name: known.displayName, alias: known.alias,
+                tags: known.tags, groups: groupNames([id, known.id]), availability: .disconnected,
+                isBuiltIn: known.displayClass == .builtIn, vendorID: known.fingerprint.vendorID,
+                productID: known.fingerprint.productID, serial: known.fingerprint.serialNumber,
+                containsPointer: false))
         }
         return AutomationDisplaySet(candidates: candidates, knownGroups: groups.map(\.name), topologyGeneration: generation)
     }

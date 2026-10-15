@@ -53,6 +53,7 @@ public struct SettingsArchive: Hashable, Sendable {
     public var registry: RegistryState
     public var scenes: [Scene]
     public var defaults: ArchivedDefaults
+    public var integrations: IntegrationConfiguration
 
     /// An archive of the given state. The restore ledgers are always stripped from `settings` —
     /// see the type comment — so no archive this initializer makes can carry them.
@@ -62,7 +63,8 @@ public struct SettingsArchive: Hashable, Sendable {
                 favorites: FavoriteResolutions,
                 registry: RegistryState,
                 scenes: [Scene],
-                defaults: ArchivedDefaults) {
+                defaults: ArchivedDefaults,
+                integrations: IntegrationConfiguration = .init()) {
         self.version = Self.currentVersion
         self.createdAt = createdAt
         self.appVersion = appVersion
@@ -71,6 +73,7 @@ public struct SettingsArchive: Hashable, Sendable {
         self.registry = registry
         self.scenes = scenes
         self.defaults = defaults
+        self.integrations = integrations
     }
 
     /// What a reset installs: every covered store back to its first-run state.
@@ -126,7 +129,7 @@ public struct SettingsArchive: Hashable, Sendable {
     /// overrides, learned offsets, app-preset targets, group members, input-switch shortcuts,
     /// protected layouts and favourite resolutions.
     public var referencedDisplayIDs: Set<DisplayRecordID> {
-        var ids = Set<DisplayRecordID>()
+        var ids = Set(integrations.displays.map(\.id))
         ids.formUnion(settings.softwareBrightnessDisplayIDs.map(DisplayRecordID.init(rawValue:)))
         ids.formUnion(settings.ddcAppleDisplayOverrideIDs.map(DisplayRecordID.init(rawValue:)))
         ids.formUnion(settings.adaptiveBrightnessOffsetByDisplay.keys.map(DisplayRecordID.init(rawValue:)))
@@ -180,7 +183,7 @@ public enum SettingsArchiveError: Error, Hashable, Sendable {
 
 extension SettingsArchive: Codable {
     private enum CodingKeys: String, CodingKey {
-        case format, version, createdAt, appVersion, settings, favorites, registry, scenes, defaults
+        case format, version, createdAt, appVersion, settings, favorites, registry, scenes, defaults, integrations
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -194,6 +197,7 @@ extension SettingsArchive: Codable {
         try container.encode(registry, forKey: .registry)
         try container.encode(scenes, forKey: .scenes)
         try container.encode(defaults, forKey: .defaults)
+        try container.encode(integrations, forKey: .integrations)
     }
 
     /// Checks the marker and version before touching any section, then decodes each section with
@@ -208,6 +212,12 @@ extension SettingsArchive: Codable {
         }
         guard version <= Self.currentVersion else { throw SettingsArchiveError.newerVersion(version) }
         guard version >= 1 else { throw SettingsArchiveError.unsupportedVersion(version) }
+        integrations = try Self.section(.integrations, in: container) {
+            try $0.decodeIfPresent(IntegrationConfiguration.self, forKey: .integrations)
+        } ?? .init()
+        do { try integrations.validateForStorage() } catch {
+            throw SettingsArchiveError.invalidValue(section: "integrations", item: String(describing: error))
+        }
         self.version = version
         createdAt = try Self.section(.createdAt, in: container) { try $0.decode(Date.self, forKey: .createdAt) }
         appVersion = try? container.decodeIfPresent(String.self, forKey: .appVersion)
@@ -361,6 +371,7 @@ public struct SettingsBackupStore: Sendable {
         let backupURL = try backUp(current, now: now)
         var toInstall = incoming
         toInstall.settings = incoming.settings.withRestoreLedgers(from: live)
+        toInstall.integrations = incoming.integrations.pausedForImport()
         return Replacement(backupURL: backupURL, archive: toInstall)
     }
 }

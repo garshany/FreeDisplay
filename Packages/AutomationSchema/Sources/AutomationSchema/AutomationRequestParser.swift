@@ -121,6 +121,15 @@ public enum AutomationRequestParser {
         case .resetColorProfile: return .resetColorProfile
         case .reconnectAll: return .reconnectAll
         case .disconnect: return .disconnect
+        case .feedIntegration:
+            guard let text = try string(parameters["control"], parameter: "control"), let control = UUID(uuidString: text) else {
+                throw .invalidValue("control", "a configured control UUID is required")
+            }
+            // Parser responses preserve newlines. They are data, unlike command/selector tokens.
+            guard case .string(let response) = parameters["response"] else {
+                throw .missing("response", for: name.rawValue)
+            }
+            return .feedIntegration(control: control, response: response)
         }
     }
 

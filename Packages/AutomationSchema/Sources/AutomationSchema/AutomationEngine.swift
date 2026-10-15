@@ -45,6 +45,7 @@ public protocol AutomationEnvironment: Sendable {
 
     func reconnectAll() async throws(AutomationIssue) -> ResultEnvelope
     func disconnect(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> ResultEnvelope
+    func feedIntegration(control: UUID, response: String, display: AutomationDisplayCandidate) async throws(AutomationIssue) -> IntegrationSample
 }
 
 public extension AutomationEnvironment {
@@ -89,6 +90,10 @@ public extension AutomationEnvironment {
     }
     func disconnect(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> ResultEnvelope {
         throw notOffered(.disconnect)
+    }
+
+    func feedIntegration(control: UUID, response: String, display: AutomationDisplayCandidate) async throws(AutomationIssue) -> IntegrationSample {
+        throw notOffered(.feedIntegration)
     }
 
     private func notOffered(_ command: AutomationCommandName) -> AutomationIssue {
@@ -171,6 +176,14 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
     private func execute(_ command: AutomationCommand, target: AutomationDisplayCandidate?, set: AutomationDisplaySet,
                          context: Context) async throws(AutomationIssue) -> AutomationResult {
         switch command {
+        case .feedIntegration(let control, let response):
+            let display = try required(target)
+            if context.request.dryRun { return context.plan("parse and feed integration control \(control) on \(display.name); no setter") }
+            let sample = try await environment.feedIntegration(control: control, response: response, display: display)
+            var result = context.result(status: .committed)
+            result.integrationSample = sample
+            return result
+
         case .listDisplays:
             var result = context.result(status: .noOp)
             result.displays = set.candidates.map(AutomationDisplaySummary.init)

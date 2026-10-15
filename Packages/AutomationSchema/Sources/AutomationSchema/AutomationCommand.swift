@@ -42,6 +42,7 @@ public enum AutomationCommandName: String, Hashable, Sendable, Codable, CaseIter
     case resetColorProfile
     case reconnectAll
     case disconnect
+    case feedIntegration
 }
 
 /// One typed command with its validated arguments. Building one is the only way into the engine, so
@@ -66,6 +67,7 @@ public enum AutomationCommand: Hashable, Sendable, Codable {
     case resetColorProfile
     case reconnectAll
     case disconnect
+    case feedIntegration(control: UUID, response: String)
 
     public var name: AutomationCommandName {
         switch self {
@@ -84,6 +86,7 @@ public enum AutomationCommand: Hashable, Sendable, Codable {
         case .resetColorProfile: return .resetColorProfile
         case .reconnectAll: return .reconnectAll
         case .disconnect: return .disconnect
+        case .feedIntegration: return .feedIntegration
         }
     }
 }
@@ -155,6 +158,7 @@ public struct AutomationParameterSpec: Hashable, Sendable, Codable {
         /// An ICC profile file path or profile name.
         case profile
         case flag
+        case text
     }
 
     public var name: String
@@ -213,6 +217,12 @@ public enum AutomationCatalog {
     private static let appSurfaces: Set<AutomationSurface> = [.http, .appIntent, .console]
 
     public static let descriptors: [AutomationCommandDescriptor] = [
+        .init(name: .feedIntegration, aliases: ["feed"],
+              summary: "Feeds a configured integration parser without invoking its setter; source is feed, never device verification.",
+              effect: .setting, target: .connectedDisplay,
+              parameters: [display, .init("control", .text, required: true, "Configured control UUID."),
+                           .init("response", .text, required: true, "Exact parser input, including newlines.")],
+              surfaces: [.http, .console]),
         .init(name: .listDisplays, aliases: ["list", "displays"],
               summary: "Lists the displays automation can name, connected or remembered.",
               effect: .read, target: .none, surfaces: [.cli, .http, .appIntent, .console]),

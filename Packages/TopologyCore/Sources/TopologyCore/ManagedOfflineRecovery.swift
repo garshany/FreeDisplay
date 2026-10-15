@@ -72,10 +72,12 @@ public enum ManagedOfflineRecovery {
     /// reports none).
     public static func requestReconnect(
         _ offline: ManagedOfflineDisplay, lifecycle: any LifecycleProvider, observations: [DisplayObservation],
-        ledger: [ManagedOfflineDisplay], uuidForDisplayNumber: @Sendable (UInt32) -> String?, deadline: Date
+        ledger: [ManagedOfflineDisplay], uuidForDisplayNumber: @Sendable (UInt32) -> String?, deadline: Date,
+        beforeRequest: (@Sendable () async -> Void)? = nil
     ) async throws {
         let target = try ReconnectIdentity.reconnectTarget(for: offline, observations: observations, ledger: ledger,
                                                            uuidForNumber: uuidForDisplayNumber)
+        await beforeRequest?()
         try await lifecycle.reconnect(target, deadline: deadline)
     }
 

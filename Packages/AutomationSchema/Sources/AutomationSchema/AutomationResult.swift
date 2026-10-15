@@ -186,6 +186,7 @@ public struct AutomationResult: Hashable, Sendable, Codable {
     public var main: AutomationMainReport?
     public var colorProfile: AutomationColorProfileReport?
     public var colorProfiles: [AutomationProfileInfo]?
+    public var integrationSample: IntegrationSample?
     /// For a dry run: what would have been done.
     public var plan: String?
 
