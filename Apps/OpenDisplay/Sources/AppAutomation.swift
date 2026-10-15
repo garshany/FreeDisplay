@@ -27,10 +27,13 @@ enum AppAutomation {
 final class AppAutomationEnvironment: AutomationEnvironment {
     nonisolated let surface: AutomationSurface
     private let model: AppModel
+    private let beforeClockWrite: (@MainActor () -> AutomationIssue?)?
 
-    init(model: AppModel, surface: AutomationSurface) {
+    init(model: AppModel, surface: AutomationSurface,
+         beforeClockWrite: (@MainActor () -> AutomationIssue?)? = nil) {
         self.model = model
         self.surface = surface
+        self.beforeClockWrite = beforeClockWrite
     }
 
     nonisolated func unavailability(of command: AutomationCommandName) -> AutomationIssue? {
@@ -79,7 +82,9 @@ final class AppAutomationEnvironment: AutomationEnvironment {
         try confirmRoute(route, for: display)
         // The app's own brightness funnel: same routes, coalescing, OSD event and group behaviour as
         // any other change.
-        model.setBrightness(level.float, for: observation, eventSource: osdSource)
+        if let issue = beforeClockWrite?() { throw issue }
+        model.setBrightness(level.float, for: observation, eventSource: osdSource,
+                            syncBypass: beforeClockWrite != nil, policyWrite: beforeClockWrite != nil)
         return await model.automationBrightnessWriteReport(level, for: observation)
     }
 

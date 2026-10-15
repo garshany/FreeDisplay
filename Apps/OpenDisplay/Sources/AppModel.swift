@@ -385,8 +385,15 @@ final class AppModel: ObservableObject {
     private var hotKeys: [GlobalHotKey] = []
     private var registry: DisplayRegistry?
     private var sceneLibrary: SceneLibrary?
-    /// Persisted user settings. Mutated only through the dedicated setters (which also persist and
-    /// reconcile side effects), so the on-disk store and any derived state stay in lockstep.
+    var clockModeSession = ClockModeSession()
+    var clockModeTask: Task<Void, Never>?
+    var clockModeTickInProgress = false
+    var clockModeLifecycleSuspended = false
+    var clockModeLastRequests: [DisplayRecordID: AutomationRequest] = [:]
+    @Published var clockModeConfigurationError: String?
+    @Published var clockModeResults: [DisplayRecordID: AutomationResult] = [:]
+    @Published var clockModeHolds: [DisplayRecordID: ClockModeSession.Hold] = [:]
+    /// Persisted user settings. Mutated only through setters so on-disk and derived state agree.
     @Published private(set) var settings: OpenDisplaySettings
     /// On-disk settings store (Application Support); nil only if that directory can't be resolved.
     private let settingsStore: SettingsStore?
@@ -622,6 +629,7 @@ final class AppModel: ObservableObject {
             if !safeStartup { await restoreOwedFaceLightState() }  // crash-safe: relaunching mid-FaceLight restores it
             await enforceActiveSurfaceInvariant()  // recover if we launched into a stranded (0-active) state
             await reassertManagedOfflineIntent()  // a stamped owed-"off" survives a relaunch; pay it if covered
+            reconcileClockMode()
             reconcileDisplaySleepGuard()  // hold/release the keep-awake assertion for the launch topology
             #if !PUBLIC_API_ONLY
             reconcileAdaptiveLoop()  // start adaptive brightness/warmth if enabled for this topology
@@ -695,6 +703,7 @@ final class AppModel: ObservableObject {
                 self?.offlineIntentRecheck.cancel()
                 self?.configuredReactionTimer.cancel()
                 self?.stopObservingSleepAndWake()
+                self?.clockModeTask?.cancel()
                 #if !PUBLIC_API_ONLY
                 self?.groupBrightnessLoop?.cancel()
                 self?.adaptiveLoop?.cancel()
@@ -2769,12 +2778,13 @@ final class AppModel: ObservableObject {
                        syncToken: GroupSyncPolicy.SyncEcho.Token? = nil,
                        origin: GroupSyncPolicy.ManualWrite.Origin = .slider,
                        eventSource: OSDBroadcast.Source? = nil,
-                       syncBypass: Bool = false,
+                       syncBypass: Bool = false, policyWrite: Bool = false,
                        keyboardEligible: Set<DisplayRecordID>? = nil) {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
         // What a delta-mode group measures this change from: the level before this write.
         let previous = brightness[id]
+        if !policyWrite { noteManualClockBrightness(id) }
         #if PUBLIC_API_ONLY
         let method = BrightnessMethod.software
         #else
@@ -2796,7 +2806,7 @@ final class AppModel: ObservableObject {
             // offset (or the schedule adoption anchor in clamshell) and start the cooldown, so
             // adaptive yields instead of fighting the slider. The adaptive loop's own writes go
             // through `applyAdaptiveBrightness`, never here.
-            noteManualBrightnessForAdaptive(value, id: id)
+            if !policyWrite { noteManualBrightnessForAdaptive(value, id: id) }
             automationBrightnessWriteAccepted[id] = false
             if ddcWriters[id] == nil { brightnessBeforeDDCWrite[id] = previous }
             ddcTarget[id] = Int((value * Float(brightnessMax[id] ?? 100)).rounded())
@@ -2835,6 +2845,35 @@ final class AppModel: ObservableObject {
         syncGroupBrightness(value, applied: brightness[id], previous: previous, from: observation,
                             token: syncToken, origin: origin, bypass: syncBypass,
                             keyboardEligible: keyboardEligible)  // Issue #39
+    }
+
+    func updateClockMode(_ configuration: ClockModeConfiguration?, enabled: Bool? = nil) {
+        settings.clockMode = configuration
+        if let enabled { settings.clockScheduleEnabled = enabled }
+        clockModeLastRequests.removeAll()
+        clockModeHolds.removeAll()
+        clockModeConfigurationError = nil
+        clockModeSession.resume()
+        persistSettings()
+        #if !PUBLIC_API_ONLY
+        reconcileAdaptiveLoop()
+        #endif
+    }
+
+    func updateClockModeLocation(_ coordinate: GeoCoordinate?) {
+        settings.clockManualLocation = coordinate
+        clockModeConfigurationError = nil
+        clockModeLastRequests.removeAll()
+        persistSettings()
+    }
+
+    var clockModeIsSleeping: Bool { isBetweenSleepAndWake }
+
+    func clockModeHasCompetitor(_ id: DisplayRecordID) -> Bool {
+        #if !PUBLIC_API_ONLY
+        if appPresetActiveDisplays.contains(id) { return true }
+        #endif
+        return isBrightnessGroupGoverned(id)
     }
 
     // MARK: - Display Groups (Issue #39): brightness/contrast fan-out
@@ -4038,7 +4077,7 @@ final class AppModel: ObservableObject {
             adaptiveLoop = Task { [weak self] in
                 while !Task.isCancelled {
                     await self?.adaptiveTick()
-                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    try? await Task.sleep(nanoseconds: ClockSchedulePolicy.samplingNanoseconds)
                 }
             }
         } else {
@@ -4055,7 +4094,7 @@ final class AppModel: ObservableObject {
         let config = settings.adaptiveConfig
         let syncOn = settings.adaptiveBrightnessSyncEnabled
         let warmthOn = settings.adaptiveWarmthEnabled
-        let clockOn = settings.clockScheduleEnabled && !settings.clockScheduleEntries.isEmpty
+        let clockOn = settings.clockMode == nil && settings.clockScheduleEnabled && !settings.clockScheduleEntries.isEmpty
         let locationOn = settings.adaptiveLocationModeEnabled
         guard syncOn || warmthOn || clockOn || locationOn else { return }
 
@@ -4129,7 +4168,8 @@ final class AppModel: ObservableObject {
                 currentPreset: colorPreset[id],
                 dayPreset: settings.adaptiveDayPresetByDisplay[id.rawValue],
                 nightShiftActive: nightShiftActive,
-                brightnessSyncEnabled: brightnessGoverned && !groupDrivesBrightness,
+                brightnessSyncEnabled: brightnessGoverned && !groupDrivesBrightness
+                    && !clockModeOwnsBrightness(id),
                 warmthEnabled: warmthOn,
                 scheduleOverride: clockTarget, locationElevationDegrees: locationElevation)
             let decision = AdaptiveDisplayPolicy.evaluate(input, config: config, state: state)
@@ -4229,8 +4269,9 @@ final class AppModel: ObservableObject {
     /// a synced external): learn the offset in sync/ambient/location mode, anchor the adoption in
     /// schedule mode.
     private func noteManualBrightnessForAdaptive(_ value: Float, id: DisplayRecordID) {
+        guard !clockModeOwnsBrightness(id) else { return }
         let syncOn = settings.adaptiveBrightnessSyncEnabled
-        let clockOn = settings.clockScheduleEnabled && !settings.clockScheduleEntries.isEmpty
+        let clockOn = settings.clockMode == nil && settings.clockScheduleEnabled && !settings.clockScheduleEntries.isEmpty
         guard syncOn || clockOn || settings.adaptiveLocationModeEnabled else { return }
         let now = Date()
         let comps = Calendar.current.dateComponents([.hour, .minute], from: now)
@@ -4269,12 +4310,13 @@ final class AppModel: ObservableObject {
         let now = Date()
         let comps = Calendar.current.dateComponents([.hour, .minute], from: now)
         let minuteOfDay = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-        let clockOn = settings.clockScheduleEnabled && !settings.clockScheduleEntries.isEmpty
+        let clockOn = settings.clockMode == nil && settings.clockScheduleEnabled && !settings.clockScheduleEntries.isEmpty
         let clockTarget = clockOn ? clockScheduleBrightness(atMinute: minuteOfDay, on: now) : nil
         if let clockTarget {
             // Clock Mode governs brightness and outranks the adaptive mirror.
             parts.append(String(localized: "clock \(Int((clockTarget * 100).rounded()))%"))
-        } else if settings.adaptiveBrightnessSyncEnabled || settings.adaptiveLocationModeEnabled {
+        } else if !clockModeOwnsBrightness(id)
+                    && (settings.adaptiveBrightnessSyncEnabled || settings.adaptiveLocationModeEnabled) {
             if let manualAt = state?.manualBrightnessAt,
                Date() < manualAt.addingTimeInterval(settings.adaptiveConfig.manualCooldown) {
                 parts.append(String(localized: "brightness paused (manual)"))
@@ -5442,6 +5484,7 @@ final class AppModel: ObservableObject {
             // just come back (or gone away), so any negative probe knowledge is stale.
             resetDDCProbeCache()
             await refresh()
+            clockModeLastRequests.removeAll()
             logDisplayEvent("topology")
             await enforceActiveSurfaceInvariant()
             reconcileDisplaySleepGuard()  // external arrived/left → acquire or release the keep-awake assertion
@@ -5672,6 +5715,7 @@ final class AppModel: ObservableObject {
         reconcileGroupBrightnessLoop()
         #endif
         try? settingsStore?.save(settings)
+        reconcileClockMode()
     }
 
     /// The "one display is always active" safety net. If a topology change leaves nothing the user
@@ -5844,6 +5888,7 @@ final class AppModel: ObservableObject {
                     self?.configuredReactionTimer.cancel()
                     self?.pendingReactionTrigger = nil
                     self?.isBetweenSleepAndWake = true
+                    self?.clockModeLastRequests.removeAll()
                     self?.logDisplayEvent("sleep")
                 }
             },
@@ -5875,6 +5920,8 @@ final class AppModel: ObservableObject {
     private func convergeAfterWake() async {
         logDisplayEvent("wake")
         lastWakeAt = Date()
+        clockModeSession.didWake(policy: settings.clockMode?.resumePolicy ?? .currentInterval)
+        clockModeLastRequests.removeAll()
         isBetweenSleepAndWake = false  // the transition is over; the bounded window starts now
         offlineReassertAttempts.removeAll()  // a new wake is a fresh world; prior attempts don't count
         // A dark spell stamped as the machine went down must not count against the recovery
@@ -5888,6 +5935,7 @@ final class AppModel: ObservableObject {
         if deferConfiguredReactions(.wake) { return }
         await reassertManagedOfflineIntent()
         await evaluateLayoutProtection(trigger: .wake)
+        await clockModeTick()
     }
 
     /// Defers the user's rules (built-in off on arrival, owed "off"s, Protected Layout) when the
@@ -6284,6 +6332,9 @@ final class AppModel: ObservableObject {
         sleepGuard.releaseAll()
         displaySleepPrevention = .init()
 
+        clockModeLifecycleSuspended = true
+        clockModeTask?.cancel()
+        clockModeTask = nil
         // Black Out goes first: the reconnects below can leave a blacked-out screen as the only lit
         // one, and the overlay would otherwise stay up for as long as teardown takes.
         liftBlackOuts(blackedOut)
@@ -6471,6 +6522,9 @@ final class AppModel: ObservableObject {
     /// the first store that can't be written; `reached` lists the steps it got to, the failing one
     /// included — what a rollback has to put back.
     private func install(_ archive: SettingsArchive, reached: inout [InstallStep]) async throws {
+        clockModeLifecycleSuspended = true
+        clockModeTask?.cancel()
+        clockModeTask = nil
         groupPersistTask?.cancel()
         groupPersistTask = nil
         // The loops and observers were armed from the old settings; stop them rather than let one
@@ -6545,6 +6599,9 @@ final class AppModel: ObservableObject {
         }
         await refreshRegistryKnownRecords()
         if restored {
+            clockModeLifecycleSuspended = false
+            clockModeLastRequests.removeAll()
+            reconcileClockMode()
             #if !PUBLIC_API_ONLY
             reconcileAdaptiveLoop()
             reconcileAppPresetObserver()
