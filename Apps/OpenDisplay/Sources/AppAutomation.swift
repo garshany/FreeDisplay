@@ -150,7 +150,15 @@ final class AppAutomationEnvironment: AutomationEnvironment {
         }
         let observation = try active(display)
         let windowBefore = model.pendingRevert
-        if !observation.isMain { await model.setMain(for: observation) }
+        if !observation.isMain {
+            // The app's own funnel opens the keep/revert window; a change that didn't open one
+            // was refused or not confirmed by macOS.
+            guard await model.setMain(for: observation), model.pendingRevert?.kind == .mainDisplay else {
+                throw AutomationIssue(.notConfirmed,
+                                      model.modeChangeError ?? "macOS didn't confirm \(display.name) as the main display",
+                                      subject: display.id.rawValue)
+            }
+        }
         let main = model.displays.first { $0.isMain && $0.isActive }?.recordID
         // Only a window this change opened says it may revert.
         let opened = windowBefore == nil && model.pendingRevert != nil

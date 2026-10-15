@@ -4,6 +4,7 @@ import CoreGraphics
 import DisplayDomain
 import Foundation
 import ProviderInterfaces
+import TopologyCore
 
 /// The isolated, separable logical connect/disconnect provider (PRD §9.9, §10.9, LIF-003/004).
 ///
@@ -89,14 +90,32 @@ public struct ExperimentalLifecycleProvider: LifecycleProvider {
     }
 
     public func recover(to checkpoint: Checkpoint) async throws {
-        // Best effort: re-enable every display the checkpoint recorded as active. Prefer the raw
-        // CG display ID — a logically-disabled display may have dropped off the online list, so its
-        // persistent UUID can fail to resolve, but the numeric ID is still valid while connected.
+        let ledger = (try? ManagedOfflineStore.defaultDirectory()).map { ManagedOfflineStore(directory: $0).load() } ?? []
+        var failures: [String] = []
         for observation in checkpoint.observations where observation.isActive {
-            let target = observation.cgDisplayID.map { DisplayRecordID(rawValue: "cgid:\($0)") }
-                ?? observation.recordID
-            try? setEnabled(target, enabled: true)
+            do {
+                let target = try ReconnectIdentity.recoveryTarget(
+                    for: observation, ledger: ledger,
+                    numberForUUID: { Self.displayID(for: .forCGUUID($0)) },
+                    uuidForNumber: Self.persistentUUID(for:))
+                try setEnabled(target, enabled: true)
+            } catch {
+                // Recover the other confirmed identities too, but never turn a partial attempt
+                // into success: Rescue must be able to report every refused/missing display.
+                failures.append("\(observation.recordID.rawValue): \(error)")
+            }
         }
+        if !failures.isEmpty { throw RecoveryFailures(details: failures) }
+    }
+
+    public struct RecoveryFailures: Error, Sendable, CustomStringConvertible {
+        public let details: [String]
+        public var description: String { details.joined(separator: "\n") }
+    }
+
+    private static func persistentUUID(for number: UInt32) -> String? {
+        guard let uuid = CGDisplayCreateUUIDFromDisplayID(number)?.takeRetainedValue() else { return nil }
+        return CFUUIDCreateString(kCFAllocatorDefault, uuid) as String
     }
 
     // MARK: - Private

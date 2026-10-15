@@ -60,6 +60,15 @@ final class RevertMarkerPolicyTests: XCTestCase {
                                                      current: [obs(a, x: 1920, mode: bad), obs(c)]), [.mode(a)])
     }
 
+    func testAReanchorWithWrongMainDisplayIsNotAVerifiedRestore() {
+        var main = obs(a)
+        main.isMain = true
+        let wrong = obs(a)
+        let mismatches = RevertMarkerPolicy.mismatches(wanted: [main], current: [wrong])
+        XCTAssertFalse(mismatches.isEmpty)
+        XCTAssertFalse(RevertMarkerPolicy.mayClearMarker(after: .restored(providerWarnings: [], mismatches: mismatches)))
+    }
+
     // MARK: - Keeping the record
 
     func testARejectedRestoreKeepsTheRecord() {

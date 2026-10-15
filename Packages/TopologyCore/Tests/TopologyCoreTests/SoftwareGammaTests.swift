@@ -77,7 +77,52 @@ final class SoftwareGammaTests: XCTestCase {
             ColorProfileGuard.knowledge(connected: connected, readings: readings, previous: previous))
     }
 
-    func testACustomProfileOnAnyDisplayBlocks() {
+    func testCustomAndUnknownAssignmentsBlockOnlyTheirOwnDisplay() {
+        let knowledge: [DisplayRecordID: ColorProfileGuard.Knowledge] = [
+            a: .verified(.factory), b: .verified(.custom), c: .unverified
+        ]
+        XCTAssertFalse(ColorProfileGuard.blocksGamma(for: a, knowledge: knowledge, allowGammaWithCustomProfiles: false))
+        XCTAssertTrue(ColorProfileGuard.blocksGamma(for: b, knowledge: knowledge, allowGammaWithCustomProfiles: false))
+        XCTAssertTrue(ColorProfileGuard.blocksGamma(for: c, knowledge: knowledge, allowGammaWithCustomProfiles: false))
+    }
+
+    func testPendingFirstReadFailsClosedAndOverrideAllowsEveryAssignment() {
+        XCTAssertTrue(ColorProfileGuard.blocksGamma(for: a, knowledge: [:], allowGammaWithCustomProfiles: false))
+        for knowledge: ColorProfileGuard.Knowledge in [.verified(.factory), .verified(.system), .verified(.custom), .unverified] {
+            XCTAssertFalse(ColorProfileGuard.blocksGamma(for: a, knowledge: [a: knowledge], allowGammaWithCustomProfiles: true))
+        }
+        XCTAssertFalse(ColorProfileGuard.blocksGamma(for: a, knowledge: [:], allowGammaWithCustomProfiles: true))
+    }
+
+    func testUnaffectedDisplayKeepsEverySoftwareGammaAdjustment() {
+        let knowledge: [DisplayRecordID: ColorProfileGuard.Knowledge] = [
+            a: .verified(.system), b: .verified(.custom)
+        ]
+        let transfers = [SoftwareImageTransfer(dim: 0.5), SoftwareImageTransfer(dim: 1, gains: warm),
+                         SoftwareImageTransfer(dim: 1, contrast: 1.3), SoftwareImageTransfer(dim: 1, boost: 1.5)]
+        for transfer in transfers {
+            for (id, expected) in [(a, GammaSlotPolicy.Action.write), (b, .blocked)] {
+                let blocked = ColorProfileGuard.blocksGamma(for: id, knowledge: knowledge,
+                                                            allowGammaWithCustomProfiles: false)
+                XCTAssertEqual(GammaSlotPolicy.action(needsGamma: transfer.needsGamma, owned: false, blocked: blocked), expected)
+            }
+        }
+    }
+
+    func testPendingSeedAndChangingBlockMembershipPreservePerDisplayVerdicts() {
+        var knowledge = ColorProfileGuard.knowledge(connected: [a, b, c], readings: [a: .factory, b: .custom], previous: [:])
+        XCTAssertEqual(ColorProfileGuard.blockingDisplays(knowledge), [b, c])
+        // A refresh's empty-read seed must preserve verified assignments and pending C separately.
+        knowledge = ColorProfileGuard.knowledge(connected: [a, b, c], readings: [:], previous: knowledge)
+        XCTAssertFalse(ColorProfileGuard.blocksGamma(for: a, knowledge: knowledge, allowGammaWithCustomProfiles: false))
+        XCTAssertTrue(ColorProfileGuard.blocksGamma(for: c, knowledge: knowledge, allowGammaWithCustomProfiles: false))
+        let before = ColorProfileGuard.blockingDisplays(knowledge)
+        knowledge = ColorProfileGuard.knowledge(connected: [a, b, c], readings: [a: .custom, b: .factory], previous: knowledge)
+        XCTAssertEqual(before.symmetricDifference(ColorProfileGuard.blockingDisplays(knowledge)), [a, b],
+                       "a nonempty global guard is insufficient to detect these two changed displays")
+    }
+
+    func testCustomProfileIdentifiesOnlyItsOwnDisplay() {
         XCTAssertEqual(blocking(connected: [a, b, c], readings: [a: .factory, b: .custom, c: .system]), [b])
     }
 
@@ -117,6 +162,44 @@ final class SoftwareGammaTests: XCTestCase {
                                 previous: ColorProfileGuard.knowledge(connected: [a], readings: [:],
                                                                       previous: [b: .verified(.factory)])),
                        [b], "a returning display's old verdict was dropped while it was away")
+    }
+
+    // MARK: - Written displays and restore selection
+
+    func testRestoreSelectsOnlySuccessfullyWrittenDisplay() {
+        var tracker = GammaWriteTracker()
+        XCTAssertNil(tracker.displayToRestore(for: a, currentDisplayID: 1), "safe startup owns no tables")
+        tracker.recordWrite(for: a, displayID: 1, succeeded: true)
+        tracker.recordWrite(for: b, displayID: 2, succeeded: false)
+        XCTAssertEqual(tracker.displayToRestore(for: a, currentDisplayID: 1), 1)
+        XCTAssertNil(tracker.displayToRestore(for: b, currentDisplayID: 2))
+        XCTAssertNil(tracker.displayToRestore(for: c, currentDisplayID: 3), "another app's display is untouched")
+    }
+
+    func testRestoringOneDisplayLeavesTheOtherOwnedAndFailedRestoreCanRetry() {
+        var tracker = GammaWriteTracker()
+        tracker.recordWrite(for: a, displayID: 1, succeeded: true)
+        tracker.recordWrite(for: b, displayID: 2, succeeded: true)
+        tracker.recordWrite(for: a, displayID: 1, succeeded: false)
+        tracker.recordRestore(for: a, succeeded: false)
+        XCTAssertEqual(tracker.displayToRestore(for: a, currentDisplayID: 1), 1)
+        tracker.recordRestore(for: a, succeeded: true)
+        XCTAssertNil(tracker.displayToRestore(for: a, currentDisplayID: 1), "quit after cleanup does not reset twice")
+        XCTAssertEqual(tracker.displayToRestore(for: b, currentDisplayID: 2), 2)
+    }
+
+    func testDepartureOrChangedDisplayNumberCannotResetAnotherSurface() {
+        var tracker = GammaWriteTracker()
+        tracker.recordWrite(for: a, displayID: 1, succeeded: true)
+        tracker.recordWrite(for: b, displayID: 2, succeeded: true)
+        XCTAssertNil(tracker.displayToRestore(for: a, currentDisplayID: nil))
+        XCTAssertNil(tracker.displayToRestore(for: a, currentDisplayID: 3))
+        tracker.retainConnected([a: 3, c: 2])
+        XCTAssertFalse(tracker.contains(a))
+        XCTAssertFalse(tracker.contains(b))
+        XCTAssertNil(tracker.displayToRestore(for: c, currentDisplayID: 2))
+        tracker.retainConnected([a: 1])
+        XCTAssertNil(tracker.displayToRestore(for: a, currentDisplayID: 1), "return requires a new successful write")
     }
 
     // MARK: - Software brightness floor (TR-02)
