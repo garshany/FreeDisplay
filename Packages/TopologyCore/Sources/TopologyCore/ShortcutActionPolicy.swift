@@ -45,7 +45,22 @@ public enum ShortcutActionPolicy {
         AudioKeyRouter.decide(action, intent: .plain, candidates: candidates,
             context: .init(engagement: .always, targetMode: preferences.audioTarget,
                            nativeFallback: preferences.nativeAudioFallback, muteLeftToMacOS: false,
-                           currentOutput: currentOutput, pointer: pointer, focusedDisplay: focusedDisplay))
+                           currentOutput: currentOutput, pointer: pointer, focusedDisplay: focusedDisplay, source: .recordedShortcut))
+    }
+
+    /// Image setters act on each surface themselves; only brightness has group fan-out.
+    public static func videoDecision(candidates: [BrightnessKeyRouter.Candidate],
+                                     context: BrightnessKeyRouter.Context,
+                                     softwareImage: Bool = false) -> BrightnessKeyRouter.Decision {
+        var context = context
+        context.source = .recordedShortcut
+        context.takeover = .anyControllableDisplay
+        let candidates = candidates.map { candidate in
+            var candidate = candidate
+            if softwareImage { candidate.syncGroup = nil }
+            return candidate
+        }
+        return BrightnessKeyRouter.decide(intent: .plain, candidates: candidates, context: context)
     }
 
     public static func contrast(_ current: Float?, delta: Float) -> Float {

@@ -42,8 +42,8 @@ public struct AudioKeyCandidate: Hashable, Sendable {
 
     /// This display can carry out `action` from a key: active, keyboard control on, and a confirmed
     /// control for that action (volume and mute are separate capabilities).
-    public func supports(_ action: MediaKeyAction) -> Bool {
-        guard observation.isActive, keyboardEnabled, action.isVolume else { return false }
+    public func supports(_ action: MediaKeyAction, source: KeyRoutingSource = .nativeKey) -> Bool {
+        guard observation.isActive, (keyboardEnabled || source == .recordedShortcut), action.isVolume else { return false }
         switch sink {
         case .hardware(let volume, let mute):
             return action == .muteToggle ? mute : volume
@@ -126,12 +126,14 @@ public enum AudioKeyRouter {
         public var pointer: DisplayOrigin?
         public var focusedDisplay: DisplayRecordID?
         public var streamTargets: [DisplayRelationships.StreamTarget]
+        public var source: KeyRoutingSource
 
         public init(engagement: AudioKeyEngagement = .outputMatchesDisplay,
                     targetMode: AudioKeyTargetMode = .matchingOutput, nativeFallback: Bool = true,
                     muteLeftToMacOS: Bool = false, currentOutput: AudioOutputDevice?,
                     pointer: DisplayOrigin? = nil, focusedDisplay: DisplayRecordID? = nil,
-                    streamTargets: [DisplayRelationships.StreamTarget] = []) {
+                    streamTargets: [DisplayRelationships.StreamTarget] = [], source: KeyRoutingSource = .nativeKey) {
+            self.source = source
             self.streamTargets = streamTargets
             self.engagement = engagement
             self.targetMode = targetMode
@@ -196,15 +198,18 @@ public enum AudioKeyRouter {
         let byID = Dictionary(active.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let match = AudioOutputAssociation.displays(matching: context.currentOutput, candidates: active)
 
+        func controllable(_ candidate: AudioKeyCandidate) -> Bool {
+            candidate.supports(.volumeUp, source: context.source) || candidate.supports(.muteToggle, source: context.source)
+        }
         let engaged: Bool
         switch context.engagement {
         case .outputMatchesDisplay:
-            engaged = match.displays.contains { byID[$0]?.isControllable == true }
+            engaged = match.displays.contains { byID[$0].map(controllable) == true }
         case .outputLacksVolumeControl:
             engaged = context.currentOutput != nil && context.currentOutput?.volumeIsAdjustable != true
-                && active.contains(where: \.isControllable)
+                && active.contains(where: controllable)
         case .anyControllableDisplay:
-            engaged = active.contains(where: \.isControllable)
+            engaged = active.contains(where: controllable)
         case .always:
             engaged = true
         }
@@ -232,7 +237,7 @@ public enum AudioKeyRouter {
         var seenOutputs = Set<String>()
         var seenDisplays = Set<DisplayRecordID>()
         for id in chosen {
-            guard let candidate = byID[id], candidate.supports(action), seenDisplays.insert(id).inserted else { continue }
+            guard let candidate = byID[id], candidate.supports(action, source: context.source), seenDisplays.insert(id).inserted else { continue }
             switch candidate.sink {
             case .hardware:
                 recipients.append(.hardware(id))
@@ -299,6 +304,18 @@ public enum AudioKeyStatus: Hashable, Sendable {
 /// Owner #6: discovery and capture enablement use the same initial-read plan. Only the existing
 /// DDC sink needs a probe; a native binding must never start DDC traffic as a side effect.
 public enum DisplayAudioInitialRead {
+    /// Pass-through is not itself permission to discover hardware: intentional macOS handling
+    /// and native bindings must remain free of DDC side effects.
+    public static func keyPressTargets(action: MediaKeyAction, candidates: [AudioKeyCandidate],
+                                       currentOutput: AudioOutputDevice?, confirmedVolume: Set<DisplayRecordID>,
+                                       captureEnabled: Bool, safeStartup: Bool,
+                                       muteLeftToMacOS: Bool) -> [DisplayRecordID] {
+        guard action.isVolume, !(action == .muteToggle && muteLeftToMacOS) else { return [] }
+        let matching = Set(AudioOutputAssociation.displays(matching: currentOutput, candidates: candidates).displays)
+        return targets(candidates: candidates, confirmedVolume: confirmedVolume,
+                       captureEnabled: captureEnabled, safeStartup: safeStartup).filter { matching.contains($0) }
+    }
+
     public static func targets(candidates: [AudioKeyCandidate], confirmedVolume: Set<DisplayRecordID>,
                                captureEnabled: Bool, safeStartup: Bool) -> [DisplayRecordID] {
         guard captureEnabled, !safeStartup else { return [] }

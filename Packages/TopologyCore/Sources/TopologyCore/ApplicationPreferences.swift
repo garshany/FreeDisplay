@@ -290,3 +290,16 @@ public enum SettingsWindowPlacementPolicy {
         return (x, y)
     }
 }
+
+/// Cancelling a timer cannot retract async work it already handed off. Every rearm or lifecycle
+/// cancellation invalidates that run's token; hosts check again after awaits and before mutations.
+public struct ConfiguredReactionGeneration: Sendable {
+    private var current = UUID()
+    public init() {}
+    @discardableResult
+    public mutating func invalidate() -> UUID {
+        current = UUID()
+        return current
+    }
+    public func isCurrent(_ token: UUID) -> Bool { current == token }
+}

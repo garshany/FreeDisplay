@@ -252,6 +252,12 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
         }
     }
 
+    /// Resolve UUIDs on this actor immediately before each public Core Graphics write.
+    public func applyMirroringChange(_ plan: MirroringChangePlan) -> Bool {
+        plan.apply(read: { currentTopology().observations },
+                   write: { setMirrorSource(of: $0, to: $1) })
+    }
+
     // MARK: Reconfiguration event source
 
     private var changeContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]

@@ -55,6 +55,44 @@ final class ShortcutActionPolicyTests: XCTestCase {
         XCTAssertEqual(fallbackOff, .passThrough(.noCapableTarget))
     }
 
+    func testSoftwareImageTargetsDoNotCollapseBrightnessGroupMembers() {
+        let group = UUID()
+        let source = DisplayObservation(recordID: .init(rawValue: "source"), isActive: true,
+            isMain: true, displayClass: .external, generation: .initial)
+        let mirror = DisplayObservation(recordID: .init(rawValue: "mirror"), isActive: true,
+            mirrorSourceID: source.recordID, displayClass: .external, generation: .initial)
+        let candidates = [source, mirror].map { BrightnessKeyRouter.Candidate(observation: $0, syncGroup: group) }
+        let context = BrightnessKeyRouter.Context(mode: .focusedWindow, focusedDisplay: source.recordID)
+        XCTAssertEqual(ShortcutActionPolicy.videoDecision(candidates: candidates, context: context).targets.count, 1)
+        XCTAssertEqual(ShortcutActionPolicy.videoDecision(candidates: candidates, context: context,
+            softwareImage: true).targets.map(\.display), [source.recordID, mirror.recordID])
+    }
+
+    func testRecordedShortcutsIgnoreNativeKeyboardExclusionWithoutRedirectingToFallback() {
+        let bound = AudioOutputDevice(uid: "bound", name: "Bound USB", transport: .usb,
+            volume: .settable, mute: .settable, volumeLevel: 0.5, isMuted: false)
+        let other = AudioOutputDevice(uid: "default", name: "Default USB", transport: .usb,
+            volume: .settable, mute: .settable, volumeLevel: 0.5, isMuted: false)
+        let display = DisplayObservation(recordID: .init(rawValue: "display"), isActive: true,
+            mode: .init(pixelWidth: 100, pixelHeight: 100, pointWidth: 100, pointHeight: 100,
+                        refreshHz: 60, isHiDPI: false), displayClass: .external, generation: .initial)
+        let audio = AudioKeyCandidate(observation: display, productName: "Display", keyboardEnabled: false,
+                                      sink: .native(bound))
+        let prefs = NativeKeyPreferences(audioTarget: .underCursor, nativeAudioFallback: true)
+        let pointer = DisplayOrigin(x: 10, y: 10)
+        for action: MediaKeyAction in [.volumeUp, .muteToggle] {
+            XCTAssertEqual(ShortcutActionPolicy.audioDecision(action, preferences: prefs, candidates: [audio],
+                currentOutput: other, pointer: pointer, focusedDisplay: nil).recipients, [.native(display.recordID, bound)])
+            XCTAssertEqual(AudioKeyRouter.decide(action, intent: .plain, candidates: [audio],
+                context: .init(engagement: .always, targetMode: .underCursor, currentOutput: other, pointer: pointer))
+                .recipients, [.currentOutput(other)])
+        }
+        let video = BrightnessKeyRouter.Candidate(observation: display, keyboardEnabled: false)
+        let context = BrightnessKeyRouter.Context(mode: .underCursor, pointer: pointer)
+        XCTAssertEqual(BrightnessKeyRouter.decide(intent: .plain, candidates: [video], context: context), .passThrough(.noTarget))
+        XCTAssertEqual(ShortcutActionPolicy.videoDecision(candidates: [video], context: context).targets.map(\.display), [display.recordID])
+    }
+
     func testShortcutVolumeFeedbackReplacesRepeatsAndIsConsumedOnceOrCancelled() {
         var feedback = ShortcutReleaseFeedback()
         feedback.pressHandled(.volumeUp, request: .init(outputUID: "old"))
