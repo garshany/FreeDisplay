@@ -270,7 +270,7 @@ private struct ProtectedLayoutCard: View {
             )) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Put my arrangement back when it changes")
-                    Text("When macOS (or another app) moves a display, changes its resolution, or hands “main” to the other screen, the protected arrangement is restored — including which displays are switched off. A display you turned off in OpenDisplay is switched back off after sleep whether this is on or not.")
+                    Text("When macOS (or another app) moves a display, changes its resolution, or hands “main” to the other screen, the protected arrangement is restored — including which displays are switched off. A display you turned off in FreeDisplay is switched back off after sleep whether this is on or not.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -282,7 +282,7 @@ private struct ProtectedLayoutCard: View {
                     Text("Rotation isn’t protected: this build can’t rotate displays.")
                         .font(.caption).foregroundStyle(.secondary)
                     #else
-                    Text("Rotation isn’t protected: OpenDisplay can rotate displays only with Labs › Experimental display rotation on.")
+                    Text("Rotation isn’t protected: FreeDisplay can rotate displays only with Labs › Experimental display rotation on.")
                         .font(.caption).foregroundStyle(.secondary)
                     #endif
                 }
@@ -839,7 +839,7 @@ private struct LanguageRow: View {
 
     var body: some View {
         ODRow(String(localized: "Interface language"),
-              secondary: choice == launched ? nil : String(localized: "Takes effect after OpenDisplay relaunches.")) {
+              secondary: choice == launched ? nil : String(localized: "Takes effect after FreeDisplay relaunches.")) {
             HStack(spacing: ODSpacing.sm) {
                 if choice != launched {
                     Button("Relaunch") { AppLanguage.relaunch() }

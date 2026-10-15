@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bundles the `opendisplay` CLI into OpenDisplay.app/Contents/Helpers so the experimental rotation
+# Bundles the `opendisplay` CLI into FreeDisplay.app/Contents/Helpers so the experimental rotation
 # backend can run it as an isolated helper process. The CLI is a Swift `tool` target that cannot be
 # built inside the app's own Xcode build (its module outputs conflict with the app's), so we build it
 # as a separate invocation and copy the product into the bundle.
@@ -24,13 +24,13 @@ fi
 # release once shipped a binary still stamped 0.3.0 because the project wasn't regenerated).
 xcodegen generate --spec "$SPEC" >/dev/null
 
-echo "Building OpenDisplay.app ($CONFIG)…"
+echo "Building FreeDisplay.app ($CONFIG)…"
 xcodebuild -project OpenDisplay.xcodeproj -scheme OpenDisplay -configuration "$CONFIG" -destination 'platform=macOS' -derivedDataPath "$DD" ${UPDATE_SETTINGS[@]+"${UPDATE_SETTINGS[@]}"} build >/dev/null
 echo "Building opendisplay CLI ($CONFIG)…"
 xcodebuild -project OpenDisplay.xcodeproj -scheme opendisplay -configuration "$CONFIG" -destination 'platform=macOS' -derivedDataPath "$DD" ${UPDATE_SETTINGS[@]+"${UPDATE_SETTINGS[@]}"} build >/dev/null
 
 PRODUCTS="$DD/Build/Products/$CONFIG"
-APP="$PRODUCTS/OpenDisplay.app"
+APP="$PRODUCTS/FreeDisplay.app"
 CLI="$PRODUCTS/opendisplay"
 
 [ -d "$APP" ] || { echo "error: $APP not found" >&2; exit 1; }

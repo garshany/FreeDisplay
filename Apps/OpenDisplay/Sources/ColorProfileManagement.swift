@@ -241,7 +241,7 @@ struct ColorProfileCard: View {
                     Text("Your profiles").font(.system(size: 13))
                 }
                 DisclosureGroup(isExpanded: $showsHelp) {
-                    Text("A colour profile describes how a screen shows colour, so macOS can convert pictures for it. Choosing one doesn’t measure or calibrate the display — OpenDisplay doesn’t calibrate. A profile is accurate only for the monitor settings it was made with (picture preset, brightness, white point). To make one for this screen, measure it with a colorimeter and its software, or use macOS’s Display Calibrator Assistant (in System Settings › Displays, open the Colour Profile menu and choose Customise…). A profile such as Display P3 describes a colour space: choosing it doesn’t turn on HDR or change the signal sent to the monitor.")
+                    Text("A colour profile describes how a screen shows colour, so macOS can convert pictures for it. Choosing one doesn’t measure or calibrate the display — FreeDisplay doesn’t calibrate. A profile is accurate only for the monitor settings it was made with (picture preset, brightness, white point). To make one for this screen, measure it with a colorimeter and its software, or use macOS’s Display Calibrator Assistant (in System Settings › Displays, open the Colour Profile menu and choose Customise…). A profile such as Display P3 describes a colour space: choosing it doesn’t turn on HDR or change the signal sent to the monitor.")
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 4)
@@ -347,7 +347,7 @@ struct ColorProfileCard: View {
     @ViewBuilder
     private var userFolder: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Profiles in \(ColorProfileService.userProfilesFolder.path). OpenDisplay imports copies here and removes only copies from here; profiles of macOS, other users or apps stay in the profile chooser but are left alone.")
+            Text("Profiles in \(ColorProfileService.userProfilesFolder.path). FreeDisplay imports copies here and removes only copies from here; profiles of macOS, other users or apps stay in the profile chooser but are left alone.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if library.loaded && library.userProfiles.isEmpty {
                 note(String(localized: "No profiles in your folder."))

@@ -52,7 +52,7 @@ clean: ## Remove build artifacts
 	$(SWIFT) package clean || true
 	rm -rf .build
 
-bundle-helper: ## Bundle the opendisplay CLI into OpenDisplay.app/Contents/Helpers (for experimental rotation)
+bundle-helper: ## Bundle the opendisplay CLI into FreeDisplay.app/Contents/Helpers (for experimental rotation)
 	@./scripts/bundle-helper.sh $(CONFIG)
 
 .PHONY: release-signed

@@ -329,8 +329,8 @@ private struct TrayOfflineSection: View {
     /// powers the monitor down.
     private var offStatus: String {
         switch model.logicalOffMethod {
-        case .disconnect: return String(localized: "Disconnected by OpenDisplay")
-        case .mirror: return String(localized: "Mirrored onto the main display by OpenDisplay")
+        case .disconnect: return String(localized: "Disconnected by FreeDisplay")
+        case .mirror: return String(localized: "Mirrored onto the main display by FreeDisplay")
         }
     }
 
@@ -1004,7 +1004,7 @@ private struct TrayImageAdjustments: View {
             if model.softwareContrast[id] != nil, !suspended, model.isHDRCapable(display) {
                 TrayNote(String(localized: "With HDR content, colour-table contrast can clip highlights or look different."))
             }
-            TrayNote(String(localized: "The dimming method is shared by all displays. Temperature, contrast and dimming apply to this display only and stay until you quit OpenDisplay."))
+            TrayNote(String(localized: "The dimming method is shared by all displays. Temperature, contrast and dimming apply to this display only and stay until you quit FreeDisplay."))
         }
     }
 }
@@ -1116,7 +1116,7 @@ private struct TrayDeviceControl: View {
                     }
                     TrayPillButton(String(localized: "Cancel")) { ui.resetConfirm = nil }
                 }
-                TrayNote(String(localized: "The monitor is asked to restore its factory settings — brightness, contrast, color preset and whatever else it resets. OpenDisplay's own dimming, color temperature and software contrast stay as they are."))
+                TrayNote(String(localized: "The monitor is asked to restore its factory settings — brightness, contrast, color preset and whatever else it resets. FreeDisplay's own dimming, color temperature and software contrast stay as they are."))
             } else {
                 TrayPillButton(String(localized: "Factory reset…")) { ui.resetConfirm = display.recordID.rawValue }
             }
@@ -1126,7 +1126,7 @@ private struct TrayDeviceControl: View {
                 // AM-06: the app's own layers are a separate, explicit choice — offered only once the
                 // monitor reset actually went through, and only if there is something to undo.
                 if resetResult == .sent, model.hasSoftwareAdjustments(display) {
-                    TrayPillButton(String(localized: "Also reset OpenDisplay's dimming, temperature and contrast")) {
+                    TrayPillButton(String(localized: "Also reset FreeDisplay's dimming, temperature and contrast")) {
                         Task { await model.resetSoftwareAdjustments(for: display) }
                     }
                 }
@@ -1494,7 +1494,7 @@ private struct TrayButtonRow: View {
                 withAnimation(TrayMotion.expand) { ui.toolsOpen.toggle() }
             }
             TrayIconButton(symbol: "gearshape", help: String(localized: "Settings (⌥-click the icon)")) { ui.openSettings() }
-            TrayIconButton(symbol: "power", help: String(localized: "Quit OpenDisplay — brings back any displays it disconnected or mirrored")) {
+            TrayIconButton(symbol: "power", help: String(localized: "Quit FreeDisplay — brings back any displays it disconnected or mirrored")) {
                 NSApp.terminate(nil)
             }
         }

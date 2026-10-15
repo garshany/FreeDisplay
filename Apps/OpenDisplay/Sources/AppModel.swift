@@ -1810,7 +1810,7 @@ final class AppModel: ObservableObject {
             var fields: [SceneApplyReport.Field] = []
             for invalid in report.invalidValues where !fields.contains(invalid.field) { fields.append(invalid.field) }
             let list = fields.map(Self.sceneFieldName).formatted(.list(type: .and))
-            return String(localized: "Not applied: this scene holds a value OpenDisplay can’t use (\(list)). Nothing was changed.")
+            return String(localized: "Not applied: this scene holds a value FreeDisplay can’t use (\(list)). Nothing was changed.")
         case .blocked:
             let missing = report.missingRequired.formatted(.list(type: .and))
             return String(localized: "Not applied: required displays aren’t connected (\(missing)). Nothing was changed.")
@@ -5148,9 +5148,9 @@ final class AppModel: ObservableObject {
     private func reportUnverifiedRestore(kind: PendingRevert.Kind, after outcome: RevertMarkerPolicy.Outcome) {
         let message: String
         if case .awaitingDisplays = RevertMarkerPolicy.disposition(after: outcome) {
-            message = String(localized: "Not every display in the previous display settings is connected, so their restore can’t be confirmed yet. OpenDisplay kept a record of them and restores it at the next launch; the next display change you make replaces that record.")
+            message = String(localized: "Not every display in the previous display settings is connected, so their restore can’t be confirmed yet. FreeDisplay kept a record of them and restores it at the next launch; the next display change you make replaces that record.")
         } else {
-            message = String(localized: "macOS didn’t confirm that the previous display settings were restored. OpenDisplay kept a record of them and restores it at the next launch; the next display change you make replaces that record.")
+            message = String(localized: "macOS didn’t confirm that the previous display settings were restored. FreeDisplay kept a record of them and restores it at the next launch; the next display change you make replaces that record.")
         }
         if kind == .arrangement { arrangementError = message } else { modeChangeError = message }
     }
@@ -7719,7 +7719,7 @@ final class AppModel: ObservableObject {
     /// silent in normal runs. Run the app binary directly with the env var set to verify live
     /// enumeration without needing the menu-bar UI. DEBUG-only (excluded from release / App Store).
     private static func dump(_ snapshot: TopologySnapshot) {
-        var out = "OpenDisplay topology \(snapshot.generation):\n"
+        var out = "FreeDisplay topology \(snapshot.generation):\n"
         for o in snapshot.observations.sorted(by: { $0.recordID.rawValue < $1.recordID.rawValue }) {
             let mode = o.mode.map { "\($0.pixelWidth)x\($0.pixelHeight)@\(Int($0.refreshHz.rounded()))" } ?? "—"
             out += "  \(o.isActive ? "●" : "○") \(o.recordID.rawValue)"

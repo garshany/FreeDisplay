@@ -137,7 +137,7 @@ struct AdvancedDisplayToolsView: View {
                 if let imported, !imported.pasted {
                     LabeledContent("File", value: imported.name)
                 }
-                Text("The imported file isn’t matched to a display automatically. Check the manufacturer and product code before installing it by other means. OpenDisplay doesn’t install system configurations.")
+                Text("The imported file isn’t matched to a display automatically. Check the manufacturer and product code before installing it by other means. FreeDisplay doesn’t install system configurations.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if let status {

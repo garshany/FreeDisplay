@@ -54,7 +54,7 @@ extension AppModel {
         // rather than presenting that captured value as a new read.
         let observation = displays.first { $0.recordID == observation.recordID } ?? observation
         let info = Bundle.main.infoDictionary
-        let appName = "FreeDisplay"
+        let appName = info?["CFBundleDisplayName"] as? String ?? info?["CFBundleName"] as? String ?? "FreeDisplay"
         let version = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
         let id = observation.recordID
         // `displays` is the current topology: a record that isn't in it is remembered, not online.

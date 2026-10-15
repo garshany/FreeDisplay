@@ -14,7 +14,7 @@ import TopologyCore
 @main
 struct OpenDisplayRescueApp: App {
     var body: some Scene {
-        WindowGroup("OpenDisplay Rescue") {
+        WindowGroup("FreeDisplay Rescue") {
             RescueView()
         }
         .defaultSize(width: 480, height: 360)
@@ -54,7 +54,7 @@ final class RescueModel: ObservableObject {
             return
         }
         guard let checkpoint = await store.latest() else {
-            status = "No checkpoint found yet — launch OpenDisplay once to record a baseline."
+            status = "No checkpoint found yet — launch FreeDisplay once to record a baseline."
             return
         }
         self.checkpoint = checkpoint
@@ -127,7 +127,7 @@ struct RescueView: View {
             HStack(spacing: 12) {
                 Image(systemName: "checkmark.shield").font(.system(size: 32)).foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("OpenDisplay Rescue").font(.title3).bold()
+                    Text("FreeDisplay Rescue").font(.title3).bold()
                     if let capturedAt = model.capturedAt {
                         Text("Checkpoint captured \(capturedAt.formatted(date: .abbreviated, time: .standard))")
                             .font(.caption).foregroundStyle(.secondary)

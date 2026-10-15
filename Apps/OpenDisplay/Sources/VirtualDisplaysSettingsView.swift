@@ -9,7 +9,7 @@ struct VirtualDisplaysSettingsView: View {
     let safeMode: Bool
     @ObservedObject var session: VirtualDisplaySession
     @State private var experimentalOptIn = false
-    @State private var name = String(localized: "OpenDisplay Workspace")
+    @State private var name = String(localized: "FreeDisplay Workspace")
     @State private var width = 1920
     @State private var height = 1080
     @State private var hiDPI = false

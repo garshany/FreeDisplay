@@ -464,7 +464,7 @@ struct SetDisplayModeIntent: AppIntent {
 struct SetMainDisplayIntent: AppIntent {
     static let title: LocalizedStringResource = "Set Main Display"
     static let description = IntentDescription(
-        "Makes a connected display the main display, keeping the arrangement. Confirm the change in OpenDisplay before the existing keep/revert window expires. Returns whether confirmation is pending."
+        "Makes a connected display the main display, keeping the arrangement. Confirm the change in FreeDisplay before the existing keep/revert window expires. Returns whether confirmation is pending."
     )
     static let openAppWhenRun = false
 

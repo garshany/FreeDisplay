@@ -84,10 +84,10 @@ enum NotificationDelivery {
         switch method {
         case .disconnect:
             return .init(title: String(localized: "\(offline.name) didn’t reconnect"),
-                         body: String(localized: "OpenDisplay asked macOS to reconnect it and the display didn’t appear. It is still listed in the menu, with recovery steps."))
+                         body: String(localized: "FreeDisplay asked macOS to reconnect it and the display didn’t appear. It is still listed in the menu, with recovery steps."))
         case .mirror:
             return .init(title: String(localized: "\(offline.name) is still mirrored"),
-                         body: String(localized: "OpenDisplay asked macOS to stop mirroring it and it didn’t return to the desktop. It is still listed in the menu, with recovery steps."))
+                         body: String(localized: "FreeDisplay asked macOS to stop mirroring it and it didn’t return to the desktop. It is still listed in the menu, with recovery steps."))
         }
     }
 
@@ -96,7 +96,7 @@ enum NotificationDelivery {
     /// one instead.
     static func reconnectRefusedNotification(for offline: ManagedOfflineDisplay) -> NotificationPolicy.DisplayNotification {
         .init(title: String(localized: "\(offline.name) wasn’t reconnected"),
-              body: String(localized: "Its display number now belongs to another display, so OpenDisplay didn’t send the request — it could have reached the wrong screen. It is still listed in the menu, with recovery steps."))
+              body: String(localized: "Its display number now belongs to another display, so FreeDisplay didn’t send the request — it could have reached the wrong screen. It is still listed in the menu, with recovery steps."))
     }
 
     /// `LayoutProtectionPolicy.restoreNotification(for:names:enabled:)`: what moved, per display,
@@ -250,7 +250,7 @@ final class NoticeWindowController: NSObject, NSWindowDelegate {
         panel.contentViewController = hosting
         panel.setContentSize(NoticeLayout.initialSize)
         panel.contentMinSize = NoticeLayout.minimumSize
-        panel.title = String(localized: "OpenDisplay Notices")
+        panel.title = String(localized: "FreeDisplay Notices")
         panel.level = .floating
         // A menu-bar app is rarely the active app; a panel that hid on deactivation would vanish
         // the moment it appeared.

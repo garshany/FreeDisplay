@@ -39,7 +39,7 @@
 > [!NOTE]
 > **Status: early, private fork, no releases.** FreeDisplay is built from source only. There are no
 > signed or notarized FreeDisplay builds yet, and the app's built-in updater is switched off for this
-> fork. The app bundle, the CLI and the URL scheme still carry the upstream name: **OpenDisplay.app**,
+> fork. The app is **FreeDisplay.app**. The CLI and URL scheme retain their compatible names:
 > `opendisplay`, `opendisplay://`.
 
 ## What is FreeDisplay?
@@ -166,7 +166,7 @@ to you, and at your own risk.
 | **Local HTTP API** | Listens only on 127.0.0.1, on a random port, with a new 256-bit bearer token each session. Endpoints: `GET /v1/displays`, `POST /v1/brightness`, `POST /v1/reconnect-all`. The display list gives the app's last known brightness with its age, or `null` when it isn't known. The server runs only while *Settings → Automation* is open. |
 | **Media keys & OSD** | The brightness keys control the chosen display, in hardware or software. The volume keys are taken over only for a monitor whose DDC volume has been read back; otherwise macOS keeps them. Mute uses the monitor's own mute when it has one, and is labelled as volume 0 when it doesn't. The on-screen HUD has several styles, and every brightness or volume change can be broadcast to external HUD apps. Needs Accessibility permission. |
 | **Keyboard shortcuts** | *Settings → Keyboard* records a global shortcut for each action: Reconnect All, making the next display main, FaceLight, brightness up and down (normal and fine steps), showing the menu, opening Settings and quitting. Each row says whether macOS registered the shortcut or why not (another action uses it, macOS refused it). Shortcuts can be removed or restored to their defaults. The same page sets the adjustment steps shared by the brightness and volume keys and the shortcuts. Input hotkeys (⌃⌥⌘-digit) switch a monitor to a chosen input, which is handy with a KVM. |
-| **Notifications** | Notices about displays connecting and disconnecting, the built-in panel turning off automatically, layout protection and failures. In *Settings → Diagnostics → Behavior* choose Notification Center, an OpenDisplay window or off, mute routine protection notices, and see what macOS currently allows. |
+| **Notifications** | Notices about displays connecting and disconnecting, the built-in panel turning off automatically, layout protection and failures. In *Settings → Diagnostics → Behavior* choose Notification Center, a FreeDisplay window or off, mute routine protection notices, and see what macOS currently allows. |
 
 ### App settings
 
@@ -183,7 +183,7 @@ to you, and at your own risk.
 |---|---|
 | **Reconnect All** | Available from the menu, a global hotkey (**⌃⌥⌘R** by default), Shortcuts, the URL scheme, HTTP and `opendisplay recover`. |
 | **Transactions & audit log** | Risky changes go through checkpoints, verification and rollback. Quitting the app reconnects every display it turned off, and keeps the record of any display that didn't come back. |
-| **Rescue app** | The standalone **OpenDisplay Rescue** restores the last known-safe arrangement, even when the main app can't run. |
+| **Rescue app** | The standalone **FreeDisplay Rescue** restores the last known-safe arrangement, even when the main app can't run. |
 | **Diagnostics export** | Saves one zip to your Desktop with the app's records, macOS display configuration and recent display-related log lines. It is never sent anywhere. |
 
 If a display won't come back, see [Recovering a stranded display](Docs/Recovering-a-stranded-display.md).
@@ -343,7 +343,7 @@ xcodebuild -project OpenDisplay.xcodeproj -scheme OpenDisplay -configuration Deb
   keys) to it.
 - Other schemes: `OpenDisplayRescue` (rescue app), `opendisplay` (CLI) and
   `OpenDisplay-PublicAPIOnly`. `make bundle-helper` copies the CLI into
-  `OpenDisplay.app/Contents/Helpers`, where the Labs rotation helper expects it. It builds with the
+  `FreeDisplay.app/Contents/Helpers`, where the Labs rotation helper expects it. It builds with the
   signing settings from `project.yml`.
 - The app lives in the menu bar. By default its Dock icon shows only while Settings is open
   (change it in *Settings → Diagnostics → Behavior*). ⌥-click the menu-bar icon to open Settings,

@@ -98,7 +98,7 @@ public enum ReconnectVerification {
     ) -> NotificationPolicy.DisplayNotification {
         NotificationPolicy.DisplayNotification(
             title: "\(offline.name) didn\u{2019}t come back on",
-            body: "OpenDisplay asked macOS to turn it on and nothing appeared. It is still listed "
+            body: "FreeDisplay asked macOS to turn it on and nothing appeared. It is still listed "
                 + "in the menu, with recovery steps.")
     }
 

@@ -6,9 +6,11 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleName</key>
-	<string>OpenDisplay</string>
+	<string>FreeDisplay</string>
 	<key>CFBundleDisplayName</key>
-	<string>OpenDisplay</string>
+	<string>FreeDisplay</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleShortVersionString</key>
@@ -28,7 +30,7 @@
 	     latitude & longitude. Only requested when the user taps "Use current location"; a manual
 	     entry is always available instead. -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>OpenDisplay uses your location once to calculate local sunrise, noon, and sunset times for Clock Mode brightness schedules. You can also enter your coordinates manually.</string>
+	<string>FreeDisplay uses your location once to calculate local sunrise, noon, and sunset times for Clock Mode brightness schedules. You can also enter your coordinates manually.</string>
 	<!-- FreeDisplay-owned configuration; an empty key keeps Sparkle off. The local-build guard
 	     remains true until the owner validates signed fork releases end to end. See scripts/sparkle-setup.md. -->
 	<key>SUFeedURL</key>

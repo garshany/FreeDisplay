@@ -334,12 +334,12 @@
         }
       }
     },
-    "%@ is now the main display. Keep the change in OpenDisplay within %lld seconds, or it reverts." : {
+    "%@ is now the main display. Keep the change in FreeDisplay within %lld seconds, or it reverts." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ теперь основной экран. Подтвердите изменение в OpenDisplay в течение %lld с, иначе оно будет отменено."
+            "value" : "%@ теперь основной экран. Подтвердите изменение в FreeDisplay в течение %lld с, иначе оно будет отменено."
           }
         }
       }
@@ -374,12 +374,12 @@
         }
       }
     },
-    "%@ switched modes. Keep the new mode in OpenDisplay within %lld seconds, or it reverts." : {
+    "%@ switched modes. Keep the new mode in FreeDisplay within %lld seconds, or it reverts." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Режим дисплея %@ изменён. Подтвердите его в OpenDisplay в течение %lld с, иначе он вернётся."
+            "value" : "Режим дисплея %@ изменён. Подтвердите его в FreeDisplay в течение %lld с, иначе он вернётся."
           }
         }
       }
@@ -454,12 +454,12 @@
         }
       }
     },
-    "%@: %lld %% (the level OpenDisplay applies; the display can’t report it)." : {
+    "%@: %lld %% (the level FreeDisplay applies; the display can’t report it)." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@: %lld %% (уровень, который применяет OpenDisplay; сам дисплей его не сообщает)."
+            "value" : "%@: %lld %% (уровень, который применяет FreeDisplay; сам дисплей его не сообщает)."
           }
         }
       }
@@ -709,22 +709,22 @@
         }
       }
     },
-    "A brightness change returns the request status; the hardware result is not verified. Display brightness in the list is OpenDisplay’s last requested or read value, with its age; it is empty until a value is known. Reconnect All starts in the background and answers with the displays it is reconnecting. TV and AV-receiver protocols and HDMI-CEC are not implemented in this build." : {
+    "A brightness change returns the request status; the hardware result is not verified. Display brightness in the list is FreeDisplay’s last requested or read value, with its age; it is empty until a value is known. Reconnect All starts in the background and answers with the displays it is reconnecting. TV and AV-receiver protocols and HDMI-CEC are not implemented in this build." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Изменение яркости возвращает статус запроса; аппаратный результат не подтверждён. Яркость в списке мониторов — последнее запрошенное или прочитанное OpenDisplay значение с указанием его возраста; пока значение неизвестно, поле пустое. «Подключить все» запускается в фоне и отвечает списком подключаемых мониторов. Протоколы телевизоров и AV-ресиверов, а также HDMI-CEC в этой сборке не реализованы."
+            "value" : "Изменение яркости возвращает статус запроса; аппаратный результат не подтверждён. Яркость в списке мониторов — последнее запрошенное или прочитанное FreeDisplay значение с указанием его возраста; пока значение неизвестно, поле пустое. «Подключить все» запускается в фоне и отвечает списком подключаемых мониторов. Протоколы телевизоров и AV-ресиверов, а также HDMI-CEC в этой сборке не реализованы."
           }
         }
       }
     },
-    "A colour profile describes how a screen shows colour, so macOS can convert pictures for it. Choosing one doesn’t measure or calibrate the display — OpenDisplay doesn’t calibrate. A profile is accurate only for the monitor settings it was made with (picture preset, brightness, white point). To make one for this screen, measure it with a colorimeter and its software, or use macOS’s Display Calibrator Assistant (in System Settings › Displays, open the Colour Profile menu and choose Customise…). A profile such as Display P3 describes a colour space: choosing it doesn’t turn on HDR or change the signal sent to the monitor." : {
+    "A colour profile describes how a screen shows colour, so macOS can convert pictures for it. Choosing one doesn’t measure or calibrate the display — FreeDisplay doesn’t calibrate. A profile is accurate only for the monitor settings it was made with (picture preset, brightness, white point). To make one for this screen, measure it with a colorimeter and its software, or use macOS’s Display Calibrator Assistant (in System Settings › Displays, open the Colour Profile menu and choose Customise…). A profile such as Display P3 describes a colour space: choosing it doesn’t turn on HDR or change the signal sent to the monitor." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Цветовой профиль описывает, как экран передаёт цвет, чтобы macOS могла преобразовывать изображения под него. Выбор профиля не измеряет и не калибрует экран — OpenDisplay калибровкой не занимается. Профиль точен только для тех настроек монитора, с которыми он создан (пресет изображения, яркость, точка белого). Чтобы создать профиль для этого экрана, измерьте его колориметром с его программой или воспользуйтесь «Ассистентом калибратора монитора» macOS (в Системных настройках › Мониторы откройте меню «Цветовой профиль» и выберите «Настроить…»). Профиль вроде Display P3 описывает цветовое пространство: его выбор не включает HDR и не меняет сигнал, который получает монитор."
+            "value" : "Цветовой профиль описывает, как экран передаёт цвет, чтобы macOS могла преобразовывать изображения под него. Выбор профиля не измеряет и не калибрует экран — FreeDisplay калибровкой не занимается. Профиль точен только для тех настроек монитора, с которыми он создан (пресет изображения, яркость, точка белого). Чтобы создать профиль для этого экрана, измерьте его колориметром с его программой или воспользуйтесь «Ассистентом калибратора монитора» macOS (в Системных настройках › Мониторы откройте меню «Цветовой профиль» и выберите «Настроить…»). Профиль вроде Display P3 описывает цветовое пространство: его выбор не включает HDR и не меняет сигнал, который получает монитор."
           }
         }
       }
@@ -761,12 +761,12 @@
         }
       }
     },
-    "A link asked OpenDisplay to disconnect a display" : {
+    "A link asked FreeDisplay to disconnect a display" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ссылка попросила OpenDisplay отключить экран"
+            "value" : "Ссылка попросила FreeDisplay отключить экран"
           }
         }
       }
@@ -841,12 +841,12 @@
         }
       }
     },
-    "About OpenDisplay" : {
+    "About FreeDisplay" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Об OpenDisplay"
+            "value" : "Об FreeDisplay"
           }
         }
       }
@@ -1236,22 +1236,22 @@
         }
       }
     },
-    "Also reset OpenDisplay's dimming, temperature and contrast" : {
+    "Also reset FreeDisplay's dimming, temperature and contrast" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сбросить и затемнение, температуру и контрастность OpenDisplay"
+            "value" : "Сбросить и затемнение, температуру и контрастность FreeDisplay"
           }
         }
       }
     },
-    "Also Reset OpenDisplay’s Dimming, Colour Temperature and Contrast" : {
+    "Also Reset FreeDisplay’s Dimming, Colour Temperature and Contrast" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сбросить и затемнение, цветовую температуру и контрастность OpenDisplay"
+            "value" : "Сбросить и затемнение, цветовую температуру и контрастность FreeDisplay"
           }
         }
       }
@@ -1338,12 +1338,12 @@
         }
       }
     },
-    "Another display mode change is waiting to be kept or reverted. Finish it in OpenDisplay first." : {
+    "Another display mode change is waiting to be kept or reverted. Finish it in FreeDisplay first." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Другая смена режима ещё ждёт подтверждения или отмены. Сначала завершите её в OpenDisplay."
+            "value" : "Другая смена режима ещё ждёт подтверждения или отмены. Сначала завершите её в FreeDisplay."
           }
         }
       }
@@ -1489,12 +1489,12 @@
         }
       }
     },
-    "Apps use shortcuts like this in their menus; they won’t receive it while OpenDisplay runs." : {
+    "Apps use shortcuts like this in their menus; they won’t receive it while FreeDisplay runs." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Такие сочетания программы используют в своих меню; пока работает OpenDisplay, они его не получат."
+            "value" : "Такие сочетания программы используют в своих меню; пока работает FreeDisplay, они его не получат."
           }
         }
       }
@@ -2570,12 +2570,12 @@
         }
       }
     },
-    "Clear what OpenDisplay saved for this display; it stays connected and recognized" : {
+    "Clear what FreeDisplay saved for this display; it stays connected and recognized" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Очистить то, что OpenDisplay сохранил для этого экрана; он останется подключённым и узнаваемым"
+            "value" : "Очистить то, что FreeDisplay сохранил для этого экрана; он останется подключённым и узнаваемым"
           }
         }
       }
@@ -3826,12 +3826,12 @@
         }
       }
     },
-    "Disconnected by OpenDisplay" : {
+    "Disconnected by FreeDisplay" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Отключён OpenDisplay"
+            "value" : "Отключён FreeDisplay"
           }
         }
       }
@@ -4620,12 +4620,12 @@
         }
       }
     },
-    "Every detail OpenDisplay can read, to copy or save" : {
+    "Every detail FreeDisplay can read, to copy or save" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Все сведения, которые может прочитать OpenDisplay, — для копирования или сохранения"
+            "value" : "Все сведения, которые может прочитать FreeDisplay, — для копирования или сохранения"
           }
         }
       }
@@ -4640,12 +4640,12 @@
         }
       }
     },
-    "Every display OpenDisplay has a record of, including ones that aren’t connected now. A record holds the display’s name in OpenDisplay, favourite modes, menu settings, group memberships and protected layouts." : {
+    "Every display FreeDisplay has a record of, including ones that aren’t connected now. A record holds the display’s name in FreeDisplay, favourite modes, menu settings, group memberships and protected layouts." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Все экраны, о которых у OpenDisplay есть запись, включая неподключённые сейчас. В записи хранятся название экрана в OpenDisplay, избранные режимы, настройки меню, участие в группах и защищённые расположения."
+            "value" : "Все экраны, о которых у FreeDisplay есть запись, включая неподключённые сейчас. В записи хранятся название экрана в FreeDisplay, избранные режимы, настройки меню, участие в группах и защищённые расположения."
           }
         }
       }
@@ -4810,12 +4810,12 @@
         }
       }
     },
-    "Exported %@ by OpenDisplay %@." : {
+    "Exported %@ by FreeDisplay %@." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Экспортировано %@ из OpenDisplay %@."
+            "value" : "Экспортировано %@ из FreeDisplay %@."
           }
         }
       }
@@ -5186,12 +5186,12 @@
         }
       }
     },
-    "Follow changes made outside OpenDisplay" : {
+    "Follow changes made outside FreeDisplay" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Учитывать изменения, сделанные вне OpenDisplay"
+            "value" : "Учитывать изменения, сделанные вне FreeDisplay"
           }
         }
       }
@@ -5317,12 +5317,12 @@
         }
       }
     },
-    "Forgetting a display that isn’t connected removes OpenDisplay’s record of it; if it is connected again later, OpenDisplay treats it as a new display. A connected display can’t be forgotten — macOS would report it again at once — so it offers “Reset Settings…” instead. A display OpenDisplay switched off has to be reconnected first; if it doesn’t come back, it can be forgotten then. None of this sends anything to the monitor or changes macOS’s own display settings: “Factory reset” in the monitor controls is a different thing." : {
+    "Forgetting a display that isn’t connected removes FreeDisplay’s record of it; if it is connected again later, FreeDisplay treats it as a new display. A connected display can’t be forgotten — macOS would report it again at once — so it offers “Reset Settings…” instead. A display FreeDisplay switched off has to be reconnected first; if it doesn’t come back, it can be forgotten then. None of this sends anything to the monitor or changes macOS’s own display settings: “Factory reset” in the monitor controls is a different thing." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Если забыть неподключённый экран, OpenDisplay удалит запись о нём; если его подключат снова, OpenDisplay будет считать его новым экраном. Подключённый экран забыть нельзя — macOS тут же сообщит о нём снова, — поэтому для него есть «Сбросить настройки…». Экран, выключенный OpenDisplay, сначала нужно подключить; если он не вернётся, его можно будет забыть. Ничто из этого не отправляет монитору команд и не меняет собственные настройки экранов macOS: «Заводские настройки» в управлении монитором — это другое."
+            "value" : "Если забыть неподключённый экран, FreeDisplay удалит запись о нём; если его подключат снова, FreeDisplay будет считать его новым экраном. Подключённый экран забыть нельзя — macOS тут же сообщит о нём снова, — поэтому для него есть «Сбросить настройки…». Экран, выключенный FreeDisplay, сначала нужно подключить; если он не вернётся, его можно будет забыть. Ничто из этого не отправляет монитору команд и не меняет собственные настройки экранов macOS: «Заводские настройки» в управлении монитором — это другое."
           }
         }
       }
@@ -5561,12 +5561,12 @@
         }
       }
     },
-    "Gets a display’s brightness in percent (0–100). The result says whether the display itself reported it; with software dimming it is the level OpenDisplay applies." : {
+    "Gets a display’s brightness in percent (0–100). The result says whether the display itself reported it; with software dimming it is the level FreeDisplay applies." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Возвращает яркость дисплея в процентах (0–100). В результате указано, сообщил ли её сам дисплей; при программном затемнении это уровень, который применяет OpenDisplay."
+            "value" : "Возвращает яркость дисплея в процентах (0–100). В результате указано, сообщил ли её сам дисплей; при программном затемнении это уровень, который применяет FreeDisplay."
           }
         }
       }
@@ -5935,12 +5935,12 @@
         }
       }
     },
-    "Hiding a display only takes it out of this menu: it stays connected and keeps responding to brightness keys, hotkeys and automation. A display OpenDisplay turned off, or one that is blacked out, always stays in the menu, so it can be brought back. The order is the menu’s only — it doesn’t move displays on the desktop." : {
+    "Hiding a display only takes it out of this menu: it stays connected and keeps responding to brightness keys, hotkeys and automation. A display FreeDisplay turned off, or one that is blacked out, always stays in the menu, so it can be brought back. The order is the menu’s only — it doesn’t move displays on the desktop." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Скрытие лишь убирает экран из этого меню: он остаётся подключённым и по-прежнему отвечает на клавиши яркости, горячие клавиши и автоматизацию. Экран, выключенный OpenDisplay или полностью затемнённый, всегда остаётся в меню, чтобы его можно было вернуть. Порядок действует только в меню — экраны на рабочем столе он не переставляет."
+            "value" : "Скрытие лишь убирает экран из этого меню: он остаётся подключённым и по-прежнему отвечает на клавиши яркости, горячие клавиши и автоматизацию. Экран, выключенный FreeDisplay или полностью затемнённый, всегда остаётся в меню, чтобы его можно было вернуть. Порядок действует только в меню — экраны на рабочем столе он не переставляет."
           }
         }
       }
@@ -6090,12 +6090,12 @@
         }
       }
     },
-    "If the OpenDisplay icon isn’t in the menu bar, macOS may be hiding it — behind the camera notch when the menu bar is full, or because it is switched off in System Settings → Menu Bar. Opening OpenDisplay again from Finder, Spotlight or Launchpad always brings up this window, and the button below opens the menu panel without the icon." : {
+    "If the FreeDisplay icon isn’t in the menu bar, macOS may be hiding it — behind the camera notch when the menu bar is full, or because it is switched off in System Settings → Menu Bar. Opening FreeDisplay again from Finder, Spotlight or Launchpad always brings up this window, and the button below opens the menu panel without the icon." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Если значка OpenDisplay нет в строке меню, его может скрывать macOS — за вырезом камеры, когда строка меню заполнена, или потому что он выключен в «Системные настройки → Строка меню». Повторный запуск OpenDisplay из Finder, Spotlight или Launchpad всегда открывает это окно, а кнопка ниже открывает панель меню без значка."
+            "value" : "Если значка FreeDisplay нет в строке меню, его может скрывать macOS — за вырезом камеры, когда строка меню заполнена, или потому что он выключен в «Системные настройки → Строка меню». Повторный запуск FreeDisplay из Finder, Spotlight или Launchpad всегда открывает это окно, а кнопка ниже открывает панель меню без значка."
           }
         }
       }
@@ -6383,12 +6383,12 @@
         }
       }
     },
-    "Installs a new release on its own and relaunches OpenDisplay into it. Every download’s signature is checked before it runs. Needs the automatic check above." : {
+    "Installs a new release on its own and relaunches FreeDisplay into it. Every download’s signature is checked before it runs. Needs the automatic check above." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Автоматически устанавливает новый выпуск и перезапускает OpenDisplay. Перед запуском проверяется подпись загрузки. Требует включённой автоматической проверки."
+            "value" : "Автоматически устанавливает новый выпуск и перезапускает FreeDisplay. Перед запуском проверяется подпись загрузки. Требует включённой автоматической проверки."
           }
         }
       }
@@ -6520,22 +6520,22 @@
         }
       }
     },
-    "Its display number now belongs to another display, so OpenDisplay didn’t send the request — it could have reached the wrong screen. It is still listed in the menu, with recovery steps." : {
+    "Its display number now belongs to another display, so FreeDisplay didn’t send the request — it could have reached the wrong screen. It is still listed in the menu, with recovery steps." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Его номер теперь принадлежит другому монитору, поэтому OpenDisplay не отправил запрос — он мог попасть не на тот экран. Монитор по-прежнему есть в меню вместе с шагами восстановления."
+            "value" : "Его номер теперь принадлежит другому монитору, поэтому FreeDisplay не отправил запрос — он мог попасть не на тот экран. Монитор по-прежнему есть в меню вместе с шагами восстановления."
           }
         }
       }
     },
-    "Its last reconnect found no display. After forgetting, its card leaves the menu, and neither Reconnect All nor quitting OpenDisplay will bring it back. If it is in fact still attached and switched off, it may stay dark until you unplug it and plug it in again, or restart the Mac. If the monitor is no longer connected, forgetting only removes the card." : {
+    "Its last reconnect found no display. After forgetting, its card leaves the menu, and neither Reconnect All nor quitting FreeDisplay will bring it back. If it is in fact still attached and switched off, it may stay dark until you unplug it and plug it in again, or restart the Mac. If the monitor is no longer connected, forgetting only removes the card." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Последняя попытка подключения не нашла экран. После забывания его карточка исчезнет из меню, и ни «Подключить все экраны», ни выход из OpenDisplay его не вернут. Если на самом деле он всё ещё подключён и выключен, он может оставаться тёмным, пока вы не отключите и снова не подключите его или не перезагрузите Mac. Если монитор больше не подключён, забывание лишь уберёт карточку."
+            "value" : "Последняя попытка подключения не нашла экран. После забывания его карточка исчезнет из меню, и ни «Подключить все экраны», ни выход из FreeDisplay его не вернут. Если на самом деле он всё ещё подключён и выключен, он может оставаться тёмным, пока вы не отключите и снова не подключите его или не перезагрузите Mac. Если монитор больше не подключён, забывание лишь уберёт карточку."
           }
         }
       }
@@ -6550,22 +6550,22 @@
         }
       }
     },
-    "Its name in OpenDisplay (“%@”) and tags" : {
+    "Its name in FreeDisplay (“%@”) and tags" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Его название в OpenDisplay («%@») и теги"
+            "value" : "Его название в FreeDisplay («%@») и теги"
           }
         }
       }
     },
-    "Its record: how OpenDisplay recognizes this display, and the name it shows" : {
+    "Its record: how FreeDisplay recognizes this display, and the name it shows" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Его запись: как OpenDisplay узнаёт этот экран и какое название показывает"
+            "value" : "Его запись: как FreeDisplay узнаёт этот экран и какое название показывает"
           }
         }
       }
@@ -7268,12 +7268,12 @@
         }
       }
     },
-    "macOS didn’t confirm that the previous display settings were restored. OpenDisplay kept a record of them and restores it at the next launch; the next display change you make replaces that record." : {
+    "macOS didn’t confirm that the previous display settings were restored. FreeDisplay kept a record of them and restores it at the next launch; the next display change you make replaces that record." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "macOS не подтвердила, что прежние настройки мониторов восстановлены. OpenDisplay сохранил их запись и восстановит её при следующем запуске; следующее изменение мониторов заменит эту запись."
+            "value" : "macOS не подтвердила, что прежние настройки мониторов восстановлены. FreeDisplay сохранил их запись и восстановит её при следующем запуске; следующее изменение мониторов заменит эту запись."
           }
         }
       }
@@ -7358,22 +7358,22 @@
         }
       }
     },
-    "macOS hasn’t asked you about OpenDisplay’s notifications yet." : {
+    "macOS hasn’t asked you about FreeDisplay’s notifications yet." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "macOS ещё не спрашивала вас об уведомлениях OpenDisplay."
+            "value" : "macOS ещё не спрашивала вас об уведомлениях FreeDisplay."
           }
         }
       }
     },
-    "macOS is holding this until you allow OpenDisplay under System Settings → General → Login Items." : {
+    "macOS is holding this until you allow FreeDisplay under System Settings → General → Login Items." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "macOS ожидает разрешения для OpenDisplay в настройках: «Основные» → «Объекты входа»."
+            "value" : "macOS ожидает разрешения для FreeDisplay в настройках: «Основные» → «Объекты входа»."
           }
         }
       }
@@ -7388,13 +7388,13 @@
         }
       }
     },
-    "macOS lists only the modes the display, connection and GPU offer now; OpenDisplay can’t add modes." : {
+    "macOS lists only the modes the display, connection and GPU offer now; FreeDisplay can’t add modes." : {
       "extractionState" : "manual",
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "macOS перечисляет только режимы, которые сейчас предлагают дисплей, подключение и видеокарта; OpenDisplay не может добавлять режимы."
+            "value" : "macOS перечисляет только режимы, которые сейчас предлагают дисплей, подключение и видеокарта; FreeDisplay не может добавлять режимы."
           }
         }
       }
@@ -7571,12 +7571,12 @@
         }
       }
     },
-    "Makes a connected display the main display, keeping the arrangement. Confirm the change in OpenDisplay before the existing keep/revert window expires. Returns whether confirmation is pending." : {
+    "Makes a connected display the main display, keeping the arrangement. Confirm the change in FreeDisplay before the existing keep/revert window expires. Returns whether confirmation is pending." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Делает подключённый экран основным с сохранением расположения. Подтвердите изменение в OpenDisplay до окончания окна «оставить/вернуть». Возвращает признак ожидания подтверждения."
+            "value" : "Делает подключённый экран основным с сохранением расположения. Подтвердите изменение в FreeDisplay до окончания окна «оставить/вернуть». Возвращает признак ожидания подтверждения."
           }
         }
       }
@@ -7858,22 +7858,22 @@
         }
       }
     },
-    "Mirrored by OpenDisplay" : {
+    "Mirrored by FreeDisplay" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Повтор включён OpenDisplay"
+            "value" : "Повтор включён FreeDisplay"
           }
         }
       }
     },
-    "Mirrored onto the main display by OpenDisplay" : {
+    "Mirrored onto the main display by FreeDisplay" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay включил повтор основного экрана"
+            "value" : "FreeDisplay включил повтор основного экрана"
           }
         }
       }
@@ -8775,12 +8775,12 @@
         }
       }
     },
-    "Not applied: this scene holds a value OpenDisplay can’t use (%@). Nothing was changed." : {
+    "Not applied: this scene holds a value FreeDisplay can’t use (%@). Nothing was changed." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не применено: в этой сцене есть значение, которое OpenDisplay не может использовать (%@). Ничего не изменено."
+            "value" : "Не применено: в этой сцене есть значение, которое FreeDisplay не может использовать (%@). Ничего не изменено."
           }
         }
       }
@@ -8860,12 +8860,12 @@
         }
       }
     },
-    "Not every display in the previous display settings is connected, so their restore can’t be confirmed yet. OpenDisplay kept a record of them and restores it at the next launch; the next display change you make replaces that record." : {
+    "Not every display in the previous display settings is connected, so their restore can’t be confirmed yet. FreeDisplay kept a record of them and restores it at the next launch; the next display change you make replaces that record." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Подключены не все мониторы из прежних настроек, поэтому их восстановление пока нельзя подтвердить. OpenDisplay сохранил их запись и восстановит её при следующем запуске; следующее изменение мониторов заменит эту запись."
+            "value" : "Подключены не все мониторы из прежних настроек, поэтому их восстановление пока нельзя подтвердить. FreeDisplay сохранил их запись и восстановит её при следующем запуске; следующее изменение мониторов заменит эту запись."
           }
         }
       }
@@ -8968,12 +8968,12 @@
         }
       }
     },
-    "Not part of the app settings, so never replaced or reset: the macOS display arrangement and resolutions, recovery checkpoints, logs, Launch at Login and the interface language. Import and reset end with a relaunch, which — like any quit — turns the displays OpenDisplay turned off back on." : {
+    "Not part of the app settings, so never replaced or reset: the macOS display arrangement and resolutions, recovery checkpoints, logs, Launch at Login and the interface language. Import and reset end with a relaunch, which — like any quit — turns the displays FreeDisplay turned off back on." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не входят в настройки приложения и поэтому не заменяются и не сбрасываются: расположение и разрешения экранов в macOS, точки восстановления, журналы, запуск при входе в систему и язык интерфейса. Импорт и сброс заканчиваются перезапуском, который — как любое завершение — снова включает экраны, выключенные OpenDisplay."
+            "value" : "Не входят в настройки приложения и поэтому не заменяются и не сбрасываются: расположение и разрешения экранов в macOS, точки восстановления, журналы, запуск при входе в систему и язык интерфейса. Импорт и сброс заканчиваются перезапуском, который — как любое завершение — снова включает экраны, выключенные FreeDisplay."
           }
         }
       }
@@ -9123,12 +9123,12 @@
         }
       }
     },
-    "Nothing was changed: OpenDisplay still has “%@” switched off. Reconnect it first." : {
+    "Nothing was changed: FreeDisplay still has “%@” switched off. Reconnect it first." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ничего не изменено: «%@» всё ещё выключен OpenDisplay. Сначала подключите его."
+            "value" : "Ничего не изменено: «%@» всё ещё выключен FreeDisplay. Сначала подключите его."
           }
         }
       }
@@ -9153,12 +9153,12 @@
         }
       }
     },
-    "Nothing was sent: OpenDisplay has no usable DDC connection to this monitor." : {
+    "Nothing was sent: FreeDisplay has no usable DDC connection to this monitor." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ничего не отправлено: у OpenDisplay нет рабочего DDC-подключения к этому монитору."
+            "value" : "Ничего не отправлено: у FreeDisplay нет рабочего DDC-подключения к этому монитору."
           }
         }
       }
@@ -9193,12 +9193,12 @@
         }
       }
     },
-    "Notifications are off for OpenDisplay in System Settings, so notices won’t appear. Everything else works as usual." : {
+    "Notifications are off for FreeDisplay in System Settings, so notices won’t appear. Everything else works as usual." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Уведомления для OpenDisplay выключены в Системных настройках, поэтому они не появятся. Всё остальное работает как обычно."
+            "value" : "Уведомления для FreeDisplay выключены в Системных настройках, поэтому они не появятся. Всё остальное работает как обычно."
           }
         }
       }
@@ -9444,12 +9444,12 @@
         }
       }
     },
-    "Open OpenDisplay Settings" : {
+    "Open FreeDisplay Settings" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Открыть настройки OpenDisplay"
+            "value" : "Открыть настройки FreeDisplay"
           }
         }
       }
@@ -9484,153 +9484,162 @@
         }
       }
     },
-    "OpenDisplay" : {},
-    "OpenDisplay asked macOS to reconnect it and the display didn’t appear. It is still listed in the menu, with recovery steps." : {
+    "FreeDisplay" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay попросил macOS подключить его, но экран так и не появился. Он по-прежнему есть в меню вместе с шагами восстановления."
+            "value" : "FreeDisplay"
           }
         }
       }
     },
-    "OpenDisplay asked macOS to stop mirroring it and it didn’t return to the desktop. It is still listed in the menu, with recovery steps." : {
+    "FreeDisplay asked macOS to reconnect it and the display didn’t appear. It is still listed in the menu, with recovery steps." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay попросил macOS выключить на нём повтор, но экран не вернулся на рабочий стол. Он по-прежнему есть в меню вместе с шагами восстановления."
+            "value" : "FreeDisplay попросил macOS подключить его, но экран так и не появился. Он по-прежнему есть в меню вместе с шагами восстановления."
           }
         }
       }
     },
-    "OpenDisplay can list and apply only the modes macOS offers right now. A missing size or refresh rate usually means the display, the cable or adapter, or the GPU doesn’t offer that combination — filters and “Include modes not meant for desktop use” can’t add it. A HiDPI size needs a framebuffer twice its logical size, which isn’t offered for every size. Adding new modes needs a display override, which OpenDisplay doesn’t install." : {
+    "FreeDisplay asked macOS to stop mirroring it and it didn’t return to the desktop. It is still listed in the menu, with recovery steps." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay может показать и применить только режимы, которые macOS предлагает прямо сейчас. Если нет нужного размера или частоты, обычно такое сочетание не поддерживает дисплей, кабель или адаптер либо видеокарта — фильтры и «Показывать режимы не для рабочего стола» его не добавят. Размеру HiDPI нужен буфер изображения вдвое больше логического размера, а он доступен не для каждого размера. Для новых режимов нужна замена настроек дисплея, которую OpenDisplay не устанавливает."
+            "value" : "FreeDisplay попросил macOS выключить на нём повтор, но экран не вернулся на рабочий стол. Он по-прежнему есть в меню вместе с шагами восстановления."
           }
         }
       }
     },
-    "OpenDisplay can’t read or set the brightness of “%@”." : {
+    "FreeDisplay can list and apply only the modes macOS offers right now. A missing size or refresh rate usually means the display, the cable or adapter, or the GPU doesn’t offer that combination — filters and “Include modes not meant for desktop use” can’t add it. A HiDPI size needs a framebuffer twice its logical size, which isn’t offered for every size. Adding new modes needs a display override, which FreeDisplay doesn’t install." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay не может прочитать или установить яркость дисплея «%@»."
+            "value" : "FreeDisplay может показать и применить только режимы, которые macOS предлагает прямо сейчас. Если нет нужного размера или частоты, обычно такое сочетание не поддерживает дисплей, кабель или адаптер либо видеокарта — фильтры и «Показывать режимы не для рабочего стола» его не добавят. Размеру HiDPI нужен буфер изображения вдвое больше логического размера, а он доступен не для каждого размера. Для новых режимов нужна замена настроек дисплея, которую FreeDisplay не устанавливает."
           }
         }
       }
     },
-    "OpenDisplay doesn't send DDC commands to Apple displays: some older models can be left with a screen that stays black. You can allow it for this display in Settings → Displays." : {
+    "FreeDisplay can’t read or set the brightness of “%@”." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay не отправляет команды DDC мониторам Apple: у некоторых старых моделей после этого экран может остаться чёрным. Разрешить DDC для этого монитора можно в «Настройки → Мониторы»."
+            "value" : "FreeDisplay не может прочитать или установить яркость дисплея «%@»."
           }
         }
       }
     },
-    "OpenDisplay doesn’t change displays from links, so nothing was changed. To disconnect a display, use its switch in the OpenDisplay menu." : {
+    "FreeDisplay doesn't send DDC commands to Apple displays: some older models can be left with a screen that stays black. You can allow it for this display in Settings → Displays." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay не меняет экраны по ссылкам, поэтому ничего не изменилось. Чтобы отключить экран, воспользуйтесь его переключателем в меню OpenDisplay."
+            "value" : "FreeDisplay не отправляет команды DDC мониторам Apple: у некоторых старых моделей после этого экран может остаться чёрным. Разрешить DDC для этого монитора можно в «Настройки → Мониторы»."
           }
         }
       }
     },
-    "OpenDisplay doesn’t remember any displays yet." : {
+    "FreeDisplay doesn’t change displays from links, so nothing was changed. To disconnect a display, use its switch in the FreeDisplay menu." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay пока не запомнил ни одного экрана."
+            "value" : "FreeDisplay не меняет экраны по ссылкам, поэтому ничего не изменилось. Чтобы отключить экран, воспользуйтесь его переключателем в меню FreeDisplay."
           }
         }
       }
     },
-    "OpenDisplay draws every style itself; none of them is the macOS system HUD." : {
+    "FreeDisplay doesn’t remember any displays yet." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Все стили OpenDisplay рисует сам; ни один из них не является системным индикатором macOS."
+            "value" : "FreeDisplay пока не запомнил ни одного экрана."
           }
         }
       }
     },
-    "OpenDisplay isn’t ready to run this action. Open OpenDisplay and try again." : {
+    "FreeDisplay draws every style itself; none of them is the macOS system HUD." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay пока не может выполнить это действие. Откройте OpenDisplay и попробуйте ещё раз."
+            "value" : "Все стили FreeDisplay рисует сам; ни один из них не является системным индикатором macOS."
           }
         }
       }
     },
-    "OpenDisplay mirrored this display and this record is how it undoes that" : {
+    "FreeDisplay isn’t ready to run this action. Open FreeDisplay and try again." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay включил повтор на этом экране, и по этой записи он его отменяет"
+            "value" : "FreeDisplay пока не может выполнить это действие. Откройте FreeDisplay и попробуйте ещё раз."
           }
         }
       }
     },
-    "OpenDisplay Notices" : {
+    "FreeDisplay mirrored this display and this record is how it undoes that" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Уведомления OpenDisplay"
+            "value" : "FreeDisplay включил повтор на этом экране, и по этой записи он его отменяет"
           }
         }
       }
     },
-    "OpenDisplay quits — putting back what it changed, as on every quit — and opens again." : {
+    "FreeDisplay Notices" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay завершится — вернув то, что изменил, как при любом завершении, — и откроется снова."
+            "value" : "Уведомления FreeDisplay"
           }
         }
       }
     },
-    "OpenDisplay sends no DDC commands to this monitor: another connected monitor reports the same identity (usually the same model without a serial number), so it can't tell which connection belongs to which." : {
+    "FreeDisplay quits — putting back what it changed, as on every quit — and opens again." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay не отправляет этому монитору команды DDC: другой подключённый монитор сообщает те же идентификационные данные (обычно та же модель без серийного номера), и нельзя определить, какое подключение кому принадлежит."
+            "value" : "FreeDisplay завершится — вернув то, что изменил, как при любом завершении, — и откроется снова."
           }
         }
       }
     },
-    "OpenDisplay sends no DDC commands to this monitor: macOS doesn't report which connection belongs to it, and with several displays attached a guess could control the wrong one." : {
+    "FreeDisplay sends no DDC commands to this monitor: another connected monitor reports the same identity (usually the same model without a serial number), so it can't tell which connection belongs to which." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay не отправляет этому монитору команды DDC: macOS не сообщает, какое подключение ему принадлежит, а при нескольких подключённых экранах догадка может управлять не тем монитором."
+            "value" : "FreeDisplay не отправляет этому монитору команды DDC: другой подключённый монитор сообщает те же идентификационные данные (обычно та же модель без серийного номера), и нельзя определить, какое подключение кому принадлежит."
           }
         }
       }
     },
-    "OpenDisplay sends no DDC commands to this monitor: the only DDC connection macOS reports identifies a different monitor (another vendor, model or serial number), so commands could reach the wrong one." : {
+    "FreeDisplay sends no DDC commands to this monitor: macOS doesn't report which connection belongs to it, and with several displays attached a guess could control the wrong one." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay не отправляет этому монитору команды DDC: единственное DDC-подключение, о котором сообщает macOS, указывает на другой монитор (другой производитель, модель или серийный номер), и команды могут попасть не тому монитору."
+            "value" : "FreeDisplay не отправляет этому монитору команды DDC: macOS не сообщает, какое подключение ему принадлежит, а при нескольких подключённых экранах догадка может управлять не тем монитором."
+          }
+        }
+      }
+    },
+    "FreeDisplay sends no DDC commands to this monitor: the only DDC connection macOS reports identifies a different monitor (another vendor, model or serial number), so commands could reach the wrong one." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDisplay не отправляет этому монитору команды DDC: единственное DDC-подключение, о котором сообщает macOS, указывает на другой монитор (другой производитель, модель или серийный номер), и команды могут попасть не тому монитору."
           }
         }
       }
@@ -9645,83 +9654,83 @@
         }
       }
     },
-    "OpenDisplay switched this display off and still owes it a way back. Reconnect it first; if it doesn’t come back, it can be forgotten." : {
+    "FreeDisplay switched this display off and still owes it a way back. Reconnect it first; if it doesn’t come back, it can be forgotten." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay выключил этот экран и должен уметь вернуть его. Сначала подключите его; если он не вернётся, его можно будет забыть."
+            "value" : "FreeDisplay выключил этот экран и должен уметь вернуть его. Сначала подключите его; если он не вернётся, его можно будет забыть."
           }
         }
       }
     },
-    "OpenDisplay turned this display off and this record is how it turns it back on" : {
+    "FreeDisplay turned this display off and this record is how it turns it back on" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay выключил этот экран, и по этой записи он включает его обратно"
+            "value" : "FreeDisplay выключил этот экран, и по этой записи он включает его обратно"
           }
         }
       }
     },
-    "OpenDisplay window" : {
+    "FreeDisplay window" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Окно OpenDisplay"
+            "value" : "Окно FreeDisplay"
           }
         }
       }
     },
-    "OpenDisplay Workspace" : {
+    "FreeDisplay Workspace" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Рабочий экран OpenDisplay"
+            "value" : "Рабочий экран FreeDisplay"
           }
         }
       }
     },
-    "OpenDisplay — Capture Preview" : {
+    "FreeDisplay — Capture Preview" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay — предпросмотр захвата"
+            "value" : "FreeDisplay — предпросмотр захвата"
           }
         }
       }
     },
-    "OpenDisplay's own records: the display event timeline, the audit log, the list of displays it turned off, its display registry, and its settings (location and app presets removed)" : {
+    "FreeDisplay's own records: the display event timeline, the audit log, the list of displays it turned off, its display registry, and its settings (location and app presets removed)" : {
       "extractionState" : "manual",
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Собственные записи OpenDisplay: хронология событий мониторов, журнал действий, список отключённых им мониторов, реестр мониторов и настройки (без местоположения и профилей приложений)"
+            "value" : "Собственные записи FreeDisplay: хронология событий мониторов, журнал действий, список отключённых им мониторов, реестр мониторов и настройки (без местоположения и профилей приложений)"
           }
         }
       }
     },
-    "OpenDisplay’s actions are in the Shortcuts app: get or set a display’s brightness, switch a display to one of its modes, make a display the main display, and reconnect all displays. They act on connected displays while OpenDisplay is running, and say when a display isn’t available. Keyboard shortcuts for OpenDisplay’s own actions are in Settings → Keyboard." : {
+    "FreeDisplay’s actions are in the Shortcuts app: get or set a display’s brightness, switch a display to one of its modes, make a display the main display, and reconnect all displays. They act on connected displays while FreeDisplay is running, and say when a display isn’t available. Keyboard shortcuts for FreeDisplay’s own actions are in Settings → Keyboard." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Действия OpenDisplay есть в приложении «Команды»: узнать или установить яркость дисплея, переключить дисплей в один из его режимов, сделать дисплей основным и подключить все дисплеи. Они работают с подключёнными дисплеями, пока запущен OpenDisplay, и сообщают, если дисплей недоступен. Сочетания клавиш для действий самого OpenDisplay — в разделе «Настройки» → «Клавиатура»."
+            "value" : "Действия FreeDisplay есть в приложении «Команды»: узнать или установить яркость дисплея, переключить дисплей в один из его режимов, сделать дисплей основным и подключить все дисплеи. Они работают с подключёнными дисплеями, пока запущен FreeDisplay, и сообщают, если дисплей недоступен. Сочетания клавиш для действий самого FreeDisplay — в разделе «Настройки» → «Клавиатура»."
           }
         }
       }
     },
-    "OpenDisplay’s settings for “%@” were reset." : {
+    "FreeDisplay’s settings for “%@” were reset." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Настройки OpenDisplay для «%@» сброшены."
+            "value" : "Настройки FreeDisplay для «%@» сброшены."
           }
         }
       }
@@ -10083,12 +10092,12 @@
         }
       }
     },
-    "Preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts and scenes return to their defaults. A backup of the current settings is written first, and OpenDisplay then relaunches — like any quit, turning the displays it turned off back on." : {
+    "Preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts and scenes return to their defaults. A backup of the current settings is written first, and FreeDisplay then relaunches — like any quit, turning the displays it turned off back on." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Настройки, названия экранов, избранные разрешения, группы, профили приложений, защищённые расположения, сочетания клавиш и сцены вернутся к значениям по умолчанию. Сначала будет создана резервная копия текущих настроек, затем OpenDisplay перезапустится и, как при любом завершении, снова включит выключенные им экраны."
+            "value" : "Настройки, названия экранов, избранные разрешения, группы, профили приложений, защищённые расположения, сочетания клавиш и сцены вернутся к значениям по умолчанию. Сначала будет создана резервная копия текущих настроек, затем FreeDisplay перезапустится и, как при любом завершении, снова включит выключенные им экраны."
           }
         }
       }
@@ -10241,12 +10250,12 @@
         }
       }
     },
-    "Profiles in %@. OpenDisplay imports copies here and removes only copies from here; profiles of macOS, other users or apps stay in the profile chooser but are left alone." : {
+    "Profiles in %@. FreeDisplay imports copies here and removes only copies from here; profiles of macOS, other users or apps stay in the profile chooser but are left alone." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Профили в %@. OpenDisplay импортирует копии сюда и удаляет только копии отсюда; профили macOS, других пользователей и программ остаются в списке выбора, но не трогаются."
+            "value" : "Профили в %@. FreeDisplay импортирует копии сюда и удаляет только копии отсюда; профили macOS, других пользователей и программ остаются в списке выбора, но не трогаются."
           }
         }
       }
@@ -10353,12 +10362,12 @@
         }
       }
     },
-    "Publishes each brightness and volume change OpenDisplay makes — including slider, HTTP, command-line and Shortcuts brightness changes — over the dev.opendisplay.osd distributed notification, whether or not OpenDisplay shows its own HUD. Off by default." : {
+    "Publishes each brightness and volume change FreeDisplay makes — including slider, HTTP, command-line and Shortcuts brightness changes — over the dev.opendisplay.osd distributed notification, whether or not FreeDisplay shows its own HUD. Off by default." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Передаёт каждое изменение яркости и громкости, сделанное OpenDisplay, — включая изменения яркости ползунком, по HTTP, из командной строки и из «Быстрых команд» — через распределённое уведомление dev.opendisplay.osd, независимо от того, показывает ли OpenDisplay свой индикатор. По умолчанию выключено."
+            "value" : "Передаёт каждое изменение яркости и громкости, сделанное FreeDisplay, — включая изменения яркости ползунком, по HTTP, из командной строки и из «Быстрых команд» — через распределённое уведомление dev.opendisplay.osd, независимо от того, показывает ли FreeDisplay свой индикатор. По умолчанию выключено."
           }
         }
       }
@@ -10434,42 +10443,42 @@
         }
       }
     },
-    "Quit OpenDisplay" : {
+    "Quit FreeDisplay" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Выйти из OpenDisplay"
+            "value" : "Выйти из FreeDisplay"
           }
         }
       }
     },
-    "Quit OpenDisplay — brings back any displays it disconnected or mirrored" : {
+    "Quit FreeDisplay — brings back any displays it disconnected or mirrored" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Выйти из OpenDisplay — отключённые экраны и экраны с повтором вернутся"
+            "value" : "Выйти из FreeDisplay — отключённые экраны и экраны с повтором вернутся"
           }
         }
       }
     },
-    "Quit OpenDisplay?" : {
+    "Quit FreeDisplay?" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Завершить OpenDisplay?"
+            "value" : "Завершить FreeDisplay?"
           }
         }
       }
     },
-    "Quit OpenDisplay…" : {
+    "Quit FreeDisplay…" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Завершить OpenDisplay…"
+            "value" : "Завершить FreeDisplay…"
           }
         }
       }
@@ -10716,12 +10725,12 @@
         }
       }
     },
-    "Reconnects every display OpenDisplay turned off — the always-available recovery action." : {
+    "Reconnects every display FreeDisplay turned off — the always-available recovery action." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Подключает все дисплеи, отключённые через OpenDisplay. Команда восстановления доступна всегда."
+            "value" : "Подключает все дисплеи, отключённые через FreeDisplay. Команда восстановления доступна всегда."
           }
         }
       }
@@ -10979,22 +10988,22 @@
         }
       }
     },
-    "Relaunch OpenDisplay?" : {
+    "Relaunch FreeDisplay?" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Перезапустить OpenDisplay?"
+            "value" : "Перезапустить FreeDisplay?"
           }
         }
       }
     },
-    "Relaunch OpenDisplay…" : {
+    "Relaunch FreeDisplay…" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Перезапустить OpenDisplay…"
+            "value" : "Перезапустить FreeDisplay…"
           }
         }
       }
@@ -11099,12 +11108,12 @@
         }
       }
     },
-    "Remove OpenDisplay’s record of this display" : {
+    "Remove FreeDisplay’s record of this display" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Удалить запись OpenDisplay об этом экране"
+            "value" : "Удалить запись FreeDisplay об этом экране"
           }
         }
       }
@@ -11139,12 +11148,12 @@
         }
       }
     },
-    "Replaces every OpenDisplay setting with a file exported earlier. The current settings are backed up first." : {
+    "Replaces every FreeDisplay setting with a file exported earlier. The current settings are backed up first." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Заменяет все настройки OpenDisplay содержимым ранее экспортированного файла. Сначала создаётся резервная копия текущих настроек."
+            "value" : "Заменяет все настройки FreeDisplay содержимым ранее экспортированного файла. Сначала создаётся резервная копия текущих настроек."
           }
         }
       }
@@ -11209,12 +11218,12 @@
         }
       }
     },
-    "Reset all OpenDisplay settings to their defaults?" : {
+    "Reset all FreeDisplay settings to their defaults?" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сбросить все настройки OpenDisplay до значений по умолчанию?"
+            "value" : "Сбросить все настройки FreeDisplay до значений по умолчанию?"
           }
         }
       }
@@ -11269,12 +11278,12 @@
         }
       }
     },
-    "Reset OpenDisplay’s settings for “%@”?" : {
+    "Reset FreeDisplay’s settings for “%@”?" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сбросить настройки OpenDisplay для «%@»?"
+            "value" : "Сбросить настройки FreeDisplay для «%@»?"
           }
         }
       }
@@ -11539,12 +11548,12 @@
         }
       }
     },
-    "Returns every OpenDisplay setting to its default. The current settings are backed up first." : {
+    "Returns every FreeDisplay setting to its default. The current settings are backed up first." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Возвращает все настройки OpenDisplay к значениям по умолчанию. Сначала создаётся резервная копия текущих настроек."
+            "value" : "Возвращает все настройки FreeDisplay к значениям по умолчанию. Сначала создаётся резервная копия текущих настроек."
           }
         }
       }
@@ -11674,12 +11683,12 @@
         }
       }
     },
-    "Rotation isn’t protected: OpenDisplay can rotate displays only with Labs › Experimental display rotation on." : {
+    "Rotation isn’t protected: FreeDisplay can rotate displays only with Labs › Experimental display rotation on." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Поворот не защищается: OpenDisplay поворачивает экраны, только когда включено «Экспериментальные функции › Экспериментальный поворот экрана»."
+            "value" : "Поворот не защищается: FreeDisplay поворачивает экраны, только когда включено «Экспериментальные функции › Экспериментальный поворот экрана»."
           }
         }
       }
@@ -11724,12 +11733,12 @@
         }
       }
     },
-    "Safe startup: OpenDisplay makes no automatic changes this session" : {
+    "Safe startup: FreeDisplay makes no automatic changes this session" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Безопасный запуск: в этом сеансе OpenDisplay ничего не меняет сам"
+            "value" : "Безопасный запуск: в этом сеансе FreeDisplay ничего не меняет сам"
           }
         }
       }
@@ -11804,12 +11813,12 @@
         }
       }
     },
-    "Saves OpenDisplay’s preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts and scenes to a file you choose." : {
+    "Saves FreeDisplay’s preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts and scenes to a file you choose." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сохраняет в выбранный файл настройки OpenDisplay, названия экранов, избранные разрешения, группы, профили приложений, защищённые расположения, сочетания клавиш и сцены."
+            "value" : "Сохраняет в выбранный файл настройки FreeDisplay, названия экранов, избранные разрешения, группы, профили приложений, защищённые расположения, сочетания клавиш и сцены."
           }
         }
       }
@@ -12190,12 +12199,12 @@
         }
       }
     },
-    "Shift was held at launch, or OpenDisplay was started with --safe-mode. No setting was changed: this session only holds them back. The menu, keys, command line and Shortcuts still work, and so does the safety net that brings a screen back." : {
+    "Shift was held at launch, or FreeDisplay was started with --safe-mode. No setting was changed: this session only holds them back. The menu, keys, command line and Shortcuts still work, and so does the safety net that brings a screen back." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "При запуске была нажата клавиша Shift или OpenDisplay запущен с параметром --safe-mode. Настройки не изменены — в этом сеансе они просто не применяются. Меню, клавиши, командная строка и Быстрые команды работают, как и защита, которая возвращает изображение на экран."
+            "value" : "При запуске была нажата клавиша Shift или FreeDisplay запущен с параметром --safe-mode. Настройки не изменены — в этом сеансе они просто не применяются. Меню, клавиши, командная строка и Быстрые команды работают, как и защита, которая возвращает изображение на экран."
           }
         }
       }
@@ -12310,12 +12319,12 @@
         }
       }
     },
-    "Show or Hide the OpenDisplay Menu" : {
+    "Show or Hide the FreeDisplay Menu" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Показать или скрыть меню OpenDisplay"
+            "value" : "Показать или скрыть меню FreeDisplay"
           }
         }
       }
@@ -12822,12 +12831,12 @@
         }
       }
     },
-    "Starts OpenDisplay when you log in, so its display rules and brightness sync are there without you opening it." : {
+    "Starts FreeDisplay when you log in, so its display rules and brightness sync are there without you opening it." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Запускает OpenDisplay при входе в систему для применения правил мониторов и синхронизации яркости."
+            "value" : "Запускает FreeDisplay при входе в систему для применения правил мониторов и синхронизации яркости."
           }
         }
       }
@@ -13089,12 +13098,12 @@
         }
       }
     },
-    "Switches a display to one of the exact modes it offers. Keep the new mode in OpenDisplay before the countdown ends, or the previous mode comes back." : {
+    "Switches a display to one of the exact modes it offers. Keep the new mode in FreeDisplay before the countdown ends, or the previous mode comes back." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Переключает дисплей в один из точных режимов, которые он предлагает. Подтвердите новый режим в OpenDisplay до конца обратного отсчёта, иначе вернётся прежний."
+            "value" : "Переключает дисплей в один из точных режимов, которые он предлагает. Подтвердите новый режим в FreeDisplay до конца обратного отсчёта, иначе вернётся прежний."
           }
         }
       }
@@ -13180,12 +13189,12 @@
         }
       }
     },
-    "Takes effect after OpenDisplay relaunches." : {
+    "Takes effect after FreeDisplay relaunches." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Применится после перезапуска OpenDisplay."
+            "value" : "Применится после перезапуска FreeDisplay."
           }
         }
       }
@@ -13296,12 +13305,12 @@
         }
       }
     },
-    "The built-in display can’t be forgotten while OpenDisplay has it switched off: this record is how it is turned back on." : {
+    "The built-in display can’t be forgotten while FreeDisplay has it switched off: this record is how it is turned back on." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Встроенный экран нельзя забыть, пока OpenDisplay держит его выключенным: по этой записи он включается обратно."
+            "value" : "Встроенный экран нельзя забыть, пока FreeDisplay держит его выключенным: по этой записи он включается обратно."
           }
         }
       }
@@ -13368,12 +13377,12 @@
         }
       }
     },
-    "The dimming method is shared by all displays. Temperature, contrast and dimming apply to this display only and stay until you quit OpenDisplay." : {
+    "The dimming method is shared by all displays. Temperature, contrast and dimming apply to this display only and stay until you quit FreeDisplay." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Способ затемнения общий для всех экранов. Температура, контрастность и затемнение действуют только на этот экран и сохраняются до выхода из OpenDisplay."
+            "value" : "Способ затемнения общий для всех экранов. Температура, контрастность и затемнение действуют только на этот экран и сохраняются до выхода из FreeDisplay."
           }
         }
       }
@@ -13398,12 +13407,12 @@
         }
       }
     },
-    "The display stays connected and OpenDisplay keeps recognizing it" : {
+    "The display stays connected and FreeDisplay keeps recognizing it" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Экран остаётся подключённым, и OpenDisplay продолжает его узнавать"
+            "value" : "Экран остаётся подключённым, и FreeDisplay продолжает его узнавать"
           }
         }
       }
@@ -13512,12 +13521,12 @@
         }
       }
     },
-    "The imported file isn’t matched to a display automatically. Check the manufacturer and product code before installing it by other means. OpenDisplay doesn’t install system configurations." : {
+    "The imported file isn’t matched to a display automatically. Check the manufacturer and product code before installing it by other means. FreeDisplay doesn’t install system configurations." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Импортированный файл не сопоставляется с дисплеем автоматически. Перед внешней установкой проверьте производителя и код модели. OpenDisplay не устанавливает системные конфигурации."
+            "value" : "Импортированный файл не сопоставляется с дисплеем автоматически. Перед внешней установкой проверьте производителя и код модели. FreeDisplay не устанавливает системные конфигурации."
           }
         }
       }
@@ -13595,12 +13604,12 @@
         }
       }
     },
-    "The menu-bar icon goes away until you open OpenDisplay again." : {
+    "The menu-bar icon goes away until you open FreeDisplay again." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Значок в строке меню исчезнет, пока вы снова не откроете OpenDisplay."
+            "value" : "Значок в строке меню исчезнет, пока вы снова не откроете FreeDisplay."
           }
         }
       }
@@ -13615,12 +13624,12 @@
         }
       }
     },
-    "The monitor didn't accept the factory reset (DDC write failed). Nothing was changed, including OpenDisplay's own dimming and temperature." : {
+    "The monitor didn't accept the factory reset (DDC write failed). Nothing was changed, including FreeDisplay's own dimming and temperature." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Монитор не принял сброс к заводским настройкам (ошибка записи DDC). Ничего не изменилось, в том числе затемнение и температура OpenDisplay."
+            "value" : "Монитор не принял сброс к заводским настройкам (ошибка записи DDC). Ничего не изменилось, в том числе затемнение и температура FreeDisplay."
           }
         }
       }
@@ -13705,22 +13714,22 @@
         }
       }
     },
-    "The monitor is asked to restore its factory settings — brightness, contrast, color preset and whatever else it resets. OpenDisplay's own dimming, color temperature and software contrast stay as they are." : {
+    "The monitor is asked to restore its factory settings — brightness, contrast, color preset and whatever else it resets. FreeDisplay's own dimming, color temperature and software contrast stay as they are." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Монитору отправляется команда восстановить заводские настройки — яркость, контрастность, цветовой режим и всё остальное, что он сбрасывает. Собственные затемнение, цветовая температура и программная контрастность OpenDisplay останутся как есть."
+            "value" : "Монитору отправляется команда восстановить заводские настройки — яркость, контрастность, цветовой режим и всё остальное, что он сбрасывает. Собственные затемнение, цветовая температура и программная контрастность FreeDisplay останутся как есть."
           }
         }
       }
     },
-    "The monitor is asked to restore its factory settings — brightness, contrast, colour preset and anything else it resets. OpenDisplay’s own software dimming, colour temperature and contrast stay as they are; you can reset them separately afterwards." : {
+    "The monitor is asked to restore its factory settings — brightness, contrast, colour preset and anything else it resets. FreeDisplay’s own software dimming, colour temperature and contrast stay as they are; you can reset them separately afterwards." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Монитору отправляется команда восстановить заводские настройки — яркость, контрастность, цветовой режим и всё остальное, что он сбрасывает. Собственные программное затемнение, цветовая температура и контрастность OpenDisplay останутся как есть; их можно сбросить отдельно позже."
+            "value" : "Монитору отправляется команда восстановить заводские настройки — яркость, контрастность, цветовой режим и всё остальное, что он сбрасывает. Собственные программное затемнение, цветовая температура и контрастность FreeDisplay останутся как есть; их можно сбросить отдельно позже."
           }
         }
       }
@@ -13755,12 +13764,12 @@
         }
       }
     },
-    "The name OpenDisplay shows; leave it empty for the display’s own name" : {
+    "The name FreeDisplay shows; leave it empty for the display’s own name" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Название, которое показывает OpenDisplay; оставьте пустым, чтобы использовать собственное название экрана"
+            "value" : "Название, которое показывает FreeDisplay; оставьте пустым, чтобы использовать собственное название экрана"
           }
         }
       }
@@ -13825,12 +13834,12 @@
         }
       }
     },
-    "The record that OpenDisplay switched it off" : {
+    "The record that FreeDisplay switched it off" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Запись о том, что OpenDisplay его выключил"
+            "value" : "Запись о том, что FreeDisplay его выключил"
           }
         }
       }
@@ -13967,12 +13976,12 @@
         }
       }
     },
-    "The update feed offers OpenDisplay %@, which is older than the %@ you are running. Nothing was installed." : {
+    "The update feed offers FreeDisplay %@, which is older than the %@ you are running. Nothing was installed." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Источник обновлений предлагает OpenDisplay %@ — эта версия старше установленной %@. Ничего не установлено."
+            "value" : "Источник обновлений предлагает FreeDisplay %@ — эта версия старше установленной %@. Ничего не установлено."
           }
         }
       }
@@ -13997,12 +14006,12 @@
         }
       }
     },
-    "These shortcuts work in every app while OpenDisplay is running. Click a shortcut, then press the new keys: a function key, or a key together with ⌘, ⌥ or ⌃. Esc cancels; Delete removes the shortcut. Shortcuts are paused while you record one. A registered shortcut can still be taken first by macOS or by another app that uses the same keys." : {
+    "These shortcuts work in every app while FreeDisplay is running. Click a shortcut, then press the new keys: a function key, or a key together with ⌘, ⌥ or ⌃. Esc cancels; Delete removes the shortcut. Shortcuts are paused while you record one. A registered shortcut can still be taken first by macOS or by another app that uses the same keys." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Эти сочетания работают в любой программе, пока запущен OpenDisplay. Нажмите на сочетание, затем нажмите новые клавиши: функциональную клавишу или клавишу вместе с ⌘, ⌥ или ⌃. Esc отменяет запись, Delete удаляет сочетание. Пока идёт запись, сочетания не срабатывают. Зарегистрированное сочетание всё равно может перехватить macOS или другая программа с теми же клавишами."
+            "value" : "Эти сочетания работают в любой программе, пока запущен FreeDisplay. Нажмите на сочетание, затем нажмите новые клавиши: функциональную клавишу или клавишу вместе с ⌘, ⌥ или ⌃. Esc отменяет запись, Delete удаляет сочетание. Пока идёт запись, сочетания не срабатывают. Зарегистрированное сочетание всё равно может перехватить macOS или другая программа с теми же клавишами."
           }
         }
       }
@@ -14168,12 +14177,12 @@
         }
       }
     },
-    "This file was made by a newer OpenDisplay (format %lld). Update OpenDisplay to import it. Nothing was changed." : {
+    "This file was made by a newer FreeDisplay (format %lld). Update FreeDisplay to import it. Nothing was changed." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Файл создан более новой версией OpenDisplay (формат %lld). Обновите OpenDisplay, чтобы импортировать его. Ничего не изменено."
+            "value" : "Файл создан более новой версией FreeDisplay (формат %lld). Обновите FreeDisplay, чтобы импортировать его. Ничего не изменено."
           }
         }
       }
@@ -14198,12 +14207,12 @@
         }
       }
     },
-    "This isn’t an OpenDisplay settings file. Nothing was changed." : {
+    "This isn’t a FreeDisplay settings file. Nothing was changed." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Это не файл настроек OpenDisplay. Ничего не изменено."
+            "value" : "Это не файл настроек FreeDisplay. Ничего не изменено."
           }
         }
       }
@@ -14259,22 +14268,22 @@
         }
       }
     },
-    "This settings file has a format OpenDisplay doesn’t know (%lld). Nothing was changed." : {
+    "This settings file has a format FreeDisplay doesn’t know (%lld). Nothing was changed." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "У этого файла настроек неизвестный OpenDisplay формат (%lld). Ничего не изменено."
+            "value" : "У этого файла настроек неизвестный FreeDisplay формат (%lld). Ничего не изменено."
           }
         }
       }
     },
-    "This settings file holds a value OpenDisplay can’t use (%@: %@). Nothing was changed." : {
+    "This settings file holds a value FreeDisplay can’t use (%@: %@). Nothing was changed." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "В этом файле настроек есть значение, которое OpenDisplay не может использовать (%@: %@). Ничего не изменено."
+            "value" : "В этом файле настроек есть значение, которое FreeDisplay не может использовать (%@: %@). Ничего не изменено."
           }
         }
       }
@@ -14559,12 +14568,12 @@
         }
       }
     },
-    "Turned off by OpenDisplay" : {
+    "Turned off by FreeDisplay" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Выключен OpenDisplay"
+            "value" : "Выключен FreeDisplay"
           }
         }
       }
@@ -15544,12 +15553,12 @@
         }
       }
     },
-    "What OpenDisplay saved under this display’s id" : {
+    "What FreeDisplay saved under this display’s id" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "То, что OpenDisplay сохранил под идентификатором этого экрана"
+            "value" : "То, что FreeDisplay сохранил под идентификатором этого экрана"
           }
         }
       }
@@ -15574,22 +15583,22 @@
         }
       }
     },
-    "When macOS (or another app) moves a display, changes its resolution, or hands “main” to the other screen, the protected arrangement is restored — including which displays are switched off. A display you turned off in OpenDisplay is switched back off after sleep whether this is on or not." : {
+    "When macOS (or another app) moves a display, changes its resolution, or hands “main” to the other screen, the protected arrangement is restored — including which displays are switched off. A display you turned off in FreeDisplay is switched back off after sleep whether this is on or not." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Если macOS или другое приложение меняет расположение, разрешение или основной монитор, защищённая конфигурация восстанавливается, включая отключённые мониторы. Отключённый в OpenDisplay монитор остаётся отключённым после сна независимо от этой настройки."
+            "value" : "Если macOS или другое приложение меняет расположение, разрешение или основной монитор, защищённая конфигурация восстанавливается, включая отключённые мониторы. Отключённый в FreeDisplay монитор остаётся отключённым после сна независимо от этой настройки."
           }
         }
       }
     },
-    "While any OpenDisplay window is open" : {
+    "While any FreeDisplay window is open" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Пока открыто любое окно OpenDisplay"
+            "value" : "Пока открыто любое окно FreeDisplay"
           }
         }
       }
@@ -15822,12 +15831,12 @@
         }
       }
     },
-    "Your current settings are backed up first. OpenDisplay then relaunches to use the imported ones — like any quit, turning the displays it turned off back on." : {
+    "Your current settings are backed up first. FreeDisplay then relaunches to use the imported ones — like any quit, turning the displays it turned off back on." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сначала создаётся резервная копия текущих настроек. Затем OpenDisplay перезапустится, чтобы применить импортированные, и, как при любом завершении, снова включит выключенные им экраны."
+            "value" : "Сначала создаётся резервная копия текущих настроек. Затем FreeDisplay перезапустится, чтобы применить импортированные, и, как при любом завершении, снова включит выключенные им экраны."
           }
         }
       }
@@ -15913,22 +15922,22 @@
         }
       }
     },
-    "“%@” isn’t connected. Connect it, or turn it back on in OpenDisplay, and try again." : {
+    "“%@” isn’t connected. Connect it, or turn it back on in FreeDisplay, and try again." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Дисплей «%@» не подключён. Подключите его или снова включите в OpenDisplay и попробуйте ещё раз."
+            "value" : "Дисплей «%@» не подключён. Подключите его или снова включите в FreeDisplay и попробуйте ещё раз."
           }
         }
       }
     },
-    "“%@” sent. The monitor accepted the command; OpenDisplay can't check whether the screen actually changed." : {
+    "“%@” sent. The monitor accepted the command; FreeDisplay can't check whether the screen actually changed." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Команда «%@» отправлена. Монитор её принял; OpenDisplay не может проверить, изменился ли экран на самом деле."
+            "value" : "Команда «%@» отправлена. Монитор её принял; FreeDisplay не может проверить, изменился ли экран на самом деле."
           }
         }
       }
@@ -15943,12 +15952,12 @@
         }
       }
     },
-    "“External HUD only” hides OpenDisplay’s HUD, and broadcasting is off, so no app receives the changes either." : {
+    "“External HUD only” hides FreeDisplay’s HUD, and broadcasting is off, so no app receives the changes either." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "«Только внешний индикатор» скрывает индикатор OpenDisplay, а передача событий выключена, поэтому изменения не получает и ни одно другое приложение."
+            "value" : "«Только внешний индикатор» скрывает индикатор FreeDisplay, а передача событий выключена, поэтому изменения не получает и ни одно другое приложение."
           }
         }
       }

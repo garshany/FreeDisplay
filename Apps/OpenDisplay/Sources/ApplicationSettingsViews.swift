@@ -86,7 +86,7 @@ struct NotificationSettingsRows: View {
             Picker("Event notices", selection: Binding(get: { choice }, set: { apply($0) })) {
                 Text("Off").tag(Choice.off)
                 Text("Notification Center").tag(Choice.notificationCenter)
-                Text("OpenDisplay window").tag(Choice.appWindow)
+                Text("FreeDisplay window").tag(Choice.appWindow)
             }
             .fixedSize()
             Text("Notices about displays connecting or disconnecting, the built-in turning off automatically, protection results and failures. Confirmation prompts and the on-screen display are separate and work whatever is chosen here.")
@@ -144,10 +144,10 @@ struct NotificationSettingsRows: View {
             return ("ellipsis.circle", .secondary, String(localized: "Checking what macOS allows…"))
         case .notRequested:
             return ("questionmark.circle", ODColor.caution,
-                    String(localized: "macOS hasn’t asked you about OpenDisplay’s notifications yet."))
+                    String(localized: "macOS hasn’t asked you about FreeDisplay’s notifications yet."))
         case .denied:
             return ("bell.slash.fill", ODColor.caution,
-                    String(localized: "Notifications are off for OpenDisplay in System Settings, so notices won’t appear. Everything else works as usual."))
+                    String(localized: "Notifications are off for FreeDisplay in System Settings, so notices won’t appear. Everything else works as usual."))
         case .allowedQuietly:
             return ("bell.badge", ODColor.caution,
                     String(localized: "Allowed, but the alert style is None: notices go to Notification Center without appearing on screen."))
@@ -171,7 +171,7 @@ struct DockIconPolicyRow: View {
                 get: { model.settings.dockIconPolicy }, set: { model.setDockIconPolicy($0) })) {
                 Text("Never").tag(DockIconPolicy.never)
                 Text("While Settings is open").tag(DockIconPolicy.whileSettingsOpen)
-                Text("While any OpenDisplay window is open").tag(DockIconPolicy.whileAnyWindowOpen)
+                Text("While any FreeDisplay window is open").tag(DockIconPolicy.whileAnyWindowOpen)
                 Text("Always").tag(DockIconPolicy.always)
             }
             .fixedSize()
@@ -344,23 +344,23 @@ struct ManageAppSettingsSheet: View {
                 Button("Export Settings…") { export() }
             }
             section(title: String(localized: "Restore"),
-                    text: String(localized: "Replaces every OpenDisplay setting with a file exported earlier. The current settings are backed up first.")) {
+                    text: String(localized: "Replaces every FreeDisplay setting with a file exported earlier. The current settings are backed up first.")) {
                 Button("Import Settings…") { chooseImport() }
                 Button("Show Backups in Finder") { revealBackups() }
             }
             section(title: String(localized: "Reset"),
-                    text: String(localized: "Returns every OpenDisplay setting to its default. The current settings are backed up first.")) {
+                    text: String(localized: "Returns every FreeDisplay setting to its default. The current settings are backed up first.")) {
                 Button("Reset to Defaults…", role: .destructive) { confirmingReset = true }
             }
-            Text("Not part of the app settings, so never replaced or reset: the macOS display arrangement and resolutions, recovery checkpoints, logs, Launch at Login and the interface language. Import and reset end with a relaunch, which — like any quit — turns the displays OpenDisplay turned off back on.")
+            Text("Not part of the app settings, so never replaced or reset: the macOS display arrangement and resolutions, recovery checkpoints, logs, Launch at Login and the interface language. Import and reset end with a relaunch, which — like any quit — turns the displays FreeDisplay turned off back on.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Divider()
 
             HStack(spacing: ODSpacing.sm) {
-                Button("Relaunch OpenDisplay…") { confirmingRelaunch = true }
-                Button("Quit OpenDisplay…") { confirmingQuit = true }
+                Button("Relaunch FreeDisplay…") { confirmingRelaunch = true }
+                Button("Quit FreeDisplay…") { confirmingQuit = true }
                 Spacer()
                 if working { ProgressView().controlSize(.small) }
                 Button("Done") { dismiss() }
@@ -392,7 +392,7 @@ struct ManageAppSettingsSheet: View {
                 importPreview = nil
             }
         }
-        .confirmationDialog("Reset all OpenDisplay settings to their defaults?", isPresented: $confirmingReset) {
+        .confirmationDialog("Reset all FreeDisplay settings to their defaults?", isPresented: $confirmingReset) {
             Button("Back Up, Reset and Relaunch", role: .destructive) {
                 replace(with: model.factoryDefaultSettingsArchive())
             }
@@ -400,17 +400,17 @@ struct ManageAppSettingsSheet: View {
         } message: {
             Text("Preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts, scenes, menu layout, luminance anchors, keyboard and audio bindings, idle-sleep requests and volume feedback preferences return to their defaults. A backup is written first, and FreeDisplay then relaunches — like any quit, turning the displays it turned off back on.")
         }
-        .confirmationDialog("Relaunch OpenDisplay?", isPresented: $confirmingRelaunch) {
+        .confirmationDialog("Relaunch FreeDisplay?", isPresented: $confirmingRelaunch) {
             Button("Relaunch") { AppLanguage.relaunch() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("OpenDisplay quits — putting back what it changed, as on every quit — and opens again.")
+            Text("FreeDisplay quits — putting back what it changed, as on every quit — and opens again.")
         }
-        .confirmationDialog("Quit OpenDisplay?", isPresented: $confirmingQuit) {
+        .confirmationDialog("Quit FreeDisplay?", isPresented: $confirmingQuit) {
             Button("Quit") { NSApp.terminate(nil) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The menu-bar icon goes away until you open OpenDisplay again.")
+            Text("The menu-bar icon goes away until you open FreeDisplay again.")
         }
     }
 
@@ -503,15 +503,15 @@ struct ManageAppSettingsSheet: View {
         case .unreadable:
             return String(localized: "The file couldn’t be read. Nothing was changed.")
         case .notAnArchive:
-            return String(localized: "This isn’t an OpenDisplay settings file. Nothing was changed.")
+            return String(localized: "This isn’t a FreeDisplay settings file. Nothing was changed.")
         case .newerVersion(let version):
-            return String(localized: "This file was made by a newer OpenDisplay (format \(version)). Update OpenDisplay to import it. Nothing was changed.")
+            return String(localized: "This file was made by a newer FreeDisplay (format \(version)). Update FreeDisplay to import it. Nothing was changed.")
         case .unsupportedVersion(let version):
-            return String(localized: "This settings file has a format OpenDisplay doesn’t know (\(version)). Nothing was changed.")
+            return String(localized: "This settings file has a format FreeDisplay doesn’t know (\(version)). Nothing was changed.")
         case .damaged(let section):
             return String(localized: "Part of this settings file is damaged (\(section)). Nothing was changed.")
         case .invalidValue(let section, let item):
-            return String(localized: "This settings file holds a value OpenDisplay can’t use (\(section): \(item)). Nothing was changed.")
+            return String(localized: "This settings file holds a value FreeDisplay can’t use (\(section): \(item)). Nothing was changed.")
         }
     }
 }
@@ -544,7 +544,7 @@ private struct ImportConfirmationView: View {
                                message: unmatchedMessage)
             }
 
-            Text("Your current settings are backed up first. OpenDisplay then relaunches to use the imported ones — like any quit, turning the displays it turned off back on.")
+            Text("Your current settings are backed up first. FreeDisplay then relaunches to use the imported ones — like any quit, turning the displays it turned off back on.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -561,7 +561,7 @@ private struct ImportConfirmationView: View {
     private func origin(_ archive: SettingsArchive) -> String {
         let date = archive.createdAt.formatted(date: .abbreviated, time: .shortened)
         guard let version = archive.appVersion else { return String(localized: "Exported \(date).") }
-        return String(localized: "Exported \(date) by OpenDisplay \(version).")
+        return String(localized: "Exported \(date) by FreeDisplay \(version).")
     }
 
     private var unmatchedMessage: String {

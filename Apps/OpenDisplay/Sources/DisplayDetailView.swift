@@ -368,7 +368,7 @@ struct ResolutionCard: View {
             if summary.duplicates > 0 {
                 Text("Entries that repeat another mode’s logical size, framebuffer and refresh rate exactly: \(summary.duplicates). A mode change can’t choose between them, so each is listed once.")
             }
-            Text("OpenDisplay can list and apply only the modes macOS offers right now. A missing size or refresh rate usually means the display, the cable or adapter, or the GPU doesn’t offer that combination — filters and “Include modes not meant for desktop use” can’t add it. A HiDPI size needs a framebuffer twice its logical size, which isn’t offered for every size. Adding new modes needs a display override, which OpenDisplay doesn’t install.")
+            Text("FreeDisplay can list and apply only the modes macOS offers right now. A missing size or refresh rate usually means the display, the cable or adapter, or the GPU doesn’t offer that combination — filters and “Include modes not meant for desktop use” can’t add it. A HiDPI size needs a framebuffer twice its logical size, which isn’t offered for every size. Adding new modes needs a display override, which FreeDisplay doesn’t install.")
             ForEach(favouriteNotes, id: \.self) { note in
                 Text(note).foregroundStyle(.orange)
             }
@@ -844,7 +844,7 @@ struct ControlsCard: View {
                 // AM-06: the app's own layers are a separate choice, offered only after a reset that
                 // went through and only while there is something of OpenDisplay's to undo.
                 if resetResult == .sent, model.hasSoftwareAdjustments(display) {
-                    Button("Also Reset OpenDisplay’s Dimming, Colour Temperature and Contrast") {
+                    Button("Also Reset FreeDisplay’s Dimming, Colour Temperature and Contrast") {
                         Task { await model.resetSoftwareAdjustments(for: display) }
                     }
                     .controlSize(.small)
@@ -868,7 +868,7 @@ struct ControlsCard: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The monitor is asked to restore its factory settings — brightness, contrast, colour preset and anything else it resets. OpenDisplay’s own software dimming, colour temperature and contrast stay as they are; you can reset them separately afterwards.")
+            Text("The monitor is asked to restore its factory settings — brightness, contrast, colour preset and anything else it resets. FreeDisplay’s own software dimming, colour temperature and contrast stay as they are; you can reset them separately afterwards.")
         }
     }
 
@@ -1078,7 +1078,7 @@ struct InformationCard: View {
             // SD-14: the complete per-display report — identity, modes, state, capabilities and
             // connection — collected when opened, with copy and UTF-8 export.
             ODRow(String(localized: "Full report"),
-                  secondary: String(localized: "Every detail OpenDisplay can read, to copy or save")) {
+                  secondary: String(localized: "Every detail FreeDisplay can read, to copy or save")) {
                 Button("Show Report…") { showingReport = true }.controlSize(.small)
             }
         }

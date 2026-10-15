@@ -3,6 +3,11 @@ import XCTest
 @testable import TopologyCore
 
 final class KeyboardShortcutRegistryTests: XCTestCase {
+    func testQuitLabelUsesFreeDisplayAndKeepsItsPersistedKey() {
+        XCTAssertEqual(HotkeyAction.quit.label, "Quit FreeDisplay")
+        XCTAssertEqual(HotkeyAction.quit.rawValue, "quit")
+    }
+
     private let r = KeyBinding(keyCode: 0x0F, modifiers: KeyBinding.controlOptionCommand)
     private let up = KeyBinding(keyCode: 0x7E, modifiers: KeyBinding.controlOptionCommand)   // arrow up
     private let digit1 = KeyBinding(keyCode: 0x12, modifiers: KeyBinding.controlOptionCommand)

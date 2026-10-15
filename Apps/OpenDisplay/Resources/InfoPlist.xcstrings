@@ -8,13 +8,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "OpenDisplay uses your location once to calculate local sunrise, noon, and sunset times for Clock Mode brightness schedules. You can also enter your coordinates manually."
+            "value" : "FreeDisplay uses your location once to calculate local sunrise, noon, and sunset times for Clock Mode brightness schedules. You can also enter your coordinates manually."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenDisplay один раз использует ваше местоположение, чтобы рассчитать местное время восхода, полудня и заката для расписания яркости. Координаты можно ввести и вручную."
+            "value" : "FreeDisplay один раз использует ваше местоположение, чтобы рассчитать местное время восхода, полудня и заката для расписания яркости. Координаты можно ввести и вручную."
           }
         }
       }
