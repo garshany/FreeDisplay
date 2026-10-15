@@ -68,14 +68,7 @@ enum TrayModeCatalog {
 
     /// Refresh rates offered at the current point size, framebuffer and density.
     static func refreshRates(_ options: [TrayModeOption], current: DisplayMode?) -> [TrayModeOption] {
-        guard let current else { return [] }
-        return options
-            .filter {
-                $0.mode.pointWidth == current.pointWidth && $0.mode.pointHeight == current.pointHeight
-                    && $0.mode.pixelWidth == current.pixelWidth && $0.mode.pixelHeight == current.pixelHeight
-                    && $0.mode.isHiDPI == current.isHiDPI
-            }
-            .sorted { $0.mode.refreshHz > $1.mode.refreshHz }
+        DisplayModeCatalog.refreshRateChoices(options, current: current)
     }
 
     /// The same point size with the other density, if the display offers it (HiDPI toggle).

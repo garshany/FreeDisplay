@@ -209,11 +209,11 @@ public enum RefreshTimingReport {
         return hzText(hz, l)
     }
 
-    /// The range at the precision shown: two readings that print alike are one rate.
+    /// Formatting must not turn distinct reported intervals into a fixed-refresh claim.
     public static func rangeText(_ range: ReportedRefreshRange?, _ l: ReportLocalizer) -> String {
         guard let range else { return l("Not reported") }
         let fastest = l.decimal(range.fastestHz, 2), slowest = l.decimal(range.slowestHz, 2)
-        if fastest == slowest { return l.fill("%1 Hz, fixed", fastest) }
+        if range.minimumInterval == range.maximumInterval { return l.fill("%1 Hz, fixed", fastest) }
         return l.fill("%1–%2 Hz, variable", slowest, fastest)
     }
 
@@ -269,5 +269,19 @@ public enum RefreshTimingReport {
 
     static func msText(_ seconds: Double, _ l: ReportLocalizer) -> String {
         l.fill("%1 ms", l.decimal(seconds * 1000, 2))
+    }
+}
+
+extension DisplayModeCatalog {
+    /// Rate-only choices preserve every other known mode property. Nil depth stays unknown;
+    /// it is not interchangeable with a known depth. Only the caller's offered modes are used.
+    public static func refreshRateChoices(_ options: [DisplayModeOption], current: DisplayMode?) -> [DisplayModeOption] {
+        guard let current else { return [] }
+        return options.filter {
+            let mode = $0.mode
+            return mode.pointWidth == current.pointWidth && mode.pointHeight == current.pointHeight
+                && mode.pixelWidth == current.pixelWidth && mode.pixelHeight == current.pixelHeight
+                && mode.isHiDPI == current.isHiDPI && mode.bitDepth == current.bitDepth
+        }.sorted { $0.mode.refreshHz > $1.mode.refreshHz }
     }
 }

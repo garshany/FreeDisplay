@@ -109,6 +109,7 @@ struct RefreshTimingCard: View {
             .padding(.vertical, 8)
         }
         .onChange(of: display.mode) { _, mode in measurer.modeChanged(to: mode) }
+        .onChange(of: display.cgDisplayID) { _, _ in measurer.stop(.displayUnavailable) }
         .onChange(of: isMeasurable) { _, measurable in
             if !measurable { measurer.stop(.displayUnavailable) }
         }

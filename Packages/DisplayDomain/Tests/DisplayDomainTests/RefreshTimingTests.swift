@@ -2,6 +2,28 @@ import XCTest
 @testable import DisplayDomain
 
 final class RefreshTimingTests: XCTestCase {
+    func testRoundedRangeDoesNotBecomeAFixedRefreshClaim() throws {
+        let range = try XCTUnwrap(ReportedRefreshRange(minimumInterval: 1 / 60.0001, maximumInterval: 1 / 60.0))
+        XCTAssertEqual(RefreshTimingReport.rangeText(range, .english), "60–60 Hz, variable")
+    }
+
+    func testRateOnlyChoicesPreserveDepthAndBackingAndFractionalRates() {
+        let current = DisplayMode(pixelWidth: 3840, pixelHeight: 2160, pointWidth: 1920, pointHeight: 1080,
+                                  refreshHz: 60, isHiDPI: true, bitDepth: 10)
+        var fractional = current; fractional.refreshHz = 59.94
+        var fast = current; fast.refreshHz = 120
+        var differentDepth = fast; differentDepth.bitDepth = 8
+        var unknownDepth = fast; unknownDepth.bitDepth = nil
+        var differentBacking = fast; differentBacking.pixelWidth = 1920; differentBacking.pixelHeight = 1080
+        var differentDensity = fast; differentDensity.isHiDPI = false
+        var differentSize = fast; differentSize.pointWidth = 1600
+        let options = [current, fractional, fast, differentDepth, unknownDepth, differentBacking, differentDensity, differentSize]
+            .map { DisplayModeOption(mode: $0, isNative: false, isDefault: false) }
+        XCTAssertEqual(DisplayModeCatalog.refreshRateChoices(options, current: current).map(\.mode), [fast, current, fractional])
+        XCTAssertTrue(DisplayModeCatalog.refreshRateChoices(options, current: nil).isEmpty)
+        XCTAssertEqual(DisplayModeCatalog.refreshRateChoices(options, current: unknownDepth).map(\.mode), [unknownDepth])
+    }
+
     private func mode(hz: Double, width: Int = 2560) -> DisplayMode {
         DisplayMode(pixelWidth: width, pixelHeight: 1440, pointWidth: width, pointHeight: 1440, refreshHz: hz, isHiDPI: false)
     }

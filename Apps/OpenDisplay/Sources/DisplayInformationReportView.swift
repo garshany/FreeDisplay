@@ -36,12 +36,16 @@ extension AppModel {
     /// Core Graphics, NSScreen, IORegistry (EDID) and FreeDisplay's own caches. The EDID registry
     /// walk runs off the main actor.
     func informationReportFacts(for observation: DisplayObservation) async -> DisplayReportFacts {
+        // A sheet keeps its opening observation. Refresh/reopen must use today's topology and mode,
+        // rather than presenting that captured value as a new read.
+        let observation = displays.first { $0.recordID == observation.recordID } ?? observation
         let info = Bundle.main.infoDictionary
-        let appName = info?["CFBundleDisplayName"] as? String ?? info?["CFBundleName"] as? String ?? "OpenDisplay"
+        let appName = "FreeDisplay"
         let version = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
         let id = observation.recordID
         // `displays` is the current topology: a record that isn't in it is remembered, not online.
-        let online = observation.cgDisplayID != nil && displays.contains { $0.recordID == id }
+        let online = observation.cgDisplayID.map { CGDisplayIsOnline($0) != 0 } == true
+            && displays.contains { $0.recordID == id }
         var facts = DisplayReportFacts(
             appName: appName, appVersion: version,
             generatedAt: Date().formatted(date: .abbreviated, time: .standard),
@@ -76,7 +80,11 @@ extension AppModel {
         }
         facts.origin = observation.origin
         facts.rotationDegrees = observation.rotation.rawValue
-        facts.currentMode = observation.mode
+        facts.currentMode = CGDisplayCopyDisplayMode(cgID).map {
+            DisplayMode(pixelWidth: $0.pixelWidth, pixelHeight: $0.pixelHeight,
+                        pointWidth: $0.width, pointHeight: $0.height,
+                        refreshHz: $0.refreshRate, isHiDPI: $0.pixelWidth > $0.width)
+        }
         facts.backingScaleFactor = screen.map { Double($0.backingScaleFactor) }
         facts.listedModes = DisplayModeReader.listedOptions(for: cgID)
         let size = CGDisplayScreenSize(cgID)
