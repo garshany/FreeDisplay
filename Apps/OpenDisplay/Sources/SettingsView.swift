@@ -432,6 +432,9 @@ private struct SaveSceneRow: View {
 /// Desktop and reveals it. Lists exactly what goes in before the user clicks, because the file is
 /// meant to be attached to a public issue.
 private struct DiagnosticsExportSection: View {
+    @AppStorage("diagnostics.removeSerials") private var removeSerials = true
+    @AppStorage("diagnostics.removeUUIDs") private var removeUUIDs = true
+    @AppStorage("diagnostics.removeRegistryPaths") private var removeRegistryPaths = true
     @EnvironmentObject private var model: AppModel
     @State private var exporting = false
     @State private var result: String?
@@ -440,6 +443,14 @@ private struct DiagnosticsExportSection: View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
             Text("Diagnostics").font(.title3)
             PendingRevertRecordCard()
+            Toggle("Remove serial numbers", isOn: $removeSerials)
+            Toggle("Remove UUIDs", isOn: $removeUUIDs)
+            Toggle("Remove registry paths", isOn: $removeRegistryPaths)
+            Text("Credentials and sensitive settings are always removed. Redaction is not anonymization; review names and free text before sharing.")
+                .font(.caption).foregroundStyle(.secondary)
+            Button("Show Console…") {
+                NotificationCenter.default.post(name: Notification.Name("FreeDisplayShowCommandConsole"), object: nil)
+            }
             Text("If a display misbehaves, export a diagnostics file and attach it to your issue. It is saved to your Desktop and is not sent anywhere. It contains:")
                 .font(.caption).foregroundStyle(.secondary)
             ForEach(DiagnosticsBundle.contents, id: \.self) { item in

@@ -90,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingRevertWatch: AnyCancellable?
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
+    private let commandConsole = CommandConsoleWindow()
     private var settingsKeyMonitor: Any?
     /// Dock icon policy (SO-13), created at launch once the status item exists.
     private var dockPresence: DockPresenceController?
@@ -105,7 +106,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         OpenDisplayAutomation.liveModel = model
     }
 
+    @objc func showCommandConsole() { commandConsole.show(model: model) }
+    func closeCommandConsole() { commandConsole.close() }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NotificationCenter.default.addObserver(self, selector: #selector(showCommandConsole),
+            name: Notification.Name("FreeDisplayShowCommandConsole"), object: nil)
         // Close the pop-out when an action that re-lays-out the displays is picked (e.g. Set as Main):
         // otherwise the open pop-out, anchored to the status item, gets displaced to a random spot when
         // set-main relocates the menu bar to the new main display.

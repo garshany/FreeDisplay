@@ -314,18 +314,18 @@ final class DisplayInformationReportTests: XCTestCase {
         facts.ioServicePath = "IOService:/AppleARMPE/dispext0"
         facts.edid = .matched(bytes)
         let full = DisplayInformationReport.build(facts)
-        let hidden = DisplayInformationReport.hidingIdentifiers(full)
+        let hidden = DiagnosticPrivacy().redactedReport(full)
         let text = hidden.plainText()
         for secret in ["12345", "ABCD-1234", "cg:ABCD", "IOService:/AppleARMPE", Data(bytes).base64EncodedString()] {
             XCTAssertTrue(full.plainText().contains(secret), secret)
             XCTAssertFalse(text.contains(secret), secret)
         }
-        XCTAssertTrue(text.contains("Serial number: Hidden"))
-        XCTAssertTrue(text.contains("UUID: Hidden"))
+        XCTAssertTrue(text.contains("Serial number: <redacted>"))
+        XCTAssertTrue(text.contains("UUID: <redacted>"))
         XCTAssertTrue(text.contains("Model number: 4660 (0x1234)"), "a model number identifies a model, not a device")
-        XCTAssertEqual(hidden.footer, ["Serial numbers, UUIDs, registry paths and the EDID bytes are hidden in this copy of the report."])
-        XCTAssertEqual(hidden.sections.map(\.title), full.sections.map(\.title), "every section stays")
-        XCTAssertEqual(hidden.sections.flatMap(\.rows).count, full.sections.flatMap(\.rows).count)
+        XCTAssertEqual(hidden.footer, full.footer)
+        XCTAssertEqual(hidden.sections.map(\.title), full.sections.filter { !$0.containsOpaqueIdentifiers }.map(\.title))
+        XCTAssertFalse(hidden.sections.contains { $0.title.hasPrefix("EDID") })
     }
 
     func testAnUnsetSerialIsNotTreatedAsAnIdentifier() {

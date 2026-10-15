@@ -15,7 +15,10 @@ import TopologyCore
 enum AppAutomation {
     static func run(_ request: AutomationRequest, from surface: AutomationSurface,
                     model: AppModel) async -> AutomationResult {
-        await AutomationEngine(environment: AppAutomationEnvironment(model: model, surface: surface)).run(request)
+        AppDiagnostics.shared.record("command=\(request.command.name.rawValue) surface=\(surface.rawValue) started")
+        let result = await AutomationEngine(environment: AppAutomationEnvironment(model: model, surface: surface)).run(request)
+        AppDiagnostics.shared.record("command=\(request.command.name.rawValue) outcome=\(result.status.rawValue)")
+        return result
     }
 }
 

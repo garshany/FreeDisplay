@@ -1,4 +1,5 @@
 import Foundation
+import DisplayDomain
 
 /// Scrubs OpenDisplay's own settings before they go into a diagnostics bundle.
 ///
@@ -14,11 +15,11 @@ public enum DiagnosticsRedaction {
     static let listKeys: Set<String> = ["appPresets", "appPresetPriorStateByDisplay"]
 
     /// Redacted settings JSON, or nil when `data` isn't a JSON object (then nothing is included).
-    public static func redactedSettings(_ data: Data) -> Data? {
+    public static func redactedSettings(_ data: Data, privacy: DiagnosticPrivacy = .init()) -> Data? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
-        return try? JSONSerialization.data(withJSONObject: redact(object),
+        return try? JSONSerialization.data(withJSONObject: privacy.object(redact(object)),
                                            options: [.prettyPrinted, .sortedKeys])
     }
 

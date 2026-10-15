@@ -187,14 +187,20 @@ struct DisplayInformationReportSheet: View {
     @State private var report: InfoReport?
     @State private var loading = false
     @State private var status: String?
+    @State private var knownSerials: [String] = []
     /// SD-14's redaction choice: show, copy and export the report without serial numbers, UUIDs,
-    /// registry paths and EDID bytes. Off by default — the full report is what explains a problem.
-    @State private var hidingIdentifiers = false
+    /// registry paths and EDID bytes. Privacy copies are the default.
+    @State private var removeIdentifiers = true
 
-    /// The report as shown, copied and exported: full, or with identifiers hidden.
+    private var privacy: DiagnosticPrivacy {
+        DiagnosticPrivacy(removeSerials: removeIdentifiers, removeUUIDs: removeIdentifiers,
+                          removeRegistryPaths: removeIdentifiers, knownSerials: knownSerials)
+    }
+
+    /// One projection for the preview, clipboard and file export; credentials are always removed.
     private var shownReport: InfoReport? {
         guard let report else { return nil }
-        return hidingIdentifiers ? DisplayInformationReport.hidingIdentifiers(report, .app) : report
+        return privacy.redactedReport(report)
     }
 
     var body: some View {
@@ -206,8 +212,12 @@ struct DisplayInformationReportSheet: View {
             }
             Text("The report can include serial numbers, UUIDs and registry paths that identify your hardware. Review it before sharing.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Toggle("Hide serial numbers, UUIDs, registry paths and EDID bytes", isOn: $hidingIdentifiers)
+            Toggle("Hide serial numbers, UUIDs, registry paths and EDID bytes", isOn: $removeIdentifiers)
                 .font(.caption)
+            if removeIdentifiers {
+                Text("Reports omit EDID sections because raw data can encode serial numbers.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             ScrollView {
                 if let report = shownReport { reportBody(report) }
             }
@@ -228,7 +238,7 @@ struct DisplayInformationReportSheet: View {
                 .disabled(report == nil)
                 Button("Export…") {
                     guard let report = shownReport else { return }
-                    let name = DisplayInformationReport.suggestedFileName(displayName: displayName)
+                    let name = DisplayInformationReport.suggestedFileName(displayName: privacy.redact(displayName))
                     if let outcome = ReportExport.saveText(report.plainText(), suggestedName: name) { status = outcome }
                 }
                 .disabled(report == nil)
@@ -250,6 +260,12 @@ struct DisplayInformationReportSheet: View {
             let current = model.rememberedDisplays.first { $0.id == remembered.id } ?? remembered
             facts = await model.informationReportFacts(for: current)
         }
+        knownSerials = facts.serialNumber.map { [String($0)] } ?? []
+        if case .matched(let bytes) = facts.edid, let base = EDIDDecoder.decode(bytes).base {
+            knownSerials.append(String(base.serialNumber))
+            if let serial = base.serialText { knownSerials.append(serial) }
+        }
+        knownSerials.removeAll { $0 == "0" || $0 == "4294967295" }
         report = DisplayInformationReport.build(facts, .app)
         status = nil
     }

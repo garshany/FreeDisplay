@@ -44,7 +44,10 @@ enum OpenDisplayAutomation {
                     escalate: { CoreGraphicsProvider.restorePermanentConfiguration() })
             },
             save: { ledger in
-                do { try store?.save(ledger) } catch { log("could not update the turned-off list: \(error)") }
+                do { try store?.save(ledger) } catch {
+                    let message = "could not update the turned-off list: \(error)"
+                    Task { await log(message) }
+                }
             })
         let envelope = ResultEnvelope.reconnectAll(
             results: results, actor: actor, requestedAt: requestedAt,
@@ -88,16 +91,16 @@ enum OpenDisplayAutomation {
     @discardableResult
     static func handleURL(_ url: URL, model: AppModel) async -> URLCommand? {
         guard let parsed = URLCommandParser.parseRequest(url) else {
-            log("ignored malformed/unknown URL")
+            await log("ignored malformed/unknown URL")
             return nil
         }
         let legacy = URLCommandParser.parse(url)
         switch parsed {
         case .failure(let issue):
-            log("refused URL request: \(issue.code.rawValue)")
+            await log("refused URL request: \(issue.code.rawValue)")
         case .success(let request):
             let result = await AppAutomation.run(request, from: .url, model: model)
-            log("routed URL request: \(result.issue?.code.rawValue ?? result.status.rawValue)")
+            await log("routed URL request: \(result.issue?.code.rawValue ?? result.status.rawValue)")
             if result.issue?.code == .confirmationRequired, let legacy {
                 RunLoop.main.perform { MainActor.assumeIsolated { presentRefusal(of: legacy) } }
                 CFRunLoopWakeUp(CFRunLoopGetMain())
@@ -127,8 +130,8 @@ enum OpenDisplayAutomation {
         alert.runModal()
     }
 
-    private static func log(_ message: String) {
-        FileHandle.standardError.write(Data("FreeDisplay URL: \(message)\n".utf8))
+    private static func log(_ message: String) async {
+        await AppDiagnostics.shared.record("URL: \(message)")
     }
 }
 

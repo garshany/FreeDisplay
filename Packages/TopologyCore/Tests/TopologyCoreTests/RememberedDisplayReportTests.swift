@@ -30,7 +30,7 @@ final class RememberedDisplayReportTests: XCTestCase {
         XCTAssertTrue(report.plainText().contains("only saved information is shown"))
         XCTAssertTrue(report.plainText().contains("350 nits"))
         XCTAssertFalse(report.sections.contains { $0.title == "Current mode" })
-        let privateCopy = DisplayInformationReport.hidingIdentifiers(report).plainText()
+        let privateCopy = DiagnosticPrivacy().redactedReport(report).plainText()
         XCTAssertFalse(privateCopy.contains("new, old"))
         XCTAssertFalse(privateCopy.contains("789"))
     }

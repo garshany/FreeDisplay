@@ -1,4 +1,5 @@
 import XCTest
+import DisplayDomain
 @testable import TopologyCore
 
 final class DisplayEventLogTests: XCTestCase {
@@ -78,6 +79,27 @@ final class DiagnosticsRedactionTests: XCTestCase {
         let out = try redacted(#"{"osdEnabled":true,"displayGroups":[{"name":"Desk"}]}"#)
         XCTAssertEqual(out["osdEnabled"] as? Bool, true)
         XCTAssertEqual((out["displayGroups"] as? [[String: Any]])?.first?["name"] as? String, "Desk")
+    }
+
+    func testSettingsUseCallerPrivacyWhileAlwaysRemovingSensitivePreferences() throws {
+        let source = Data(#"{"serialNumber":123,"uuid":"12345678-ABCD-4321-ABCD-1234567890AB","registryPath":"IOService:/A","token":"private","adaptiveLatitude":51.5,"appPresets":[{}]}"#.utf8)
+        for remove in [false, true] {
+            let policy = DiagnosticPrivacy(removeSerials: remove, removeUUIDs: remove, removeRegistryPaths: remove)
+            let data = try XCTUnwrap(DiagnosticsRedaction.redactedSettings(source, privacy: policy))
+            let out = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertEqual(out["token"] as? String, "<redacted>")
+            XCTAssertEqual(out["adaptiveLatitude"] as? String, "<redacted>")
+            XCTAssertEqual(out["appPresets"] as? String, "<1 redacted>")
+            if remove {
+                XCTAssertEqual(out["serialNumber"] as? String, "<redacted>")
+                XCTAssertEqual(out["uuid"] as? String, "<redacted>")
+                XCTAssertEqual(out["registryPath"] as? String, "<redacted>")
+            } else {
+                XCTAssertEqual(out["serialNumber"] as? Int, 123)
+                XCTAssertEqual(out["uuid"] as? String, "12345678-ABCD-4321-ABCD-1234567890AB")
+                XCTAssertEqual(out["registryPath"] as? String, "IOService:/A")
+            }
+        }
     }
 
     func testSomethingThatIsNotASettingsObjectYieldsNothing() {

@@ -5436,6 +5436,7 @@ final class AppModel: ObservableObject {
     /// Adds one line to the display event timeline: what Core Graphics reports right now, and why
     /// we looked. Cheap (a handful of CG calls) and written off the main actor.
     func logDisplayEvent(_ reason: String) {
+        AppDiagnostics.shared.record("display event: \(reason)")
         let entry = DisplayEventLog.Entry(at: Date(), reason: reason, owed: managedOffline.map(\.name),
                                           displays: DisplayTruth.rows())
         Task.detached(priority: .utility) {
@@ -5454,13 +5455,15 @@ final class AppModel: ObservableObject {
         #else
         let flavor = "full"
         #endif
+        let privacy = AppDiagnostics.exportPrivacy
+        let diagnosticLog = AppDiagnostics.shared.buffer.records.map(\.line).joined(separator: "\n")
         let app = DiagnosticsBundle.AppInfo(
             version: info?["CFBundleShortVersionString"] as? String ?? "?",
             build: info?["CFBundleVersion"] as? String ?? "?", flavor: flavor)
         return await Task.detached(priority: .userInitiated) {
             let desktop = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
                 ?? FileManager.default.temporaryDirectory
-            return try? DiagnosticsBundle.export(to: desktop, app: app)
+            return try? DiagnosticsBundle.export(to: desktop, app: app, privacy: privacy, diagnosticLog: diagnosticLog)
         }.value
     }
 

@@ -1,7 +1,9 @@
 #if os(macOS)
+import AutomationSchema
 import ColorSync  // CGDisplayCreateUUIDFromDisplayID
 import CoreGraphics
 import Foundation
+import DisplayDomain
 import TopologyCore
 
 /// What Core Graphics says about every display right now — the rows a `DisplayEventLog` entry
@@ -58,7 +60,7 @@ public enum DiagnosticsBundle {
             + "it turned off, its display registry, and its settings (location and app presets removed)",
         "macOS's saved display configuration, now and as copied before recent disconnects",
         "What macOS reports about the displays, the graphics link, and Thunderbolt devices "
-            + "(model names and serial numbers of displays and docks)",
+            + "(hardware identifiers follow the export redaction options)",
         "The last 30 minutes of display-related system log lines"
     ]
 
@@ -71,7 +73,8 @@ public enum DiagnosticsBundle {
 
     /// Collects everything into a temporary folder, zips it into `directory`, and returns the zip.
     /// Blocking (it runs `ioreg`, `system_profiler`, and `log show`) — call it off the main actor.
-    public static func export(to directory: URL, app: AppInfo, now: Date = Date()) throws -> URL {
+    public static func export(to directory: URL, app: AppInfo, now: Date = Date(),
+                              privacy: DiagnosticPrivacy = .init(), diagnosticLog: String = "") throws -> URL {
         let manager = FileManager.default
         let name = defaultFileName(now: now)
         let staging = manager.temporaryDirectory
@@ -89,7 +92,7 @@ public enum DiagnosticsBundle {
                 copy(support.appendingPathComponent(file), into: root)
             }
             if let settings = try? Data(contentsOf: support.appendingPathComponent("settings.json")) {
-                write(DiagnosticsRedaction.redactedSettings(settings),
+                write(DiagnosticsRedaction.redactedSettings(settings, privacy: privacy),
                       to: root.appendingPathComponent("settings.redacted.json"))
             }
         }
@@ -108,6 +111,12 @@ public enum DiagnosticsBundle {
             write(run(tool, arguments), to: system.appendingPathComponent(file))
         }
         write(Data(readme(app: app, now: now).utf8), to: root.appendingPathComponent("README.txt"))
+
+        write(Data(diagnosticLog.utf8), to: root.appendingPathComponent("app-diagnostics.txt"))
+        let manifest = try DiagnosticExport.redactStagedDirectory(root, privacy: privacy)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(manifest).write(to: root.appendingPathComponent("redaction.json"), options: .atomic)
 
         try manager.createDirectory(at: directory, withIntermediateDirectories: true)
         let zip = directory.appendingPathComponent(name)
@@ -131,11 +140,12 @@ public enum DiagnosticsBundle {
         ("ioreg-displayport.txt", "/usr/sbin/ioreg", ["-lw0", "-r", "-c", "AppleDCPDPTXRemotePortProxy"]),
         ("ioreg-avservice.txt", "/usr/sbin/ioreg", ["-lw0", "-r", "-c", "DCPAVServiceProxy"]),
         ("display-log.txt", "/usr/bin/log",
-         ["show", "--last", "30m", "--style", "compact", "--predicate",
+         ["show", "--last", "30m", "--info", "--style", "compact", "--predicate",
           "(process == \"WindowServer\" AND eventMessage CONTAINS[c] \"display\" "
             + "AND NOT category == \"Brightness\") "
             + "OR (process == \"kernel\" AND (eventMessage CONTAINS \"DCP\" "
-            + "OR eventMessage CONTAINS[c] \"dptx\" OR eventMessage CONTAINS[c] \"dispext\"))"])
+            + "OR eventMessage CONTAINS[c] \"dptx\" OR eventMessage CONTAINS[c] \"dispext\")) "
+            + "OR subsystem == \"dev.opendisplay.diagnostics\""])
     ]
 
     private static func summary(app: AppInfo, now: Date) -> Data? {
@@ -160,7 +170,9 @@ public enum DiagnosticsBundle {
         What is inside:
         \(contents.map { "  - \($0)" }.joined(separator: "\n"))
 
-        It does not contain window titles, file names, screen contents, or your location.
+        Credentials and sensitive settings are removed. Hardware identifier removal follows your
+        export options. Unreadable or unsupported binary artifacts are omitted (see redaction.json).
+        Redaction is not anonymization: review names, paths and free text before sharing.
         """
     }
 
