@@ -377,11 +377,11 @@ final class RememberedDisplayCleanupTests: XCTestCase {
         XCTAssertNil(rediscovered.alias)
     }
 
-    func testRegistryClearUserDataKeepsIdentityAndRouting() async {
+    func testRegistryClearUserDataKeepsIdentityAndRouting() async throws {
         let registry = await DisplayRegistry(store: InMemoryRegistryStore())
         let fingerprint = DisplayFingerprint(vendorID: 1, productID: 2, serialNumber: "S1")
         let record = await registry.resolve(fingerprint: fingerprint, cgUUID: "U1")
-        await registry.setAlias("Desk", for: record.id)
+        try await registry.setAlias("Desk", for: record.id)
         await registry.addTag("studio", to: record.id)
         await registry.confirmPairing(for: record.id)
 

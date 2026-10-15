@@ -45,10 +45,10 @@ final class DisplayRegistryTests: XCTestCase {
         XCTAssertEqual(count, 2)
     }
 
-    func testAliasAndTagPersistAcrossResolve() async {
+    func testAliasAndTagPersistAcrossResolve() async throws {
         let registry = await DisplayRegistry(store: InMemoryRegistryStore())
         let record = await registry.resolve(fingerprint: fingerprint(serial: "S1"), cgUUID: "U1")
-        await registry.setAlias("Desk Left", for: record.id)
+        try await registry.setAlias("Desk Left", for: record.id)
         await registry.addTag("studio", to: record.id)
         // Re-resolving the same display keeps the user-attached alias/tags.
         let again = await registry.resolve(fingerprint: fingerprint(serial: "S1"), cgUUID: "U1")
@@ -58,10 +58,10 @@ final class DisplayRegistryTests: XCTestCase {
 
     /// What a membership list needs: every remembered display keyed by the id an observation would
     /// carry, so a monitor that is currently unplugged can still be offered and named.
-    func testRemembersDisplaysByTheirObservationID() async {
+    func testRemembersDisplaysByTheirObservationID() async throws {
         let registry = await DisplayRegistry(store: InMemoryRegistryStore())
         let desk = await registry.resolve(fingerprint: fingerprint(serial: "S1", model: "U2720Q"), cgUUID: "U1")
-        await registry.setAlias("Desk", for: desk.id)
+        try await registry.setAlias("Desk", for: desk.id)
         _ = await registry.resolve(fingerprint: fingerprint(serial: "S2", model: "S34J55x"), cgUUID: "U2")
 
         let byObservationID = await registry.recordsByObservationID()
@@ -87,7 +87,7 @@ final class DisplayRegistryTests: XCTestCase {
 
         let first = await DisplayRegistry(store: DiskRegistryStore(directory: directory))
         let record = await first.resolve(fingerprint: fingerprint(serial: "S1", model: "S34J55x"), cgUUID: "U1")
-        await first.setAlias("Ultrawide", for: record.id)
+        try await first.setAlias("Ultrawide", for: record.id)
 
         // A fresh registry over the same directory loads the persisted record + alias.
         let second = await DisplayRegistry(store: DiskRegistryStore(directory: directory))

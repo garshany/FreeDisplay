@@ -15,10 +15,10 @@ final class DisplayRegistryAmbiguityTests: XCTestCase {
         (fingerprint, cgUUID, .external)
     }
 
-    func testTwoVendorsSharingASerialGetTwoRecords() async {
+    func testTwoVendorsSharingASerialGetTwoRecords() async throws {
         let registry = await DisplayRegistry(store: InMemoryRegistryStore())
         let dell = await registry.resolve(fingerprint: fingerprint(vendor: 0x10AC, serial: "1"), cgUUID: "U1")
-        await registry.setAlias("Dell", for: dell.id)
+        try await registry.setAlias("Dell", for: dell.id)
         let samsung = await registry.resolve(fingerprint: fingerprint(vendor: 0x4C2D, serial: "1"), cgUUID: "U2")
         XCTAssertNotEqual(dell.id, samsung.id)
         XCTAssertNil(samsung.alias, "the other vendor's display must not inherit the alias")
@@ -73,11 +73,11 @@ final class DisplayRegistryAmbiguityTests: XCTestCase {
 
     /// Naming one provisional display resolves it: it becomes its own record, and the other display
     /// keeps the old record — and its alias — from then on.
-    func testNamingAProvisionalDisplaySplitsItOff() async {
+    func testNamingAProvisionalDisplaySplitsItOff() async throws {
         let (registry, shared) = await conflatedRegistry()
         let same = fingerprint(serial: "16843009")
         let provisional = await registry.resolveAll([input(same, "U1"), input(same, "U2")])
-        await registry.setAlias("Right", for: provisional[0].id)
+        try await registry.setAlias("Right", for: provisional[0].id)
 
         let after = await registry.resolveAll([input(same, "U1"), input(same, "U2")])
         XCTAssertEqual(after[0].alias, "Right")
@@ -89,11 +89,11 @@ final class DisplayRegistryAmbiguityTests: XCTestCase {
 
     /// A record claimed through this Mac's CG UUID index outranks a claim on the serial alone — and
     /// the outranked display, known not to be that record, becomes a display of its own.
-    func testTheStrongerClaimKeepsTheRecord() async {
+    func testTheStrongerClaimKeepsTheRecord() async throws {
         let registry = await DisplayRegistry(store: InMemoryRegistryStore())
         let same = fingerprint(serial: "S1")
         let known = await registry.resolve(fingerprint: same, cgUUID: "U1")
-        await registry.setAlias("Desk", for: known.id)
+        try await registry.setAlias("Desk", for: known.id)
         let resolved = await registry.resolveAll([input(same, "U9"), input(same, "U1")])
         XCTAssertEqual(resolved[1].id, known.id)
         XCTAssertEqual(resolved[1].alias, "Desk")
@@ -106,10 +106,10 @@ final class DisplayRegistryAmbiguityTests: XCTestCase {
 
     /// The CG UUID index is a routing hint: a record whose serial says it is another display is not
     /// followed (and not overwritten with this display's identity).
-    func testACGUUIDPointingAtAContradictingRecordIsNotFollowed() async {
+    func testACGUUIDPointingAtAContradictingRecordIsNotFollowed() async throws {
         let registry = await DisplayRegistry(store: InMemoryRegistryStore())
         let original = await registry.resolve(fingerprint: fingerprint(serial: "A"), cgUUID: "U1")
-        await registry.setAlias("Original", for: original.id)
+        try await registry.setAlias("Original", for: original.id)
         let other = await registry.resolve(fingerprint: fingerprint(serial: "B"), cgUUID: "U1")
         XCTAssertNotEqual(other.id, original.id)
         XCTAssertNil(other.alias)
@@ -122,11 +122,11 @@ final class DisplayRegistryAmbiguityTests: XCTestCase {
     /// it is another unit — pairing plus model alone clear the recognition threshold. Checked both
     /// under the CG UUID the record is indexed by (where the index lookup already refuses it) and
     /// under a UUID this Mac never saw.
-    func testAPairedRecordIsNotScoredOntoTheSameModelWithAnotherSerial() async {
+    func testAPairedRecordIsNotScoredOntoTheSameModelWithAnotherSerial() async throws {
         for cgUUID in ["U1", "U2"] {
             let registry = await DisplayRegistry(store: InMemoryRegistryStore())
             let original = await registry.resolve(fingerprint: fingerprint(serial: "A"), cgUUID: "U1")
-            await registry.setAlias("Left", for: original.id)
+            try await registry.setAlias("Left", for: original.id)
             await registry.addTag("desk", to: original.id)
             await registry.confirmPairing(for: original.id)
 
@@ -143,10 +143,10 @@ final class DisplayRegistryAmbiguityTests: XCTestCase {
 
     /// The exclusion is for evidence that contradicts, not for evidence that is missing: the paired
     /// display reporting no serial this time is still recognized by pairing plus model.
-    func testAPairedRecordStillServesItsDisplayWhenTheSerialGoesMissing() async {
+    func testAPairedRecordStillServesItsDisplayWhenTheSerialGoesMissing() async throws {
         let registry = await DisplayRegistry(store: InMemoryRegistryStore())
         let original = await registry.resolve(fingerprint: fingerprint(serial: "A"), cgUUID: "U1")
-        await registry.setAlias("Left", for: original.id)
+        try await registry.setAlias("Left", for: original.id)
         await registry.confirmPairing(for: original.id)
         let again = await registry.resolve(fingerprint: fingerprint(serial: nil), cgUUID: "U2")
         XCTAssertEqual(again.id, original.id)
@@ -156,11 +156,11 @@ final class DisplayRegistryAmbiguityTests: XCTestCase {
 
     /// A third unit with the shared serial and an unknown CG UUID, once records were split: there is
     /// nothing to choose between them, so it gets none of their settings.
-    func testSeveralRecordsSharingTheSerialAndNoIndexIsAmbiguous() async {
+    func testSeveralRecordsSharingTheSerialAndNoIndexIsAmbiguous() async throws {
         let (registry, shared) = await conflatedRegistry()
         let same = fingerprint(serial: "16843009")
         let provisional = await registry.resolveAll([input(same, "U1"), input(same, "U2")])
-        await registry.setAlias("Right", for: provisional[0].id)
+        try await registry.setAlias("Right", for: provisional[0].id)
         let third = await registry.resolveAll([input(same, "U3")])
         XCTAssertTrue(third[0].isProvisional)
         XCTAssertEqual(third[0].unresolvedCandidates?.count, 2)

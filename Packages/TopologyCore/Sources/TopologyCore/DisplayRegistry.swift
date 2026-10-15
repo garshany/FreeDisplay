@@ -100,6 +100,26 @@ public actor DisplayRegistry {
         fileprivate let id = UUID()
     }
 
+    /// Transaction rollback needs the live answers too: a queued edit may still address one of
+    /// these provisional IDs. They must never enter the persisted registry or settings archive.
+    public struct MutationSnapshot: Sendable {
+        public let persistentState: RegistryState
+        fileprivate let provisional: [DisplayRecordID: (record: DisplayRecord, cgUUID: String?)]
+        fileprivate let lease: MutationLease
+    }
+
+    public func mutationSnapshot(lease: MutationLease) -> MutationSnapshot {
+        precondition(mutationOwner == lease)
+        return MutationSnapshot(persistentState: state, provisional: provisional, lease: lease)
+    }
+
+    public func restoreMutationSnapshot(_ snapshot: MutationSnapshot, lease: MutationLease) async throws {
+        precondition(mutationOwner == lease && snapshot.lease == lease)
+        state = snapshot.persistentState
+        provisional = snapshot.provisional
+        try await store.save(state)
+    }
+
     private var mutationOwner: MutationLease?
     private var mutationWaiters: [CheckedContinuation<MutationLease, Never>] = []
     var pendingMutationCount: Int { mutationWaiters.count }
@@ -337,8 +357,8 @@ public actor DisplayRegistry {
         explain(fingerprint, cgUUID: cgUUID, excluding: [])
     }
 
-    public func setAlias(_ alias: String?, for id: DisplayRecordID) async {
-        try? await mutate(id) { $0.alias = alias?.isEmpty == true ? nil : alias }
+    public func setAlias(_ alias: String?, for id: DisplayRecordID) async throws {
+        try await mutate(id) { $0.alias = alias?.isEmpty == true ? nil : alias }
     }
 
     public func addTag(_ tag: String, to id: DisplayRecordID) async {
@@ -503,11 +523,18 @@ public actor DisplayRegistry {
                         _ change: (inout DisplayRecord) -> Void) async throws {
         let acquired = await acquireMutation(unlessOwnedBy: lease)
         defer { if let acquired { endMutationLease(acquired) } }
+        let previous = state
+        let previousProvisional = provisional
         guard let index = state.records.firstIndex(where: { $0.id == id }) ?? materializeLocked(id) else {
             throw RegistryError.unknownRecord
         }
         change(&state.records[index])
-        await persist()
+        do { try await store.save(state) }
+        catch {
+            state = previous
+            provisional = previousProvisional
+            throw error
+        }
     }
 
     /// Turns a provisional record into a remembered display of its own, at the moment the user

@@ -1940,8 +1940,12 @@ final class AppModel: ObservableObject {
     /// Sets the user alias for a display and re-resolves so the change shows immediately.
     func setAlias(_ alias: String, for observation: DisplayObservation) async {
         guard let registry, let record = records[observation.recordID] else { return }
-        await registry.setAlias(alias, for: record.id)
-        await refresh()
+        do {
+            try await registry.setAlias(alias, for: record.id)
+            await refresh()
+        } catch {
+            statusText = String(localized: "Couldn’t rename the display: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Remembered displays (SD-09, FB-13)
@@ -2264,7 +2268,8 @@ final class AppModel: ObservableObject {
         let checkedSettings = settings, checkedFavorites = favorites, checkedLayout = menuLayout
         let checkedLedger = managedOffline
         let registryLease = await registry.beginMutationLease()
-        let previousRegistry = await registry.currentState()
+        let registrySnapshot = await registry.mutationSnapshot(lease: registryLease)
+        let previousRegistry = registrySnapshot.persistentState
         guard settings == checkedSettings, favorites == checkedFavorites, menuLayout == checkedLayout,
               managedOffline == checkedLedger else {
             await registry.endMutationLease(registryLease)
@@ -2331,7 +2336,7 @@ final class AppModel: ObservableObject {
                     case .favorites: try favoritesStore.save(favorites)
                     case .menuLayout: try menuLayoutStore.save(menuLayout)
                     case .managedOffline: try managedOfflineStore.save(managedOffline)
-                    case .registry: try await registry.replaceState(previous.registry, lease: registryLease)
+                    case .registry: try await registry.restoreMutationSnapshot(registrySnapshot, lease: registryLease)
                     }
                 })
         } catch let failure as DisplaySettingsTransaction.Failure {
@@ -2601,8 +2606,12 @@ final class AppModel: ObservableObject {
         if let live = displays.first(where: { entry.observationIDs.contains($0.recordID) }) {
             await setAlias(alias, for: live)
         } else if entry.isRegistered, let record = entry.record {
-            await registry.setAlias(alias, for: record.id)
-            await refreshRegistryKnownRecords()
+            do {
+                try await registry.setAlias(alias, for: record.id)
+                await refreshRegistryKnownRecords()
+            } catch {
+                statusText = String(localized: "Couldn’t rename the display: \(error.localizedDescription)")
+            }
         }
     }
 

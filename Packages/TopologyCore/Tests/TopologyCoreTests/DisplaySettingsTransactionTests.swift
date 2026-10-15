@@ -181,6 +181,45 @@ private actor RejectingTransferRegistryStore: RegistryStoring {
 }
 
 extension DisplaySettingsTransactionTests {
+    func testRenameReportsUnknownRecord() async {
+        let registry = await DisplayRegistry(store: InMemoryRegistryStore())
+        do {
+            try await registry.setAlias("Lost rename", for: .init(rawValue: "missing"))
+            XCTFail("an unknown rename target must report failure")
+        } catch { }
+    }
+
+    func testRenameWriteFailureRestoresPersistentAndProvisionalRecords() async throws {
+        for provisional in [false, true] {
+            let remembered = DisplayRecord(id: .init(rawValue: "disp_A"), alias: "Original",
+                fingerprint: .init(), displayClass: .external, lastSeen: Date())
+            let original = RegistryState(records: [remembered], cgUUIDIndex: ["A": remembered.id])
+            let store = RejectingTransferRegistryStore(original)
+            let registry = await DisplayRegistry(store: store)
+            let target: DisplayRecord
+            if provisional {
+                target = await registry.resolveAllExplained([
+                    (.init(vendorID: 99, productID: 99), "PROVISIONAL", .external)
+                ], newRecordStrategy: .qualifiedSerial)[0].record
+                XCTAssertTrue(target.isProvisional)
+            } else {
+                target = remembered
+            }
+            do {
+                try await registry.setAlias("Unsaved", for: target.id)
+                XCTFail("a rejected save must report failure")
+            } catch {
+                XCTAssertEqual((error as? CocoaError)?.code, .fileWriteOutOfSpace)
+            }
+            let current = await registry.currentState()
+            let after = await registry.record(for: target.id)
+            let saved = await store.load()
+            XCTAssertEqual(current, original, "a failed rename cannot publish a materialized record or UUID binding")
+            XCTAssertEqual(saved, original)
+            XCTAssertEqual(after, target, "the prior provisional ID must remain available after a failed rename")
+        }
+    }
+
     func testRegistryWriteFailurePreservesSourceRecordAndUUIDIndex() async {
         let a = DisplayRecord(id: .init(rawValue: "disp_A"), alias: "A", fingerprint: .init(),
                               displayClass: .external, lastSeen: Date())
@@ -202,6 +241,7 @@ private actor PausingTransferRegistryStore: RegistryStoring {
     private var state: RegistryState
     private var paused = false
     private var didPause = false
+    private var pauseEnabled = false
     private var pauseObservers: [CheckedContinuation<Void, Never>] = []
     private var resumeSave: CheckedContinuation<Void, Never>?
     private let failPausedSave: Bool
@@ -212,7 +252,7 @@ private actor PausingTransferRegistryStore: RegistryStoring {
     }
     func load() -> RegistryState { state }
     func save(_ state: RegistryState) async throws {
-        if !didPause {
+        if pauseEnabled && !didPause {
             didPause = true
             await withCheckedContinuation { continuation in
                 resumeSave = continuation
@@ -228,6 +268,7 @@ private actor PausingTransferRegistryStore: RegistryStoring {
         if paused { return }
         await withCheckedContinuation { pauseObservers.append($0) }
     }
+    func pauseNextSave() { pauseEnabled = true }
     func resume() {
         resumeSave?.resume()
         resumeSave = nil
@@ -237,7 +278,7 @@ private actor PausingTransferRegistryStore: RegistryStoring {
 extension DisplaySettingsTransactionTests {
     @MainActor
     func testTransferRollbackSerializesConcurrentRenameAndPreservesOrdinarySettingEdit() async throws {
-        for storageFailure in [false, true] {
+        for (provisionalC, storageFailure) in [(false, false), (false, true), (true, false), (true, true)] {
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             defer { try? FileManager.default.removeItem(at: directory) }
             let a = DisplayRecord(id: .init(rawValue: "disp_A"), alias: "A", fingerprint: .init(),
@@ -246,15 +287,28 @@ extension DisplaySettingsTransactionTests {
                                   displayClass: .external, lastSeen: Date())
             let c = DisplayRecord(id: .init(rawValue: "disp_C"), alias: "C", fingerprint: .init(),
                                   displayClass: .external, lastSeen: Date())
-            let original = RegistryState(records: [a, b, c], cgUUIDIndex: ["A": a.id, "B": b.id, "C": c.id])
+            let original = RegistryState(records: provisionalC ? [a, b] : [a, b, c],
+                cgUUIDIndex: provisionalC ? ["A": a.id, "B": b.id] : ["A": a.id, "B": b.id, "C": c.id])
             let store = PausingTransferRegistryStore(original, failPausedSave: storageFailure)
             let registry = await DisplayRegistry(store: store)
+            let renameID: DisplayRecordID
+            if provisionalC {
+                let resolved = await registry.resolveAllExplained([
+                    (.init(vendorID: 99, productID: 99), "PROVISIONAL_C", .external)
+                ], newRecordStrategy: .qualifiedSerial)
+                XCTAssertTrue(resolved[0].record.isProvisional)
+                renameID = resolved[0].record.id
+            } else {
+                renameID = c.id
+            }
+            await store.pauseNextSave()
             let lease = await registry.beginMutationLease()
+            let registrySnapshot = await registry.mutationSnapshot(lease: lease)
             let snapshot = DisplaySettingsRecoverySnapshot(settings: .default, favorites: .init(),
-                menuLayout: .default, managedOffline: [], registry: await registry.currentState())
+                menuLayout: .default, managedOffline: [], registry: registrySnapshot.persistentState)
             var memory = snapshot
             var disk = snapshot
-            var rename: Task<Void, Never>?
+            var rename: Task<Void, Error>?
             var renamed = false
             var published = false
             do {
@@ -271,7 +325,7 @@ extension DisplaySettingsTransactionTests {
                             }
                             await store.waitUntilPaused()
                             rename = Task {
-                                await registry.setAlias("C renamed", for: c.id)
+                                try await registry.setAlias("C renamed", for: renameID)
                                 renamed = true
                             }
                             // Observe either actual admission to the queue or the pre-fix edit
@@ -287,7 +341,7 @@ extension DisplaySettingsTransactionTests {
                             persist: { XCTFail("conflict must precede final saves") }, publish: { published = true })
                     }, restore: { step in
                         switch step {
-                        case .registry: try await registry.replaceState(snapshot.registry, lease: lease)
+                        case .registry: try await registry.restoreMutationSnapshot(registrySnapshot, lease: lease)
                         case .settings: disk.settings = memory.settings
                         case .favorites: disk.favorites = memory.favorites
                         case .menuLayout: disk.menuLayout = memory.menuLayout
@@ -299,14 +353,30 @@ extension DisplaySettingsTransactionTests {
                 XCTAssertTrue(failure.restored)
                 if !storageFailure { XCTAssertTrue(failure.underlying is DisplaySettingsTransaction.StateChanged) }
             }
+            XCTAssertFalse(renamed, "rollback must finish before the queued rename runs")
+            if provisionalC {
+                let pending = await registry.record(for: renameID)
+                XCTAssertTrue(pending?.isProvisional == true, "restore live answers before releasing the lease")
+            }
             await registry.endMutationLease(lease)
-            await rename?.value
+            try await rename?.value
             XCTAssertFalse(published)
             XCTAssertEqual(disk.settings, memory.settings)
             XCTAssertNotEqual(memory.settings, snapshot.settings)
             var expected = original
-            expected.records[2].alias = "C renamed"
             let current = await registry.currentState()
+            if provisionalC {
+                guard let materialized = current.records.first(where: { $0.alias == "C renamed" }) else {
+                    XCTFail("rollback lost the queued provisional rename (storage failure: \(storageFailure))")
+                    continue
+                }
+                XCTAssertFalse(materialized.isProvisional)
+                XCTAssertNotEqual(materialized.id, renameID)
+                expected.records.append(materialized)
+                expected.cgUUIDIndex["PROVISIONAL_C"] = materialized.id
+            } else {
+                expected.records[2].alias = "C renamed"
+            }
             let saved = await store.load()
             XCTAssertEqual(current, expected, "rollback restores A/B while the unrelated rename survives")
             XCTAssertEqual(saved, expected)
@@ -314,12 +384,13 @@ extension DisplaySettingsTransactionTests {
     }
 
     @MainActor
-    func testTransferLeaseWaitsForRegistryWriterAlreadyPersisting() async {
+    func testTransferLeaseWaitsForRegistryWriterAlreadyPersisting() async throws {
         let c = DisplayRecord(id: .init(rawValue: "disp_C"), alias: "C", fingerprint: .init(),
                               displayClass: .external, lastSeen: Date())
         let store = PausingTransferRegistryStore(.init(records: [c]), failPausedSave: false)
         let registry = await DisplayRegistry(store: store)
-        let rename = Task { await registry.setAlias("C renamed", for: c.id) }
+        await store.pauseNextSave()
+        let rename = Task { try await registry.setAlias("C renamed", for: c.id) }
         await store.waitUntilPaused()
         var acquired = false
         let transfer = Task {
@@ -332,7 +403,7 @@ extension DisplaySettingsTransactionTests {
         while await registry.pendingMutationCount == 0 && !acquired { await Task.yield() }
         XCTAssertFalse(acquired, "a transfer snapshot cannot precede an in-flight registry writer")
         await store.resume()
-        await rename.value
+        try await rename.value
         let snapshot = await transfer.value
         XCTAssertEqual(snapshot.records.first?.alias, "C renamed")
         let saved = await store.load()

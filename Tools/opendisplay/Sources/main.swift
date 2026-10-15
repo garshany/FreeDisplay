@@ -611,7 +611,8 @@ func runAlias() async {
     guard let selectorArg, let valueArg else { fail("usage: opendisplay alias <selector> <name>") }
     let pairs = await resolveCurrentDisplays()
     let target = uniqueDisplay(selectorArg, in: pairs, managedOffline: managedOfflineIDs)
-    await registry.setAlias(valueArg, for: target.record.id)
+    do { try await registry.setAlias(valueArg, for: target.record.id) }
+    catch { fail(error.localizedDescription) }
     print("aliased \(target.observation.recordID.rawValue) → \"\(valueArg)\"")
 }
 
