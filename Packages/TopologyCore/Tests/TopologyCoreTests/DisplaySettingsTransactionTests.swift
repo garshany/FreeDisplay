@@ -6,6 +6,111 @@ final class DisplaySettingsTransactionTests: XCTestCase {
     private enum Fault: Error { case injected }
 
     @MainActor
+    func testConcurrentSettingAndGroupOffsetEditsAbortTransferWithoutLosingMemoryOrDisk() async throws {
+        for groupOffset in [false, true] {
+            for registryFails in [false, true] {
+                let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                defer { try? FileManager.default.removeItem(at: directory) }
+                let source = DisplayRecord(id: .init(rawValue: "disp_source"), fingerprint: .init(),
+                    displayClass: .external, lastSeen: Date())
+                var startingSettings = OpenDisplaySettings.default
+                startingSettings.displayGroups = [.init(name: "Desk", memberRecordIDs: [.forCGUUID("OTHER")])]
+                let original = DisplaySettingsRecoverySnapshot(settings: startingSettings, favorites: .init(),
+                    menuLayout: .default, managedOffline: [], registry: .init(records: [source]))
+                var memory = original
+                var disk = original
+                var updated = original
+                updated.settings.keyboardAudioByDisplay["cg:DEST"] = .init(nativeAudioDevice: "USB")
+                updated.registry.records = []
+                var published = false
+                do {
+                    try await DisplaySettingsTransaction.run(snapshot: original,
+                        recoveryURL: directory.appendingPathComponent("recovery.json"), write: { step in
+                            if step == .settings { disk.settings = updated.settings }
+                            if step == .registry {
+                                disk.registry = updated.registry
+                                // A different main-actor writer runs while registry persistence yields.
+                                await Task { @MainActor in
+                                    if groupOffset {
+                                        memory.settings.displayGroups[0].offsetByMember["cg:OTHER"] = 0.25
+                                    } else {
+                                        memory.settings.mediaKeyInterceptionEnabled.toggle()
+                                    }
+                                    disk.settings = memory.settings
+                                }.value
+                                if registryFails { throw Fault.injected }
+                            }
+                        }, commit: {
+                            try DisplaySettingsTransaction.commitIfUnchanged(expected: original, current: memory,
+                                persist: { disk = updated }, publish: { memory = updated; published = true })
+                        }, restore: { step in
+                            switch step {
+                            case .settings: disk.settings = memory.settings
+                            case .favorites: disk.favorites = memory.favorites
+                            case .menuLayout: disk.menuLayout = memory.menuLayout
+                            case .managedOffline: disk.managedOffline = memory.managedOffline
+                            case .registry: disk.registry = original.registry
+                            }
+                        })
+                    XCTFail("a concurrent edit or registry error must abort")
+                } catch let failure as DisplaySettingsTransaction.Failure {
+                    XCTAssertTrue(failure.restored)
+                    if !registryFails { XCTAssertTrue(failure.underlying is DisplaySettingsTransaction.StateChanged) }
+                }
+                XCTAssertFalse(published)
+                XCTAssertNotEqual(memory.settings, original.settings)
+                XCTAssertEqual(disk, memory)
+                XCTAssertEqual(disk.registry.records, [source])
+                XCTAssertNil(memory.settings.keyboardAudioByDisplay["cg:DEST"])
+            }
+        }
+    }
+
+    @MainActor
+    func testUnchangedStateSaveDuringRegistryIOCannotUndoSuccessfulTransferOnDisk() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let original = DisplaySettingsRecoverySnapshot(settings: .default, favorites: .init(),
+            menuLayout: .default, managedOffline: [], registry: .init())
+        var memory = original
+        var disk = original
+        var updated = original
+        updated.settings.keyboardAudioByDisplay["cg:DEST"] = .init(nativeAudioDevice: "USB")
+        try await DisplaySettingsTransaction.run(snapshot: original,
+            recoveryURL: directory.appendingPathComponent("recovery.json"), write: { step in
+                if step == .settings { disk.settings = updated.settings }
+                if step == .registry {
+                    await Task { @MainActor in disk.settings = memory.settings }.value
+                }
+            }, commit: {
+                try DisplaySettingsTransaction.commitIfUnchanged(expected: original, current: memory,
+                    persist: { disk = updated }, publish: { memory = updated })
+            }, restore: { _ in XCTFail("successful transfer must not roll back") })
+        XCTAssertEqual(memory, updated)
+        XCTAssertEqual(disk, updated)
+    }
+
+    @MainActor
+    func testFinalPersistenceFailureRestoresEveryStoreBeforeAnyPublication() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let original = DisplaySettingsRecoverySnapshot(settings: .default, favorites: .init(),
+            menuLayout: .default, managedOffline: [], registry: .init())
+        var published = false
+        var restored: [DisplaySettingsTransaction.Step] = []
+        do {
+            try await DisplaySettingsTransaction.run(snapshot: original,
+                recoveryURL: directory.appendingPathComponent("recovery.json"), write: { _ in }, commit: {
+                    try DisplaySettingsTransaction.commitIfUnchanged(expected: original, current: original,
+                        persist: { throw Fault.injected }, publish: { published = true })
+                }, restore: { restored.append($0) })
+            XCTFail("final persistence failure must not commit")
+        } catch let failure as DisplaySettingsTransaction.Failure { XCTAssertTrue(failure.restored) }
+        XCTAssertFalse(published)
+        XCTAssertEqual(restored, DisplaySettingsTransaction.Step.allCases.reversed())
+    }
+
+    @MainActor
     func testEveryPersistenceFailureRollsBackAndNeverCommitsSourceRemovalEarly() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

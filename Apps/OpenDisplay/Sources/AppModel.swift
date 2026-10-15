@@ -2272,6 +2272,7 @@ final class AppModel: ObservableObject {
             kind: current.kind == .transfer ? .transferredFrom : .migratedFrom, date: Date(),
             sourceName: sourceName, sourceRecordID: current.sourceRecordID,
             sourceObservationIDs: current.sourceIDs, categories: chosen.map(\.rawValue).sorted())
+        let clockChanged = updatedSettings.clockMode != settings.clockMode
         do {
             let recoveryURL = try SettingsBackupStore.defaultDirectory()
                 .appendingPathComponent("display-transfer-\(UUID().uuidString).json")
@@ -2299,25 +2300,37 @@ final class AppModel: ObservableObject {
                             try await registry.appendProvenancePersisting(provenance, to: destination)
                         }
                     }
+                }, commit: {
+                    let latest = DisplaySettingsRecoverySnapshot(settings: settings, favorites: favorites,
+                        menuLayout: menuLayout, managedOffline: managedOffline, registry: previousRegistry)
+                    try DisplaySettingsTransaction.commitIfUnchanged(expected: previous, current: latest,
+                        persist: {
+                            try settingsStore.save(updatedSettings)
+                            try favoritesStore.save(updatedFavorites)
+                            try menuLayoutStore.save(updatedLayout)
+                            try managedOfflineStore.save(updatedLedger)
+                        }, publish: {
+                            settings = updatedSettings
+                            favorites = updatedFavorites
+                            menuLayout = updatedLayout
+                            managedOffline = updatedLedger
+                        })
                 }, restore: { step in
+                    // Memory was never staged: preserve any edit made while registry I/O yielded.
                     switch step {
-                    case .settings: try settingsStore.save(previous.settings)
-                    case .favorites: try favoritesStore.save(previous.favorites)
-                    case .menuLayout: try menuLayoutStore.save(previous.menuLayout)
-                    case .managedOffline: try managedOfflineStore.save(previous.managedOffline)
+                    case .settings: try settingsStore.save(settings)
+                    case .favorites: try favoritesStore.save(favorites)
+                    case .menuLayout: try menuLayoutStore.save(menuLayout)
+                    case .managedOffline: try managedOfflineStore.save(managedOffline)
                     case .registry: try await registry.replaceState(previous.registry)
                     }
                 })
         } catch let failure as DisplaySettingsTransaction.Failure {
+            if failure.restored, failure.underlying is DisplaySettingsTransaction.StateChanged { return .stateChanged }
             return .persistenceFailed(recoveryPath: failure.recoveryURL.path, restored: failure.restored)
         } catch {
             return .persistenceFailed(recoveryPath: nil, restored: true)
         }
-        let clockChanged = updatedSettings.clockMode != settings.clockMode
-        settings = updatedSettings
-        favorites = updatedFavorites
-        menuLayout = updatedLayout
-        managedOffline = updatedLedger
         groupSyncStates.removeAll()
         if clockChanged {
             for id in current.sourceIDs {
