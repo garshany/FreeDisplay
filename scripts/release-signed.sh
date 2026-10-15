@@ -161,7 +161,7 @@ done
 
 # --- 3. Package -----------------------------------------------------------------------------------
 mkdir -p "$DIST"
-ZIP="$DIST/OpenDisplay.zip"
+ZIP="$DIST/FreeDisplay.zip"
 rm -f "$ZIP" "$ZIP.sha256" "$DIST/appcast.xml"
 /usr/bin/ditto -c -k --keepParent "$APP" "$ZIP"
 echo "Packaged: $ZIP"
@@ -243,7 +243,7 @@ fi
 
 # --- 6. Publish -----------------------------------------------------------------------------------
 # Opt-in: uploads to an existing release rather than creating one, so cutting the release stays a
-# deliberate act. Both assets go up together — an OpenDisplay.zip without its appcast.xml is a
+# deliberate act. Both assets go up together — an FreeDisplay.zip without its appcast.xml is a
 # release nobody's app can see.
 if [ "$PUBLISH" = "1" ]; then
   command -v gh >/dev/null 2>&1 || { echo "error: PUBLISH=1 needs the gh CLI." >&2; exit 1; }

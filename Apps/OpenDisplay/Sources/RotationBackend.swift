@@ -93,7 +93,7 @@ struct ExperimentalRotationBackend: RotationBackend {
         if let macOS = Bundle.main.executableURL?.deletingLastPathComponent() {
             candidates.append(macOS.deletingLastPathComponent().appendingPathComponent("Helpers/opendisplay"))
         }
-        // Dev: the CLI is a sibling of OpenDisplay.app in the build-products directory.
+        // Dev: the CLI is a sibling of FreeDisplay.app in the build-products directory.
         candidates.append(Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("opendisplay"))
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }

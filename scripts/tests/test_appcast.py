@@ -22,13 +22,13 @@ class AppcastTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name)
-        self.archive = self.directory / "OpenDisplay.zip"
+        self.archive = self.directory / "FreeDisplay.zip"
         self.feed = self.directory / "appcast.xml"
         self.key = base64.b64encode(bytes(range(32))).decode()
         self.info = {
             "SUPublicEDKey": self.key, "SUFeedURL": appcast.FEED,
             "CFBundleVersion": "25", "CFBundleShortVersionString": "0.12.0",
-            "CFBundleIdentifier": "dev.opendisplay.app", "LSMinimumSystemVersion": "14.0",
+            "CFBundleIdentifier": "io.github.garshany.FreeDisplay", "LSMinimumSystemVersion": "14.0",
             "OpenDisplayLocalBuild": True,
         }
         self.write_archive()
@@ -38,13 +38,13 @@ class AppcastTests(unittest.TestCase):
             ET.SubElement(self.item, appcast.SPARKLE + key).text = value
         self.signature = base64.b64encode(bytes(range(64))).decode()
         self.enclosure = ET.SubElement(self.item, "enclosure", {
-            "url": appcast.PROJECT + "/releases/download/v0.12.0/OpenDisplay.zip",
+            "url": appcast.PROJECT + "/releases/download/v0.12.0/FreeDisplay.zip",
             "length": str(self.archive.stat().st_size), appcast.SPARKLE + "edSignature": self.signature,
         })
 
     def write_archive(self):
         with zipfile.ZipFile(self.archive, "w") as archive:
-            archive.writestr("OpenDisplay.app/Contents/Info.plist", plistlib.dumps(self.info))
+            archive.writestr("FreeDisplay.app/Contents/Info.plist", plistlib.dumps(self.info))
 
     def validate(self):
         ET.ElementTree(self.tree).write(self.feed)
@@ -87,7 +87,7 @@ class AppcastTests(unittest.TestCase):
             self.validate()
 
     def test_url_must_reference_exact_fork_asset(self):
-        self.enclosure.set("url", "https://github.com/aquitaine/OpenDisplay/releases/download/v0.12.0/OpenDisplay.zip")
+        self.enclosure.set("url", "https://github.com/aquitaine/OpenDisplay/releases/download/v0.12.0/FreeDisplay.zip")
         with self.assertRaisesRegex(ValueError, "exact FreeDisplay"):
             self.validate()
 
@@ -135,17 +135,19 @@ while [ "$#" -gt 0 ]; do
   if [ "$1" = "-derivedDataPath" ]; then dd="$2"; shift; fi
   shift
 done
-mkdir -p "$dd/Build/Products/Debug/OpenDisplay.app"
+mkdir -p "$dd/Build/Products/Debug/FreeDisplay.app"
 printf 'fake cli, never executed' > "$dd/Build/Products/Debug/opendisplay"
 chmod +x "$dd/Build/Products/Debug/opendisplay"
 ''')
             for tool in tools.iterdir():
                 tool.chmod(0o755)
             environment = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"], CALL_LOG=str(log))
-            subprocess.run(["bash", "scripts/bundle-helper.sh", "Debug", str(dd)],
+            subprocess.run(["bash", "scripts/bundle-helper.sh", "Debug", str(dd), "CURRENT_PROJECT_VERSION=123", "CODE_SIGNING_ALLOWED=NO"],
                            cwd=ROOT, env=environment, check=True, capture_output=True)
             self.assertEqual(log.read_text().count(str(dd)), 2)
-            self.assertEqual((dd / "Build/Products/Debug/OpenDisplay.app/Contents/Helpers/opendisplay").read_text(),
+            self.assertEqual(log.read_text().count("CURRENT_PROJECT_VERSION=123"), 2)
+            self.assertEqual(log.read_text().count("CODE_SIGNING_ALLOWED=NO"), 2)
+            self.assertEqual((dd / "Build/Products/Debug/FreeDisplay.app/Contents/Helpers/opendisplay").read_text(),
                              "fake cli, never executed")
 
 

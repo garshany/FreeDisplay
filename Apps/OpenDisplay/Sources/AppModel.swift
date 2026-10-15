@@ -422,8 +422,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var menuLayout: MenuLayoutSettings
     private let menuLayoutStore: MenuLayoutStore?
 
-    /// Sparkle-backed one-click updater (check → download → verify → install → relaunch). Held for the
-    /// lifetime of the app because Sparkle references its delegates weakly.
+    /// Owns release checks and bridges their state to the app for its lifetime.
     private let softwareUpdater: SoftwareUpdater
     /// What the update affordances (menu rows, About surfaces, Settings sidebar) should currently
     /// say. Mirrored from the updater so the views observe one published property instead of two
@@ -431,6 +430,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var updateStatus = SoftwareUpdateStatus()
     /// The phase alone, for the surfaces that only need that.
     var updatePhase: SoftwareUpdatePhase { updateStatus.phase }
+    var updatePresentation: SoftwareUpdatePresentation { softwareUpdater.presentation }
+    var checksGitHubReleases: Bool { softwareUpdater.checksGitHubReleases }
     /// Why this build's updater is off, or nil when it runs (`UpdateDistribution`): a source build,
     /// or a build without FreeDisplay's own feed and signing key.
     var updateDistributionRefusal: UpdateDistribution.Refusal? { softwareUpdater.distributionRefusal }

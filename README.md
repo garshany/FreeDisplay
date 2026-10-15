@@ -37,10 +37,8 @@
 </p>
 
 > [!NOTE]
-> **Status: early, private fork, no releases.** FreeDisplay is built from source only. There are no
-> signed or notarized FreeDisplay builds yet, and the app's built-in updater is switched off for this
-> fork. The app is **FreeDisplay.app**. The CLI and URL scheme retain their compatible names:
-> `opendisplay`, `opendisplay://`.
+> **Status: active development.** Tagged releases are built by GitHub Actions with ad-hoc signatures,
+> without notarization. See [Install](#install) for downloads and first-launch instructions.
 
 ## What is FreeDisplay?
 
@@ -288,7 +286,7 @@ file describe the code as of 14 October 2026, before the work listed here.
 | Virtual screens | Partial: session-only, basic settings, no associations, no HDR |
 | Audio device association | Partial: matched by name; no native association |
 | Automation breadth | Partial: CLI with typed results, 5 Shortcuts actions, 3 HTTP endpoints (only while *Settings → Automation* is open), 1 URL command; no console, outgoing actions or per-display event hooks |
-| Signed releases and updates | ✘ Built from source only |
+| Releases and update notifications | Ad-hoc GitHub downloads; manual replacement |
 | Intel Macs | ✘ Apple Silicon only |
 
 Where FreeDisplay takes a different path:
@@ -320,6 +318,23 @@ here is wrong or out of date, please open an issue.*
   English as the source language. CLI output and JSON/HTTP field names stay in English, so scripts
   never depend on the UI language.
 
+## Install
+
+Requires an Apple Silicon Mac running macOS 14 or later.
+
+1. Download `FreeDisplay.zip` and `FreeDisplay.zip.sha256` from
+   [GitHub Releases](https://github.com/garshany/FreeDisplay/releases) once a release is published.
+2. In the download directory, run `shasum -a 256 -c FreeDisplay.zip.sha256`, then unzip and move
+   `FreeDisplay.app` to Applications.
+3. On first launch, **right-click → Open**: releases are ad-hoc signed and are **not notarized**.
+   macOS may also ask for approval in **System Settings → Privacy & Security**.
+
+The app tells you when a new version is available; **Download** opens its GitHub Release page.
+Quit the app and replace it manually. After replacement macOS may ask again for **Accessibility**
+permission. SHA-256 checks integrity; it does not authenticate a Developer ID publisher.
+For the standalone CLI, download `opendisplay.zip` and its checksum, verify it the same way, and
+keep the binary together with its included frameworks. See [verification details](Docs/ReleaseVerification.md).
+
 ## Build from source
 
 **Requirements:** an Apple Silicon Mac. Running the app needs macOS 14 or later; building needs
@@ -338,9 +353,8 @@ xcodebuild -project OpenDisplay.xcodeproj -scheme OpenDisplay -configuration Deb
 
 - `OpenDisplay.xcodeproj` is generated and isn't committed. Re-run `make xcode` whenever
   `project.yml` changes.
-- `project.yml` signs the app with the upstream Developer ID team, so pass your own team as shown
-  above. A stable signature matters: macOS ties the Accessibility permission (needed for the media
-  keys) to it.
+- `project.yml` uses ad-hoc signing with no team. You can override it with your own stable identity
+  as above or use an untracked local spec. macOS ties Accessibility permission to the signature.
 - Other schemes: `OpenDisplayRescue` (rescue app), `opendisplay` (CLI) and
   `OpenDisplay-PublicAPIOnly`. `make bundle-helper` copies the CLI into
   `FreeDisplay.app/Contents/Helpers`, where the Labs rotation helper expects it. It builds with the
@@ -356,9 +370,9 @@ make test        # swift test --parallel
 ```
 
 This runs the platform-independent core (`DisplayDomain`, `SceneEngine`, `AutomationSchema`,
-`TopologyCore`): **1,254 unit and state-machine tests**, all passing on 15 October 2026, after a codex review of the whole fork diff and two follow-up fix rounds. The core
-is meant to build on Linux too (`make bootstrap` installs a Swift 6 toolchain there). There's no
-remote CI; the local test run is the gate.
+`TopologyCore`): **1,977 unit and state-machine tests**, all passing on 15 October 2026. The core
+is meant to build on Linux too (`make bootstrap` installs a Swift 6 toolchain there). GitHub Actions
+runs build, tests, all macOS schemes and synthetic loopback integration on push and pull request.
 
 ### Public-API-only flavour
 
@@ -368,12 +382,13 @@ ambient-light and Night Shift readings, Clock Mode and virtual displays. Modes, 
 scenes, software dimming, colour profiles, capture and the EDID tools remain. Use it to audit the
 app or where private APIs aren't acceptable.
 
-### Releases and updates
+### Releasing
 
-There are **no FreeDisplay releases yet**. The Info.plist key `OpenDisplayLocalBuild` turns off the
-Sparkle updater, so a FreeDisplay build never replaces itself with an upstream OpenDisplay release.
-*About* shows "Local build · updates from source". To update, pull the latest changes and rebuild.
-The upstream Homebrew cask and upstream releases install **OpenDisplay**, not FreeDisplay.
+Bump `MARKETING_VERSION` in `project.yml`, commit the reviewed change, create the matching `v1.0.0`
+tag, and push that tag. GitHub Actions tests, builds, ad-hoc signs, packages and publishes the app
+and CLI with SHA-256 files and generated release notes. No signing secrets are needed.
+See [Docs/Releasing.md](Docs/Releasing.md) for the owner workflow and local packaging dry run.
+Sparkle stays disabled; source builds keep the local-build label and may check GitHub for newer releases.
 
 ## Automation examples
 

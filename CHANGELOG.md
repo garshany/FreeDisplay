@@ -246,7 +246,7 @@ so its features ship here.
 ### Notes
 - Updating in place only works *from* a build that has the updater in it. If you are on 0.8.2 or
   older, install this release by hand once; from then on OpenDisplay keeps itself current.
-- Releases now carry a second asset, `appcast.xml`, alongside `OpenDisplay.zip` — that file is the
+- Releases now carry a second asset, `appcast.xml`, alongside `FreeDisplay.zip` — that file is the
   update feed, produced and signed by `scripts/release-signed.sh` (see `scripts/sparkle-setup.md`).
 - CLI edits to app-owned settings made while the app is running — `group` edits and
   `layout protect|unprotect` alike — are overwritten when the app next saves its settings.

@@ -18,7 +18,7 @@ def validate_archive(archive, public_key):
     if public_key == UPSTREAM_KEY or len(base64.b64decode(public_key, validate=True)) != 32:
         raise ValueError("A FreeDisplay-owned Ed25519 public key is required")
     with zipfile.ZipFile(archive) as bundle:
-        info = plistlib.loads(bundle.read("OpenDisplay.app/Contents/Info.plist"))
+        info = plistlib.loads(bundle.read("FreeDisplay.app/Contents/Info.plist"))
     if info.get("SUPublicEDKey") != public_key:
         raise ValueError("The archive public key differs from the signing account")
     if info.get("SUFeedURL") != FEED:

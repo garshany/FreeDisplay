@@ -23,9 +23,29 @@ final class SoftwareUpdateTests: XCTestCase {
         XCTAssertEqual(SemanticVersion("1.2"), SemanticVersion("1.2.0"))
     }
 
-    func testStripsPreReleaseAndBuildSuffix() {
-        XCTAssertEqual(SemanticVersion("0.5.0-beta.1"), SemanticVersion("0.5.0"))
+    func testPreservesPrereleaseAndIgnoresBuildMetadata() {
+        XCTAssertLessThan(SemanticVersion("0.5.0-beta.1")!, SemanticVersion("0.5.0")!)
         XCTAssertEqual(SemanticVersion("0.5.0+42"), SemanticVersion("0.5.0"))
+    }
+
+    func testStableReleaseIsNewerThanItsPrerelease() {
+        XCTAssertEqual(Policy.relation(ofAdvertised: "v1.0.0", toRunning: "1.0.0-rc.1"),
+                       .newer(version: "1.0.0"))
+    }
+
+    func testSemanticPrereleaseOrderingAndBuildMetadata() {
+        let versions = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta",
+                        "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0"]
+        for (older, newer) in zip(versions, versions.dropFirst()) {
+            XCTAssertLessThan(SemanticVersion(older)!, SemanticVersion(newer)!)
+        }
+        XCTAssertEqual(SemanticVersion("1.0.0+build.1"), SemanticVersion("1.0.0+build.2"))
+    }
+
+    func testRejectsMalformedSemanticVersions() {
+        for value in ["01.0.0", "1.0.0-", "1.0.0+", "1.0.0-01", "1.0.0-a..b", "1.0.0+a?", "1.0.0+a+b"] {
+            XCTAssertNil(SemanticVersion(value), value)
+        }
     }
 
     func testRejectsGarbage() {

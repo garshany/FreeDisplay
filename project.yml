@@ -23,7 +23,7 @@
 name: OpenDisplay
 
 options:
-  bundleIdPrefix: dev.opendisplay
+  bundleIdPrefix: io.github.garshany.FreeDisplay
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
@@ -31,10 +31,9 @@ options:
   # English is the source language; Russian ships from the String Catalogs (Localizable/InfoPlist).
   developmentLanguage: en
 
-# Sparkle 2 powers the in-app updater (SoftwareUpdater.swift). It ships as a binary xcframework, so
-# SwiftPM resolves it here rather than in Package.swift — the cross-platform package graph stays
-# buildable on Linux. The signing/appcast tools travel inside the same artifact
-# (…/SourcePackages/artifacts/sparkle/Sparkle/bin); scripts/release-signed.sh finds them there.
+# Sparkle is retained for the existing updater adapter, but the empty key keeps it disabled.
+# Releases use GitHub metadata notifications and browser downloads. This binary xcframework is
+# resolved here rather than in Package.swift, keeping the cross-platform package graph portable.
 packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
@@ -43,9 +42,12 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.11.5"
-    CURRENT_PROJECT_VERSION: "24"
-    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.0.0"
+    # xcodebuild CURRENT_PROJECT_VERSION=$GITHUB_RUN_NUMBER overrides this local default.
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
     ENABLE_HARDENED_RUNTIME: YES
     FREEDISPLAY_UPDATE_FEED_URL: "https://github.com/garshany/FreeDisplay/releases/latest/download/appcast.xml"
     FREEDISPLAY_UPDATE_PUBLIC_ED_KEY: ""
@@ -175,19 +177,12 @@ targets:
       base:
         PRODUCT_NAME: FreeDisplay
         PRODUCT_MODULE_NAME: OpenDisplay
-        PRODUCT_BUNDLE_IDENTIFIER: dev.opendisplay.app
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.garshany.FreeDisplay
         INFOPLIST_FILE: Apps/OpenDisplay/Resources/Info.plist
         SWIFT_EMIT_LOC_STRINGS: YES
         LOCALIZATION_PREFERS_STRING_CATALOGS: YES
         CODE_SIGN_ENTITLEMENTS: Apps/OpenDisplay/Resources/OpenDisplay.entitlements
-        # Sign local (Debug) builds with the stable Developer ID identity, NOT adhoc. TCC keys the
-        # Accessibility grant (needed by the media-key tap) to the code signature's designated
-        # requirement; an adhoc signature changes every rebuild, so macOS silently revokes the grant
-        # and the brightness keys stop working. A real Developer ID keeps the requirement constant
-        # (bundle id + team), so the grant survives rebuilds. Release re-signs + notarizes on top.
-        CODE_SIGN_STYLE: Manual
-        CODE_SIGN_IDENTITY: "Developer ID Application"
-        DEVELOPMENT_TEAM: 7EKTRESQRZ
+        # Personal signing identities belong in the untracked local spec or build overrides.
     dependencies:
       - target: OpenDisplayDesignSystem
       - target: CoreGraphicsProvider
@@ -224,7 +219,7 @@ targets:
       base:
         PRODUCT_NAME: FreeDisplay-PublicAPIOnly
         PRODUCT_MODULE_NAME: OpenDisplay_PublicAPIOnly
-        PRODUCT_BUNDLE_IDENTIFIER: dev.opendisplay.app.publicapionly
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.garshany.FreeDisplay.publicapionly
         INFOPLIST_FILE: Apps/OpenDisplay/Resources/Info.plist
         SWIFT_EMIT_LOC_STRINGS: YES
         LOCALIZATION_PREFERS_STRING_CATALOGS: YES
@@ -252,7 +247,7 @@ targets:
         PRODUCT_NAME: FreeDisplayRescue
         PRODUCT_MODULE_NAME: OpenDisplayRescue
         SWIFT_EMIT_LOC_STRINGS: YES
-        PRODUCT_BUNDLE_IDENTIFIER: dev.opendisplay.rescue
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.garshany.FreeDisplayRescue
         INFOPLIST_FILE: Apps/OpenDisplayRescue/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: Apps/OpenDisplayRescue/Resources/OpenDisplayRescue.entitlements
     dependencies:
@@ -274,6 +269,7 @@ targets:
     sources: [Tools/opendisplay/Sources]
     settings:
       base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.garshany.FreeDisplay.opendisplay
         LD_RUNPATH_SEARCH_PATHS:
           - "@executable_path"
           - "@loader_path"

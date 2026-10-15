@@ -1,33 +1,62 @@
 import Foundation
 
-/// A parsed `major.minor.patch` version. Tolerates a leading `v` and a trailing pre-release/build
-/// suffix (`0.5.0-beta.1` parses as 0.5.0); anything else non-numeric fails the parse so the caller
-/// can decline to compare rather than guess.
+/// Semantic precedence, including prereleases. Build metadata never changes precedence.
+/// One/two-component app versions and a leading v remain supported for older builds.
 public struct SemanticVersion: Hashable, Sendable, Comparable {
     public let major: Int
     public let minor: Int
     public let patch: Int
+    public let prerelease: [String]
 
     public init?(_ string: String) {
-        var core = string.hasPrefix("v") || string.hasPrefix("V") ? String(string.dropFirst()) : string
-        if let cut = core.firstIndex(where: { $0 == "-" || $0 == "+" }) {
-            core = String(core[..<cut])
+        let value = string.hasPrefix("v") || string.hasPrefix("V") ? String(string.dropFirst()) : string
+        let metadata = value.split(separator: "+", omittingEmptySubsequences: false)
+        guard metadata.count <= 2 else { return nil }
+        if metadata.count == 2, !Self.validIdentifiers(String(metadata[1]), numericLeadingZeros: true) { return nil }
+        let parts = metadata[0].split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        let numbers = parts[0].split(separator: ".", omittingEmptySubsequences: false)
+        guard (1...3).contains(numbers.count) else { return nil }
+        var parsed: [Int] = []
+        for number in numbers {
+            guard Self.isNumeric(String(number)), number.count == 1 || number.first != "0",
+                  let n = Int(number) else { return nil }
+            parsed.append(n)
         }
-        let parts = core.split(separator: ".", omittingEmptySubsequences: false)
-        guard (1...3).contains(parts.count) else { return nil }
-        var numbers: [Int] = []
-        for part in parts {
-            guard let n = Int(part), n >= 0 else { return nil }
-            numbers.append(n)
+        while parsed.count < 3 { parsed.append(0) }
+        major = parsed[0]; minor = parsed[1]; patch = parsed[2]
+        if parts.count == 2 {
+            guard Self.validIdentifiers(String(parts[1]), numericLeadingZeros: false) else { return nil }
+            prerelease = parts[1].split(separator: ".").map(String.init)
+        } else {
+            prerelease = []
         }
-        while numbers.count < 3 { numbers.append(0) }
-        major = numbers[0]
-        minor = numbers[1]
-        patch = numbers[2]
+    }
+
+    private static func isNumeric(_ value: String) -> Bool {
+        !value.isEmpty && value.utf8.allSatisfy { (48...57).contains($0) }
+    }
+
+    private static func validIdentifiers(_ value: String, numericLeadingZeros: Bool) -> Bool {
+        value.split(separator: ".", omittingEmptySubsequences: false).allSatisfy { part in
+            !part.isEmpty && part.utf8.allSatisfy {
+                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45
+            } && (numericLeadingZeros || !isNumeric(String(part)) || part.count == 1 || part.first != "0")
+        }
     }
 
     public static func < (lhs: SemanticVersion, rhs: SemanticVersion) -> Bool {
-        (lhs.major, lhs.minor, lhs.patch) < (rhs.major, rhs.minor, rhs.patch)
+        let left = (lhs.major, lhs.minor, lhs.patch), right = (rhs.major, rhs.minor, rhs.patch)
+        if left != right { return left < right }
+        if lhs.prerelease.isEmpty { return false }
+        if rhs.prerelease.isEmpty { return true }
+        for (a, b) in zip(lhs.prerelease, rhs.prerelease) where a != b {
+            let an = isNumeric(a), bn = isNumeric(b)
+            if an != bn { return an }
+            // Compare arbitrarily long numeric identifiers without integer overflow.
+            if an && a.count != b.count { return a.count < b.count }
+            return a < b
+        }
+        return lhs.prerelease.count < rhs.prerelease.count
     }
 }
 

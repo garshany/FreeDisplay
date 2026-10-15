@@ -28,6 +28,12 @@ public enum UpdateDistribution {
         case upstreamPublicKey
     }
 
+    /// Source builds may check releases, but may never install one in place. An absent key selects
+    /// the owner's GitHub notification channel; an invalid nonempty key still fails closed.
+    public static func checksGitHubReleases(isLocalBuild: Bool, publicEDKey: String?) -> Bool {
+        isLocalBuild || (publicEDKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// Upstream OpenDisplay's published EdDSA public key — never a key this fork may trust.
     public static let upstreamPublicEDKey = "G9aQchK8B0eqrXhKwKWat4SRCR/XboPdgpmfuHrBnuE="
 

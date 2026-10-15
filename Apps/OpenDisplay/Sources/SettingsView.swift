@@ -28,7 +28,7 @@ struct SettingsView: View {
             List(SettingsSection.allCases, selection: $section) { item in
                 HStack {
                     Label(item.title, systemImage: item.icon)
-                    if item == .about, model.updateStatus.presentation.badge != nil {
+                    if item == .about, model.updatePresentation.badge != nil {
                         Image(systemName: "arrow.down.circle.fill")
                             .foregroundStyle(ODColor.caution)
                             .accessibilityLabel("Update available")

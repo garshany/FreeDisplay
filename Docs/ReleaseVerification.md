@@ -1,45 +1,35 @@
 # Verify a FreeDisplay download
 
-FreeDisplay's source and release origin is https://github.com/garshany/FreeDisplay. The upstream
-project is https://github.com/aquitaine/OpenDisplay (GPL-3.0); its release signing identity and update
-key are not FreeDisplay's. There is no validated FreeDisplay Developer ID/Team ID asserted in this
-branch. Until the owner publishes them with a validated release, use the source-build instructions
-and do not treat an ad-hoc development signature as release authentication.
-
-The prepared package format is `OpenDisplay.zip` containing `OpenDisplay.app`; compatibility keeps
-that bundle name, bundle IDs, settings locations and `opendisplay` CLI. A renamed icon is not proof
-of the publisher. Use the exact checksum and full expected Developer ID authority/Team ID published
-by the fork owner for the exact release asset. Never copy BetterDisplay's or upstream's identity.
-
-For an owner-validated release (commands are for the recipient; not run by this branch's agent):
+Download `FreeDisplay.zip` and `FreeDisplay.zip.sha256` from the same intended release at
+[garshany/FreeDisplay](https://github.com/garshany/FreeDisplay/releases). For the standalone CLI,
+download `opendisplay.zip` and its matching checksum too.
 
 ```sh
-# In the directory holding the downloaded zip and its trusted release checksum:
-shasum -a 256 -c OpenDisplay.zip.sha256
-# After extracting the app, with the path adjusted to its actual location:
-codesign --verify --deep --strict --verbose=2 /path/to/OpenDisplay.app
-codesign -dvv /path/to/OpenDisplay.app
-xcrun stapler validate /path/to/OpenDisplay.app
-syspolicy_check distribution /path/to/OpenDisplay.app
+shasum -a 256 -c FreeDisplay.zip.sha256
+# Optional standalone CLI:
+shasum -a 256 -c opendisplay.zip.sha256
+# After extracting, inspect the app without running it:
+codesign --verify --deep --strict --verbose=2 /path/to/FreeDisplay.app
+codesign -dvv /path/to/FreeDisplay.app
 ```
 
-Compare **all 64** hex digest characters, `Authority` and `TeamIdentifier` against a separately trusted
-release announcement. A zip and checksum modified together can agree; SHA-256 alone is integrity,
-not publisher authentication. A valid signature by an unexpected identity is still the wrong signer.
-Modified bundles must fail signature verification. The release publisher must also check nested code
-and supported architectures; ordinary `codesign` success alone does not prove a release is notarized.
+A checksum verifies the archive's bytes, not its publisher: an attacker able to replace both files
+could replace both. Use the intended GitHub repository and release. The current channel is ad-hoc
+signed, with **no Developer ID and no notarization**; do not expect a TeamIdentifier, a notarization
+ticket or a successful Gatekeeper distribution assessment. A modified app must fail signature
+verification. Keep the standalone CLI next to the frameworks included in its extracted directory.
 
-On systems without `syspolicy_check`, use `spctl -a -t exec -vvv /path/to/OpenDisplay.app` instead.
-File-not-found, folder-access failure and Apple-service/network failure are different from a confirmed
-signature mismatch; retain the exact error and retry from the trusted origin. Do not disable
-Gatekeeper or remove quarantine as a troubleshooting shortcut.
+Move the app to Applications. For first launch, right-click → **Open**; macOS may additionally ask
+for approval in **System Settings → Privacy & Security**. Do not disable Gatekeeper globally.
+After an update, macOS may ask again for Accessibility permission. The app only reports new GitHub
+releases and opens their download page; quit it and replace it manually. Source builds continue to
+identify themselves as local builds and can also check GitHub.
 
-The current fork's in-app updater remains off (`OpenDisplayLocalBuild = true`). Signed appcast
-preparation is not proof of a release upgrade. See [the owner workflow](../scripts/sparkle-setup.md)
-for the separate feed, signing, upgrade and rollback validation gates.
+For build and publication steps, see [Releasing](Releasing.md). For display recovery, see
+[Recovering a stranded display](Recovering-a-stranded-display.md). Review diagnostic exports for
+names, identifiers, paths and command values before sharing them.
 
-For support, copy Build Information from either About surface. Review diagnostic exports for names,
-identifiers, paths and command values before sharing. Display arrangement protection does not
+Display arrangement protection does not
 restore app windows/Spaces or Universal Control relationships. Refresh enumerates macOS displays;
 logical reconnection handles displays FreeDisplay turned off; neither increases physical display
 limits or guarantees redetection of an absent cable route. Reproduce direct/dock/KVM separately and

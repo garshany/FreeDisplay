@@ -61,7 +61,7 @@ seconds and nothing is sent anywhere.
 - Or, if the app's window is on the display that went missing, in Terminal:
 
   ```bash
-  /Applications/OpenDisplay.app/Contents/Helpers/opendisplay diagnose --bundle
+  /Applications/FreeDisplay.app/Contents/Helpers/opendisplay diagnose --bundle
   ```
 
 Either one saves `OpenDisplay-diagnostics-<date>.zip` to your Desktop. Attach it to

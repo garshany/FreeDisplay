@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Existing version tag, for example v1.0.0 (must match MARKETING_VERSION)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# A manual dispatch and a tag push must never publish different assets to the same release together.
+concurrency:
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15-arm64
+    env:
+      RELEASE_TAG: ${{ inputs.version || github.ref_name }}
+    steps:
+      - name: Validate tag syntax before checkout
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - name: Verify existing tag and marketing version
+        run: |
+          set -euo pipefail
+          test "$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")" = "$(git rev-parse HEAD)"
+          version=$(sed -nE 's/^    MARKETING_VERSION: "([^"]+)"$/\1/p' project.yml)
+          test "$RELEASE_TAG" = "v$version"
+      - name: Select Xcode 26.3 (Swift 6.2)
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+          xcodebuild -version
+          swift --version
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .spm
+            .dd/release/SourcePackages
+          key: ${{ runner.os }}-${{ runner.arch }}-release-xcode26.3-spm-${{ hashFiles('Package.swift', 'project.yml') }}
+      - name: Test release source
+        run: |
+          swift build --scratch-path ./.spm
+          swift test --scratch-path ./.spm
+          python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+      - name: Build, ad-hoc sign, package and checksum
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          brew install xcodegen
+          scripts/release-adhoc.sh ./.dd/release ./.dd/artifacts
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "FreeDisplay $RELEASE_TAG" --generate-notes \
+            ./.dd/artifacts/FreeDisplay.zip ./.dd/artifacts/FreeDisplay.zip.sha256 \
+            ./.dd/artifacts/opendisplay.zip ./.dd/artifacts/opendisplay.zip.sha256

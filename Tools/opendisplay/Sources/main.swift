@@ -178,7 +178,7 @@ if command == "commands" {
 }
 
 func appIsRunning() -> Bool {
-    ["local.personal.OpenDisplay", "local.personal.OpenDisplay.publicapionly"].contains {
+    ProjectIdentity.applicationBundleIdentifiers.contains {
         NSRunningApplication.runningApplications(withBundleIdentifier: $0).contains { !$0.isTerminated }
     }
 }

@@ -109,7 +109,7 @@ struct AboutView: View {
 /// "A fork of OpenDisplay by aquitaine" — the upstream credit both About surfaces carry.
 struct ForkAttributionText: View {
     var body: some View {
-        Text("Free, open-source display control for macOS. A fork of OpenDisplay by aquitaine; the app is still named OpenDisplay.app.")
+        Text("Free, open-source display control for macOS. A fork of OpenDisplay by aquitaine.")
     }
 }
 
@@ -147,8 +147,9 @@ struct UpdateCheckStatusView: View {
                       systemImage: refusal == .localBuild ? "hammer" : "nosign")
                     .font(.caption).foregroundStyle(.secondary)
                     .help(SoftwareUpdater.refusalExplanation(refusal))
-            } else {
-                statusControl(model.updateStatus.presentation)
+            }
+            if model.checksGitHubReleases || model.updateDistributionRefusal == nil {
+                statusControl(model.updatePresentation)
             }
         }
         // AM-20/SO-14: a result that went stale clears when the surface is shown again.
