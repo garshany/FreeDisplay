@@ -583,7 +583,8 @@ struct AppearanceCard: View {
                         }
                     }
                 }
-                if model.ddcWriteWasIgnored(0x14, for: display), let current = model.colorPreset[display.recordID] {
+                if model.ddcWriteDidFail(0x14, for: display) { secondaryNote(DDCStatusText.writeFailed) }
+                else if model.ddcWriteWasIgnored(0x14, for: display), let current = model.colorPreset[display.recordID] {
                     secondaryNote(String(localized: "The monitor stayed on \(model.presetName(current))."))
                 }
                 if detectFoundNothing {
@@ -705,7 +706,8 @@ struct ControlsCard: View {
             Text("Turn this on if DDC values change but the picture doesn’t. Software brightness uses the dimming method selected below.")
                 .font(.caption).foregroundStyle(.secondary)
             #endif
-            if model.ddcWriteWasIgnored(0x10, for: display) { ignoredCaption(Self.ignoredNote) }
+            if model.ddcWriteDidFail(0x10, for: display) { ignoredCaption(DDCStatusText.writeFailed) }
+            else if model.ddcWriteWasIgnored(0x10, for: display) { ignoredCaption(Self.ignoredNote) }
             ODDivider()
             let controls = HardwareControl.allCases.filter { model.ddcControl($0, for: display) != nil }
             #if !PUBLIC_API_ONLY
@@ -953,7 +955,10 @@ struct UseAsCard: View {
                 Toggle("", isOn: Binding(get: { display.isMain },
                                          set: { on in if on { Task { await model.setMain(for: display) } } }))
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
-                    .disabled(display.isMain || model.busy)
+                    .disabled(display.isMain || model.busy || model.displayConfigurationBusy)
+            }
+            if let error = model.modeChangeError {
+                Text(error).font(.caption).foregroundStyle(ODColor.caution)
             }
             if !display.isMain {
                 ODDivider()

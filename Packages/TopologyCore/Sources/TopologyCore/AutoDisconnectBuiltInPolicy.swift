@@ -10,6 +10,13 @@ import Foundation
 /// decision logic — actually turning the built-in off (through the gated coordinator) and bringing it
 /// back when the last external leaves (the existing always-one-active safety net) are the host's job.
 public struct AutoDisconnectBuiltInPolicy {
+    /// Auto-disconnect needs a native physical recovery surface. Keep-awake deliberately uses
+    /// its broader external-presence predicate, since a DisplayLink screen also needs power.
+    public static func eligibleExternalPresent(in observations: [DisplayObservation]) -> Bool {
+        observations.contains { [DisplayClass.external, .projector, .television].contains($0.displayClass)
+                && $0.physicalPresence == .physical && $0.isActive }
+    }
+
     private var externalPresent: Bool
 
     public init(externalPresent: Bool = false) {
