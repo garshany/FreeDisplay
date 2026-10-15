@@ -1059,14 +1059,48 @@ final class AppModel: ObservableObject {
     /// A canvas change is being applied; the canvas takes no new drops meanwhile.
     @Published private(set) var arrangementApplying = false
 
-    /// Mirrors a display onto the main display (both show the same content) or stops mirroring.
-    /// Reversible (public Core Graphics mirroring).
+    /// The menu and native-key actions share the arrangement Keep/Revert transaction.
     func setMirrored(_ on: Bool, for observation: DisplayObservation) async {
-        guard let cgID = observation.cgDisplayID else { return }
-        // Reversible and never unreadable, so (like set-main) it applies directly without the revert gate.
-        _ = await observer.setMirroring(of: cgID, enabled: on)
+        guard let plan = MirroringChangePlan(targets: [observation],
+            source: on ? displays.first(where: \.isMain) : nil),
+              !on || displays.contains(where: \.isMain) else { return }
+        await applyMirroringChange(plan)
+    }
+
+    private func applyMirroringChange(_ plan: MirroringChangePlan) async {
+        guard !displayConfigurationBusy else {
+            arrangementError = String(localized: "Confirm or revert the previous change first.")
+            return
+        }
+        arrangementApplying = true
+        arrangementError = nil
+        defer { arrangementApplying = false }
+        let before = await observer.currentSnapshot().observations
+        guard plan.isResolvable(in: before) else {
+            arrangementError = String(localized: "The displays changed in the meantime, so nothing was moved.")
+            return
+        }
+        Self.writeRevertMarker(before)
+        refreshRevertRecord()
+        let accepted = await observer.applyMirroringChange(plan)
         await refresh()
-        await noteLayoutSelfChange()
+        let current = await observer.currentSnapshot().observations
+        switch plan.outcome(accepted: accepted && !Task.isCancelled, current: current) {
+        case .awaitingConfirmation:
+            await noteLayoutSelfChange()
+            beginRevertWindow(before: before, message: String(localized: "Display mirroring changed"), kind: .arrangement)
+        case .restorePrevious:
+            let outcome = await restoreArrangement(before)
+            if RevertMarkerPolicy.mayClearMarker(after: outcome) {
+                Self.clearRevertMarker()
+                refreshRevertRecord()
+                arrangementError = String(localized: "macOS did not confirm the mirroring change. The previous settings were restored.")
+            } else {
+                Self.retainRevertMarker(after: outcome)
+                refreshRevertRecord()
+                reportUnverifiedRestore(kind: .arrangement, after: outcome)
+            }
+        }
     }
 
     /// Sets a display's software dim, 1 (none) down toward 0, expressed through the configured
@@ -7195,10 +7229,11 @@ final class AppModel: ObservableObject {
             case .startMirroring, .stopMirroring:
                 let ids = NativeKeyChordPolicy.mirrorTargets(for: auxiliary, in: displays)
                 let targets = ids.compactMap { id in displays.first { $0.recordID == id } }
-                guard !targets.isEmpty else { return false }
-                Task { [weak self] in
-                    for target in targets { await self?.setMirrored(auxiliary == .startMirroring, for: target) }
-                }
+                let starting = auxiliary == .startMirroring
+                let source = starting ? displays.first(where: \.isMain) : nil
+                guard !starting || source != nil,
+                      let plan = MirroringChangePlan(targets: targets, source: source) else { return false }
+                Task { [weak self] in await self?.applyMirroringChange(plan) }
                 return true
             }
         }

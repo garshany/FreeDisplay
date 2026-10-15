@@ -71,7 +71,8 @@ public enum NativeKeyChordPolicy {
     }
 
     /// The existing public mirroring sink mirrors a target to the main display. Resolve identities
-    /// once, before asynchronous work; auto-repeat must not toggle the topology repeatedly.
+    /// before asynchronous work; the caller must retain UUIDs and revalidate them at each write.
+    /// Auto-repeat must not toggle the topology repeatedly.
     public static func mirrorTargets(for action: AuxiliaryAction,
                                       in displays: [DisplayObservation]) -> [DisplayRecordID] {
         let active = displays.filter { $0.isActive && $0.cgDisplayID != nil }
