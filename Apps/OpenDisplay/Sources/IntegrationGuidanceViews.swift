@@ -46,6 +46,10 @@ struct ShortcutsIntegrationRows: View {
         switch action {
         case .getBrightness: return String(localized: "Get Display Brightness")
         case .setBrightness: return String(localized: "Set Display Brightness")
+        case .getDisplayMode: return String(localized: "Get Display Mode")
+        case .getColorProfile: return String(localized: "Get Display Color Profile")
+        case .setColorProfile: return String(localized: "Set Display Color Profile")
+        case .resetColorProfile: return String(localized: "Reset Display Color Profile")
         case .setDisplayMode: return String(localized: "Set Display Mode")
         case .setMainDisplay: return String(localized: "Set Main Display")
         case .reconnectAll: return String(localized: "Reconnect All Displays")
@@ -73,15 +77,22 @@ struct ShortcutsIntegrationRows: View {
         switch entry.result {
         case .brightness:
             sentences.append(String(localized: "Returns the display, its brightness, the level asked for, whether the display confirmed it, and how it was set."))
+        case .currentMode:
+            sentences.append(String(localized: "Returns the exact current display mode, including dimensions, refresh rate and HiDPI status."))
+        case .colorProfile:
+            sentences.append(String(localized: "Returns the profile name, custom profile path, factory-profile status and command outcome. ColorSync profile actions are available in both builds; setting a profile requires an installed profile."))
         case .displayMode:
             sentences.append(String(localized: "Returns the display, the mode, and whether the change is waiting to be kept."))
         case .mainDisplay:
-            sentences.append(String(localized: "Returns the main display macOS reports afterwards."))
+            sentences.append(String(localized: "Returns the main display macOS reports afterwards, the outcome and the seconds left to keep the change."))
         case .reconnect:
             sentences.append(String(localized: "Returns the outcome and how many displays came back."))
         }
         if entry.needsKeepConfirmation {
-            sentences.append(String(localized: "The new mode stays only if you keep it in FreeDisplay before the countdown ends."))
+            sentences.append(String(localized: "The change stays only if you keep it in FreeDisplay before the countdown ends."))
+        }
+        if entry.offersWithoutConfirmation {
+            sentences.append(String(localized: "Set Display Mode offers Without confirmation, off by default. Turn it on explicitly to keep the applied mode immediately."))
         }
         return sentences.joined(separator: " ")
     }

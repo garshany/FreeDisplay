@@ -9,12 +9,8 @@ import TopologyCore
 import VirtualDisplayProvider
 #endif
 
-/// Settings window. A sidebar (Displays · Arrange · Scenes · Health & Recovery · About) replaces the
-/// old 3-tab shell: "Displays" is now a selection list feeding a per-display detail pane (so the
-/// topology isn't duplicated with the menu bar), "Arrange" is promoted out of Scenes into its own
-/// item, and diagnostics/recovery/Labs are unified under "Health & Recovery". "About" sits directly
-/// below Health & Recovery and mirrors the standalone About window (`AboutView`) as an inline card.
-/// See `Docs/InterfaceRedesign.md`.
+/// Settings navigation keeps application policy, display tools, feedback, automation and recovery
+/// in distinct panes. Persisted section raw values remain stable across sidebar reordering.
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     // `-OpenDisplaySettingsSection <rawValue>` (launch argument) opens a given section — used to
@@ -58,6 +54,12 @@ struct SettingsView: View {
                     // The pane has its own display picker (it starts on the Displays selection).
                     AdvancedDisplayToolsView()
                 case .keyboard: KeyboardSettingsSection()
+                case .feedback:
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: ODSpacing.md) { OSDSettingsRows() }
+                            .padding(ODSpacing.lg)
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }.navigationTitle("On-screen display")
                 case .automation: LocalControlPanel()
                 case .virtual:
 #if !PUBLIC_API_ONLY
@@ -99,7 +101,7 @@ struct SettingsView: View {
 }
 
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
-    case displays, application, menu, arrange, scenes, virtual, capture, advanced, keyboard, automation, health, about
+    case displays, application, menu, arrange, scenes, virtual, capture, advanced, keyboard, feedback, automation, health, about
     var id: String { rawValue }
 
     /// The section a newly created Settings window starts on: the launch argument when given (the
@@ -122,6 +124,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .capture: return String(localized: "Screen Capture")
         case .advanced: return String(localized: "EDID & HiDPI")
         case .keyboard: return String(localized: "Keyboard")
+        case .feedback: return String(localized: "On-screen display")
         case .automation: return String(localized: "Automation")
         case .health: return String(localized: "Diagnostics")
         case .about: return String(localized: "About")
@@ -138,6 +141,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .capture: return "pip"
         case .advanced: return "slider.horizontal.3"
         case .keyboard: return "keyboard"
+        case .feedback: return "speaker.wave.2.bubble"
         case .automation: return "terminal"
         case .health: return "stethoscope"
         case .about: return "info.circle"
@@ -571,71 +575,7 @@ private struct HealthSection: View {
 
                 Divider()
 
-                Text("Behavior").font(.title3)
-                LaunchAtLoginToggle()
-                Toggle(isOn: Binding(
-                    get: { model.settings.preventDisplaySleepWithExternal },
-                    set: { model.setPreventDisplaySleepWithExternal($0) }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Keep displays awake while an external is connected")
-                        Text("Keeps the screens from going to sleep while at least one external display is connected. Released automatically when the last external display is disconnected.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Toggle(isOn: Binding(
-                    get: { model.settings.autoDisconnectBuiltInOnExternal },
-                    set: { model.setAutoDisconnectBuiltInOnExternal($0) }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Turn the built-in display off when an external connects")
-                        Text("When an external display arrives, the built-in panel is turned off automatically (through the same safety-checked path as a manual disconnect). It comes back on when the last external is unplugged.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                // SO-12/FA-16: style, routine-protection filter and the macOS permission state.
-                NotificationSettingsRows()
-                // SO-13/FB-15.
-                DockIconPolicyRow()
-                if Bundle.main.object(forInfoDictionaryKey: "OpenDisplayLocalBuild") as? Bool == true {
-                    Text("Updating a local build").font(.headline)
-                    Text("This build is updated from source: pull the project’s changes, build the app, and replace the installed copy. Automatic release downloads aren’t available here.")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Toggle(isOn: Binding(
-                        get: { model.settings.updateCheckEnabled },
-                        set: { model.setUpdateCheckEnabled($0) }
-                    )) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Check for updates automatically")
-                            Text("Looks at the release feed about once a day and shows what it finds in the menu. Nothing is downloaded until you say so, and checking manually works either way.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    Toggle(isOn: Binding(
-                        get: { model.settings.automaticUpdateDownloadEnabled },
-                        set: { model.setAutomaticUpdateDownloadEnabled($0) }
-                    )) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Download and install updates automatically")
-                            Text("Installs a new release on its own and relaunches OpenDisplay into it. Every download’s signature is checked before it runs. Needs the automatic check above.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .disabled(!model.settings.updateCheckEnabled)
-                    .padding(.leading, ODSpacing.lg)
-                }
-
-                Divider()
-
-                // SO-35/SO-04/IN-16/TR-17.
-                OSDSettingsRows()
-
-                // The media keys are in Settings → Keyboard (SO-25).
-
                 #if !PUBLIC_API_ONLY
-                Divider()
-
                 HStack(spacing: 8) {
                     Text("Adaptive display").font(.title3)
                     ODBadge(String(localized: "Labs"), tone: .orange)

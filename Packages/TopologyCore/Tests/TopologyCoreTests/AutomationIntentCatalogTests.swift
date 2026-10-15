@@ -39,7 +39,16 @@ final class AutomationIntentCatalogTests: XCTestCase {
         XCTAssertEqual(full[.getBrightness]?.target, .chosenDisplay)
         XCTAssertEqual(full[.reconnectAll]?.target, .displaysTurnedOff)
         XCTAssertEqual(full[.setDisplayMode]?.needsKeepConfirmation, true)
-        XCTAssertEqual(full.values.filter(\.needsKeepConfirmation).map(\.action), [.setDisplayMode])
+        XCTAssertEqual(Set(full.values.filter(\.needsKeepConfirmation).map(\.action)), [.setDisplayMode, .setMainDisplay])
+        XCTAssertEqual(full[.getDisplayMode]?.result, .currentMode)
+        XCTAssertEqual(full[.getDisplayMode]?.target, .chosenDisplay)
+        XCTAssertEqual(full.values.filter(\.offersWithoutConfirmation).map(\.action), [.setDisplayMode])
+        for action in [AutomationIntentCatalog.Action.getColorProfile, .setColorProfile, .resetColorProfile] {
+            XCTAssertEqual(full[action]?.target, .chosenDisplay)
+            XCTAssertEqual(full[action]?.result, .colorProfile)
+            XCTAssertEqual(AutomationIntentCatalog.entry(action, build: .publicAPIOnly), full[action])
+        }
+        XCTAssertEqual(full.count, 9)
         XCTAssertEqual(full[.setMainDisplay]?.result, .mainDisplay)
         XCTAssertTrue(full.values.filter { $0.result != .brightness }.allSatisfy { $0.brightnessRoutes.isEmpty })
     }

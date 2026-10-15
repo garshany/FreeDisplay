@@ -10,7 +10,11 @@ public enum AutomationIntentCatalog {
     public enum Action: String, Hashable, Sendable, CaseIterable {
         case getBrightness
         case setBrightness
+        case getDisplayMode
         case setDisplayMode
+        case getColorProfile
+        case setColorProfile
+        case resetColorProfile
         case setMainDisplay
         case reconnectAll
     }
@@ -50,6 +54,10 @@ public enum AutomationIntentCatalog {
     public enum Result: Hashable, Sendable {
         /// Display, level, requested level, whether the display confirmed it, and the route.
         case brightness
+        /// The exact current mode: dimensions, refresh rate and density.
+        case currentMode
+        /// Profile name, custom path, factory status and command outcome.
+        case colorProfile
         /// Display, mode, outcome and the seconds left to keep it.
         case displayMode
         /// The main display macOS reports afterwards.
@@ -64,8 +72,11 @@ public enum AutomationIntentCatalog {
         public var result: Result
         /// The brightness routes in this build; empty for other actions.
         public var brightnessRoutes: [BrightnessRoute]
-        /// The change stays only if it is kept in OpenDisplay before the countdown ends.
+        /// The change requires Keep by default. Only Set Display Mode offers an explicit bypass.
         public var needsKeepConfirmation: Bool
+
+        /// Owner #20: off by default; explicit opt-in only for Set Display Mode.
+        public var offersWithoutConfirmation: Bool { action == .setDisplayMode }
 
         public var id: Action { action }
     }
@@ -85,24 +96,30 @@ public enum AutomationIntentCatalog {
         case .setBrightness:
             return Entry(action: action, target: .chosenDisplayOrBuiltIn, result: .brightness,
                          brightnessRoutes: brightnessRoutes(build), needsKeepConfirmation: false)
+        case .getDisplayMode:
+            return Entry(action: action, target: .chosenDisplay, result: .currentMode, brightnessRoutes: [],
+                         needsKeepConfirmation: false)
+        case .getColorProfile, .setColorProfile, .resetColorProfile:
+            return Entry(action: action, target: .chosenDisplay, result: .colorProfile, brightnessRoutes: [],
+                         needsKeepConfirmation: false)
         case .setDisplayMode:
             return Entry(action: action, target: .chosenDisplay, result: .displayMode, brightnessRoutes: [],
                          needsKeepConfirmation: true)
         case .setMainDisplay:
             return Entry(action: action, target: .chosenDisplay, result: .mainDisplay, brightnessRoutes: [],
-                         needsKeepConfirmation: false)
+                         needsKeepConfirmation: true)
         case .reconnectAll:
             return Entry(action: action, target: .displaysTurnedOff, result: .reconnect, brightnessRoutes: [],
                          needsKeepConfirmation: false)
         }
     }
 
-    /// Every current action runs in both builds: the public-only build reaches brightness through
-    /// software dimming and turns displays off and on through public API. An action added later
-    /// that needs private API is listed here as unavailable to `.publicAPIOnly`.
+    /// ICC reads and writes use public ColorSync. `FeatureFlags.iccProfileWrite` is enabled in
+    /// both app builds; PUBLIC_API_ONLY removes DDC/DisplayServices, not profile management.
     public static func isAvailable(_ action: Action, in build: Build) -> Bool {
         switch action {
-        case .getBrightness, .setBrightness, .setDisplayMode, .setMainDisplay, .reconnectAll:
+        case .getBrightness, .setBrightness, .getDisplayMode, .setDisplayMode, .setMainDisplay,
+             .getColorProfile, .setColorProfile, .resetColorProfile, .reconnectAll:
             return true
         }
     }

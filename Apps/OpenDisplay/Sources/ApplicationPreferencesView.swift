@@ -7,6 +7,7 @@ import TopologyCore
 
 /// SO-10/SD-08/FB-12: app preferences and assertion ownership, without device writes in the view.
 struct ApplicationPreferencesView: View {
+    @EnvironmentObject private var model: AppModel
     @State private var placement = SettingsWindowMemory.placement
 
     var body: some View {
@@ -20,6 +21,16 @@ struct ApplicationPreferencesView: View {
                     }
                     .onChange(of: placement) { _, value in SettingsWindowMemory.placement = value }
                     DockIconPolicyRow()
+                    Toggle(isOn: Binding(
+                        get: { model.settings.autoDisconnectBuiltInOnExternal },
+                        set: { model.setAutoDisconnectBuiltInOnExternal($0) }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Turn the built-in display off when an external connects")
+                            Text("When an external display arrives, the built-in panel is turned off automatically (through the same safety-checked path as a manual disconnect). It comes back on when the last external is unplugged.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 ApplicationTimingCard()
                 DisplaySleepPreventionCard()
