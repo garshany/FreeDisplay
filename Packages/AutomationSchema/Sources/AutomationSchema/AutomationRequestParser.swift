@@ -95,6 +95,7 @@ public enum AutomationRequestParser {
                                 parameters: [String: AutomationParameterValue]) throws(AutomationIssue) -> AutomationCommand {
         switch name {
         case .listDisplays: return .listDisplays
+        case .getCapabilities: return .getCapabilities
         case .getBrightness: return .getBrightness(method: try method(parameters))
         case .setBrightness:
             guard let value = parameters["value"] else { throw .missing("value", for: name.rawValue) }

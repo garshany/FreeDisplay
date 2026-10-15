@@ -176,3 +176,41 @@ public enum LocalHTTPControl {
         return data
     }
 }
+
+/// HTTP rendering stays outside execution; the legacy brightness keys remain usable by old clients.
+public struct AutomationHTTPResponse: Sendable {
+    public var status: Int
+    public var body: Data
+
+    public init(status: Int, body: Data) {
+        self.status = status
+        self.body = body
+    }
+
+    public init(_ result: AutomationResult, style: LocalHTTPControl.ResponseStyle = .result) {
+        status = AutomationHTTPStatus.code(for: result)
+        guard style == .legacyBrightness else { body = result.jsonData(prettyPrinted: false); return }
+        var object: [String: Any] = [
+            "status": result.succeeded ? "requested" : "rejected",
+            "physicalEffectVerified": false,
+            "outcome": AutomationOutcomeKind(result).rawValue,
+        ]
+        if result.dryRun {
+            object["status"] = result.issue == nil ? "noOp" : "rejected"
+            object["dryRun"] = true
+            object["plan"] = result.plan
+        }
+        if let report = result.brightness {
+            object["displayId"] = report.displayId
+            object["value"] = report.requested?.normalized
+            object["level"] = report.level?.normalized
+            object["method"] = report.route.rawValue
+            object["readbackVerified"] = report.outcome == .verified
+        }
+        if let issue = result.issue {
+            object["error"] = issue.message
+            object["code"] = issue.code.rawValue
+        }
+        body = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data("{}".utf8)
+    }
+}

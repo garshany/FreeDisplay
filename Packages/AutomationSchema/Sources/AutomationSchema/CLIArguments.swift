@@ -88,6 +88,7 @@ public enum CLIGrammar {
         "brightness": ["--json", "--method", "--offset"],
         "mode": ["--json"],
         "commands": ["--json"],
+        "capabilities": ["--json"],
         "ddc": ["--json"],
         "edid": ["--out"],
     ]
@@ -97,7 +98,7 @@ public enum CLIGrammar {
     public static let commands: Set<String> = [
         "list", "diagnose", "lux", "lid", "listen", "alias", "tag", "recover", "disconnect",
         "reconnect", "scene", "layout", "group", "brightness", "ddc", "edid", "favorite",
-        "favourite", "mode", "commands", "_rotate-exp", "help",
+        "favourite", "mode", "commands", "capabilities", "_rotate-exp", "help",
     ]
 
     public static func parse(_ arguments: [String]) throws -> CLIParseResult {

@@ -27,6 +27,20 @@ public struct AutomationDisplaySummary: Hashable, Sendable, Codable {
     }
 }
 
+/// Admission is distinct from a successful device probe or a promise a later write will succeed.
+public struct AutomationCommandAvailability: Hashable, Sendable, Codable {
+    public var command: AutomationCommandName
+    public var issue: AutomationIssue?
+    public var admitted: Bool { issue == nil }
+}
+
+public struct AutomationCapabilityReport: Hashable, Sendable, Codable {
+    public var displayId: String
+    public var surface: AutomationSurface
+    public var commands: [AutomationCommandAvailability]
+    public var brightnessRoutes: BrightnessRouteAvailability
+}
+
 /// A brightness read or write as it settled.
 public struct AutomationBrightnessReport: Hashable, Sendable, Codable {
     public var displayId: String
@@ -61,7 +75,7 @@ public struct AutomationModeEntry: Hashable, Sendable, Codable {
 }
 
 /// What a display offers right now, as a surface's primitive reports it.
-public struct AutomationModeState: Hashable, Sendable {
+public struct AutomationModeState: Hashable, Sendable, Codable {
     public var current: DisplayMode?
     /// Every exact mode offered, in the order discovery lists them.
     public var offered: [DisplayMode]
@@ -81,7 +95,7 @@ public struct AutomationModeList: Hashable, Sendable, Codable {
 }
 
 /// How a mode change settled.
-public enum AutomationModeSettlement: Hashable, Sendable {
+public enum AutomationModeSettlement: Hashable, Sendable, Codable {
     /// The display was already in the mode; nothing changed.
     case alreadyInEffect
     /// macOS confirmed the mode; it stays only if kept before the countdown ends.
@@ -102,11 +116,29 @@ public struct AutomationModeReport: Hashable, Sendable, Codable {
     public var secondsToKeep: Int?
 }
 
+/// How a main-display change settled, as a surface's primitive reports it.
+public struct AutomationMainSettlement: Hashable, Sendable, Codable {
+    /// The main display observed afterwards.
+    public var observedMain: DisplayRecordID?
+    /// True when the change stays only if kept before a keep-or-revert countdown ends.
+    public var awaitingConfirmation: Bool
+    public var secondsToKeep: Int?
+
+    public init(observedMain: DisplayRecordID?, awaitingConfirmation: Bool = false, secondsToKeep: Int? = nil) {
+        self.observedMain = observedMain
+        self.awaitingConfirmation = awaitingConfirmation
+        self.secondsToKeep = secondsToKeep
+    }
+}
+
 public struct AutomationMainReport: Hashable, Sendable, Codable {
     public var displayId: String
     public var displayName: String
     /// False when the display already was the main display.
     public var changed: Bool
+    /// True when the change reverts unless it is kept in time.
+    public var awaitingConfirmation: Bool
+    public var secondsToKeep: Int?
 }
 
 /// A display's ICC assignment as ColorSync reports it.
@@ -147,6 +179,7 @@ public struct AutomationResult: Hashable, Sendable, Codable {
     public var issue: AutomationIssue?
     public var envelope: ResultEnvelope
     public var displays: [AutomationDisplaySummary]?
+    public var capabilities: AutomationCapabilityReport?
     public var brightness: AutomationBrightnessReport?
     public var modes: AutomationModeList?
     public var mode: AutomationModeReport?

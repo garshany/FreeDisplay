@@ -31,10 +31,12 @@ public protocol AutomationEnvironment: Sendable {
                           via route: BrightnessRoute) async throws(AutomationIssue) -> BrightnessWriteReport
 
     func modes(of display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationModeState
-    /// Applies an exact offered mode through the surface's verified path.
-    func applyMode(_ mode: DisplayMode, to display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationModeSettlement
-    /// Makes the display main; returns the main display observed afterwards.
-    func makeMain(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> DisplayRecordID?
+    /// Applies an exact offered mode through the surface's verified path; with
+    /// `keepWithoutConfirmation` a verified mode is kept at once rather than awaiting the countdown.
+    func applyMode(_ mode: DisplayMode, to display: AutomationDisplayCandidate,
+                   keepWithoutConfirmation: Bool) async throws(AutomationIssue) -> AutomationModeSettlement
+    /// Makes the display main and reports the main display observed afterwards.
+    func makeMain(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationMainSettlement
 
     func installedColorProfiles() async throws(AutomationIssue) -> [AutomationProfileInfo]
     func colorProfile(of display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationColorProfileState
@@ -66,10 +68,11 @@ public extension AutomationEnvironment {
     func modes(of display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationModeState {
         throw notOffered(.listModes)
     }
-    func applyMode(_ mode: DisplayMode, to display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationModeSettlement {
+    func applyMode(_ mode: DisplayMode, to display: AutomationDisplayCandidate,
+                   keepWithoutConfirmation: Bool) async throws(AutomationIssue) -> AutomationModeSettlement {
         throw notOffered(.setMode)
     }
-    func makeMain(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> DisplayRecordID? {
+    func makeMain(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationMainSettlement {
         throw notOffered(.setMain)
     }
     func installedColorProfiles() async throws(AutomationIssue) -> [AutomationProfileInfo] {
@@ -113,9 +116,14 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
 
     public func run(_ request: AutomationRequest) async -> AutomationResult {
         var context = Context(request: request, surface: environment.surface, requestedAt: now())
-        do {
+        do throws(AutomationIssue) {
             let descriptor = AutomationCatalog.descriptor(for: request.command.name)
             try admit(descriptor)
+            if case .setMode(_, keepWithoutConfirmation: true) = request.command,
+               environment.surface != .appIntent {
+                throw AutomationIssue(.refusedFromSurface, "only App Intents may skip mode confirmation",
+                                      subject: request.command.name.rawValue)
+            }
             try await environment.prepare()
             let set = await environment.displaySet()
             context.generation = set.topologyGeneration
@@ -168,6 +176,25 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             result.displays = set.candidates.map(AutomationDisplaySummary.init)
             return result
 
+        case .getCapabilities:
+            let display = try required(target)
+            let commands = AutomationCatalog.descriptors.map { descriptor in
+                let issue: AutomationIssue?
+                do throws(AutomationIssue) {
+                    try admit(descriptor)
+                    issue = AutomationSelectorResolver.availabilityIssue(display, requirement: descriptor.target)
+                } catch { issue = error }
+                return AutomationCommandAvailability(command: descriptor.name, issue: issue)
+            }
+            let routes = display.availability == .active
+                ? await environment.brightnessRoutes(for: display)
+                : BrightnessRouteAvailability(current: nil, states: [:])
+            var result = context.result(status: .noOp)
+            result.capabilities = AutomationCapabilityReport(displayId: display.id.rawValue,
+                                                              surface: environment.surface, commands: commands,
+                                                              brightnessRoutes: routes)
+            return result
+
         case .getBrightness(let method):
             let display = try required(target)
             let route = try await chooseRoute(method, for: display)
@@ -179,7 +206,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             }
             let report = brightnessReport(display, route: route, requested: nil, level: level, outcome: nil,
                                           readback: readback, note: readback.isReportedByDisplay ? nil
-                                              : "software dimming: the level OpenDisplay applies; the display can't report it")
+                                              : "software dimming: the level FreeDisplay applies; the display can't report it")
             var result = context.result(status: .noOp, operations: [
                 .init(field: "brightness", observed: .double(level.normalized),
                       verification: readback.isReportedByDisplay ? .verified : .readBackUnavailable,
@@ -220,7 +247,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             result.modes = modeList(display, state: state)
             return result
 
-        case .setMode(let spec):
+        case .setMode(let spec, let keep):
             let display = try required(target)
             let state = try await environment.modes(of: display)
             let mode = try spec.resolve(among: state.offered + [state.current].compactMap { $0 }, displayName: display.name)
@@ -235,10 +262,10 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             if context.request.dryRun {
                 return context.plan("switch \(display.name) to \(key)", field: "mode", requested: .string(key))
             }
-            let settlement = try await environment.applyMode(mode, to: display)
+            let settlement = try await environment.applyMode(mode, to: display, keepWithoutConfirmation: keep)
             var warnings: [String] = []
             if case .awaitingConfirmation(let seconds) = settlement {
-                warnings.append("keepPending: the mode reverts unless it is kept in OpenDisplay"
+                warnings.append("keepPending: the mode reverts unless it is kept in the app"
                     + (seconds.map { " within \($0) seconds" } ?? ""))
             }
             let outcome: OperationOutcome = settlement == .alreadyInEffect ? .alreadySatisfied : .verified
@@ -254,21 +281,28 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
                 var result = context.result(status: .noOp, operations: [
                     .init(field: "main", requested: .bool(true), observed: .bool(true), verification: .verified,
                           outcome: .alreadySatisfied)])
-                result.main = AutomationMainReport(displayId: display.id.rawValue, displayName: display.name, changed: false)
+                result.main = AutomationMainReport(displayId: display.id.rawValue, displayName: display.name, changed: false,
+                                                   awaitingConfirmation: false, secondsToKeep: nil)
                 return result
             }
             if context.request.dryRun {
                 return context.plan("make \(display.name) the main display", field: "main", requested: .bool(true))
             }
-            let observed = try await environment.makeMain(display)
-            guard observed == display.id else {
+            let settlement = try await environment.makeMain(display)
+            guard settlement.observedMain == display.id else {
                 throw AutomationIssue(.notConfirmed, "macOS didn't make \(display.name) the main display",
                                       subject: display.id.rawValue)
             }
+            let warnings = settlement.awaitingConfirmation
+                ? ["keepPending: the arrangement reverts unless it is kept in the app"
+                    + (settlement.secondsToKeep.map { " within \($0) seconds" } ?? "")]
+                : []
             var result = context.result(status: .committed, operations: [
                 .init(field: "main", requested: .bool(true), observed: .bool(true), verification: .verified,
-                      outcome: .verified)])
-            result.main = AutomationMainReport(displayId: display.id.rawValue, displayName: display.name, changed: true)
+                      warnings: warnings, outcome: .verified)])
+            result.main = AutomationMainReport(displayId: display.id.rawValue, displayName: display.name, changed: true,
+                                               awaitingConfirmation: settlement.awaitingConfirmation,
+                                               secondsToKeep: settlement.secondsToKeep)
             return result
 
         case .listColorProfiles:
@@ -295,7 +329,7 @@ public struct AutomationEngine<Environment: AutomationEnvironment>: Sendable {
             return try await changeColorProfile(to: nil, display: display, context: context)
 
         case .reconnectAll:
-            if context.request.dryRun { return context.plan("reconnect every display OpenDisplay turned off") }
+            if context.request.dryRun { return context.plan("reconnect every display FreeDisplay turned off") }
             let envelope = try await environment.reconnectAll()
             var result = AutomationResult(command: .reconnectAll, envelope: envelope)
             if envelope.status == .failed {

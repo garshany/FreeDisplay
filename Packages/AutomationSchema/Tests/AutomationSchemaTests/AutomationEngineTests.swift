@@ -16,6 +16,7 @@ private actor FakeEnvironment: AutomationEnvironment {
     var modeState = AutomationModeState(current: nil, offered: [])
     var modeSettlement: AutomationModeSettlement = .awaitingConfirmation(secondsToKeep: 15)
     var mainAfter: DisplayRecordID?
+    var mainAwaitsKeep = false
     var profiles: [AutomationProfileInfo] = []
     var profileState = AutomationColorProfileState(name: "Factory", customProfilePath: nil, isFactory: true, controllable: true)
     var profileLands = true
@@ -79,14 +80,16 @@ private actor FakeEnvironment: AutomationEnvironment {
 
     func modes(of display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationModeState { modeState }
 
-    func applyMode(_ mode: DisplayMode, to display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationModeSettlement {
-        calls.append("mode \(display.id.rawValue) \(FavoriteResolutions.key(for: mode))")
-        return modeSettlement
+    func applyMode(_ mode: DisplayMode, to display: AutomationDisplayCandidate,
+                   keepWithoutConfirmation: Bool) async throws(AutomationIssue) -> AutomationModeSettlement {
+        calls.append("mode \(display.id.rawValue) \(FavoriteResolutions.key(for: mode))\(keepWithoutConfirmation ? " keep" : "")")
+        return keepWithoutConfirmation ? .applied : modeSettlement
     }
 
-    func makeMain(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> DisplayRecordID? {
+    func makeMain(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationMainSettlement {
         calls.append("main \(display.id.rawValue)")
-        return mainAfter
+        return AutomationMainSettlement(observedMain: mainAfter, awaitingConfirmation: mainAwaitsKeep,
+                                        secondsToKeep: mainAwaitsKeep ? 10 : nil)
     }
 
     func installedColorProfiles() async throws(AutomationIssue) -> [AutomationProfileInfo] { profiles }
@@ -325,6 +328,63 @@ final class AutomationEngineTests: XCTestCase {
         XCTAssertEqual(calls.count, 1, "an already-current mode is not re-applied")
     }
 
+    /// Owner decision #20: the Intent can keep a verified mode without the countdown; no parsed
+    /// request can.
+    func testKeepingAModeWithoutConfirmationIsOnlyAnExplicitCommandFlag() async throws {
+        let environment = FakeEnvironment(surface: .appIntent, candidates: displays)
+        await environment.configure { $0.modeState = AutomationModeState(current: Self.mode(1920, 1080), offered: [Self.mode(1920, 1080), Self.mode(1600, 900)]) }
+        let kept = await engine(environment).run(.byID(.setMode(.logical(width: 1600, height: 900, refreshHz: nil, hiDPI: nil),
+                                                                keepWithoutConfirmation: true),
+                                                      DisplayRecordID(rawValue: "cg:desk")))
+        XCTAssertEqual(kept.mode?.settlement, .applied)
+        XCTAssertNil(kept.mode?.secondsToKeep)
+        XCTAssertEqual(try request("mode", ["display": .string("Desk"), "mode": .string("1600x900")]).command,
+                       .setMode(.logical(width: 1600, height: 900, refreshHz: nil, hiDPI: nil), keepWithoutConfirmation: false))
+        XCTAssertThrowsError(try request("mode", ["display": .string("Desk"), "mode": .string("1600x900"),
+                                                  "keepWithoutConfirmation": .bool(true)]))
+    }
+
+    func testDecodedConfirmationBypassIsRefusedOutsideIntentBeforeExecution() async throws {
+        let environment = FakeEnvironment(surface: .http, candidates: displays)
+        let request = AutomationRequest.byID(.setMode(.logical(width: 1600, height: 900, refreshHz: nil, hiDPI: nil),
+                                                       keepWithoutConfirmation: true), .init(rawValue: "cg:desk"))
+        let decoded = try JSONDecoder().decode(AutomationRequest.self, from: JSONEncoder().encode(request))
+        let result = await engine(environment).run(decoded)
+        XCTAssertEqual(result.issue?.code, .refusedFromSurface)
+        let calls = await environment.calls
+        XCTAssertTrue(calls.isEmpty)
+    }
+
+    func testEquivalentHardwareRequestsUseIdenticalSettlementAcrossExecutableSurfaces() async throws {
+        let request = try request("brightness", ["display": .string("id:cg:desk"), "value": .string("40%"),
+                                                  "method": .string("hardware")])
+        for surface in [AutomationSurface.cli, .http, .appIntent, .console] {
+            let environment = FakeEnvironment(surface: surface, candidates: displays)
+            await environment.configure { $0.readbackOverride = .ddc(current: 41, max: 100) }
+            let result = await engine(environment).run(request)
+            XCTAssertEqual(result.brightness?.outcome, .verified, surface.rawValue)
+            XCTAssertEqual(result.brightness?.level?.wholePercent, 41)
+            XCTAssertEqual(result.brightness?.route, .ddc)
+        }
+    }
+
+    func testCapabilitiesDistinguishAdmissionBuildRefusalAndOfflineState() async {
+        let environment = FakeEnvironment(surface: .cli, candidates: displays,
+                                            unavailable: [.adjustBrightness: .init(.capabilityUnavailable, "IPC required")])
+        let active = await engine(environment).run(.byID(.getCapabilities, .init(rawValue: "cg:desk")))
+        XCTAssertTrue(active.capabilities?.brightnessRoutes.isAvailable(.ddc) ?? false)
+        XCTAssertEqual(active.capabilities?.commands.first { $0.command == .setMode }?.issue?.code, .refusedFromSurface)
+        XCTAssertEqual(active.capabilities?.commands.first { $0.command == .adjustBrightness }?.issue?.code, .capabilityUnavailable)
+        await environment.configure { $0.candidates = $0.candidates.map { candidate in
+            var copy = candidate
+            copy.availability = .disconnected
+            return copy
+        } }
+        let offline = await engine(environment).run(.byID(.getCapabilities, .init(rawValue: "cg:desk")))
+        XCTAssertEqual(offline.capabilities?.commands.first { $0.command == .setBrightness }?.issue?.code, .displayNotConnected)
+        XCTAssertFalse(offline.capabilities?.brightnessRoutes.isAvailable(.ddc) ?? true)
+    }
+
     func testModeDiscoveryListsCurrentFirst() async throws {
         let environment = FakeEnvironment(candidates: displays)
         await environment.configure { $0.modeState = AutomationModeState(current: Self.mode(1920, 1080), offered: [Self.mode(1600, 900), Self.mode(1920, 1080)]) }
@@ -351,6 +411,14 @@ final class AutomationEngineTests: XCTestCase {
         let changed = await engine(environment).run(.byID(.setMain, DisplayRecordID(rawValue: "cg:side")))
         XCTAssertEqual(changed.status, .committed)
         XCTAssertEqual(changed.main?.changed, true)
+        XCTAssertEqual(changed.main?.awaitingConfirmation, false)
+
+        // When main changes go through a keep-or-revert window, the result says so.
+        await environment.configure { $0.mainAwaitsKeep = true }
+        let pending = await engine(environment).run(.byID(.setMain, DisplayRecordID(rawValue: "cg:side")))
+        XCTAssertEqual(pending.main?.awaitingConfirmation, true)
+        XCTAssertEqual(pending.main?.secondsToKeep, 10)
+        XCTAssertTrue(pending.envelope.targets.first?.operations.first?.warnings.first?.hasPrefix("keepPending") ?? false)
     }
 
     // MARK: Colour profiles

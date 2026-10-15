@@ -2,6 +2,21 @@ import XCTest
 @testable import AutomationSchema
 
 final class BrightnessRoutePolicyTests: XCTestCase {
+    func testAppAvailabilityHonorsBuildAndUserRouteOwnership() throws {
+        let software = BrightnessRouteAvailability.appRoutes(current: .software, publicAPIOnly: false,
+                                                              softwarePreferred: true, ddcRefusal: nil)
+        XCTAssertEqual(try BrightnessRoutePolicy.choose(.automatic, availability: software, displayName: "Desk"), .software)
+        XCTAssertThrowsError(try BrightnessRoutePolicy.choose(.hardware, availability: software, displayName: "Desk"))
+        let publicOnly = BrightnessRouteAvailability.appRoutes(current: .native, publicAPIOnly: true,
+                                                               softwarePreferred: false, ddcRefusal: nil)
+        XCTAssertNil(publicOnly.current)
+        XCTAssertEqual(publicOnly.state(of: .native), .unavailable(.notInThisBuild))
+        let ddc = BrightnessRouteAvailability.appRoutes(current: .ddc, publicAPIOnly: false,
+                                                        softwarePreferred: false, ddcRefusal: nil)
+        XCTAssertEqual(try BrightnessRoutePolicy.choose(.hardware, availability: ddc, displayName: "Desk"), .ddc)
+        XCTAssertThrowsError(try BrightnessRoutePolicy.choose(.software, availability: ddc, displayName: "Desk"))
+    }
+
     private func availability(current: BrightnessRoute?, available: [BrightnessRoute],
                               unavailable: [BrightnessRoute: BrightnessRouteUnavailableReason] = [:]) -> BrightnessRouteAvailability {
         var states: [BrightnessRoute: BrightnessRouteAvailability.State] = [:]

@@ -81,18 +81,31 @@ public struct AutomationLevel: Hashable, Sendable, Codable, Comparable, CustomSt
 /// of the span (FA-44). Relative change is only ever requested explicitly (an `offset` parameter);
 /// a minus sign on an absolute value is never read as one.
 public struct AutomationLevelDelta: Hashable, Sendable, Codable, CustomStringConvertible {
-    /// −1…1, finite.
+    /// Any finite signed change; arithmetic clamps only the resulting level.
     public let normalized: Double
 
-    /// Nil for a non-finite value or one larger than the whole span (a change of more than 100
-    /// points can't mean anything on a 0…1 control).
+    /// Nil only for a non-finite value. The caller chooses the adjustment size.
     public init?(normalized: Double) {
-        guard normalized.isFinite, (-1...1).contains(normalized) else { return nil }
+        guard normalized.isFinite else { return nil }
         self.normalized = normalized
     }
 
     public init?(percentagePoints: Double) {
         self.init(normalized: percentagePoints / 100)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(Double.self)
+        guard let delta = Self(normalized: value) else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "offset must be finite")
+        }
+        self = delta
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(normalized)
     }
 
     public var percentagePoints: Double { normalized * 100 }
@@ -138,7 +151,7 @@ public enum AutomationValueParser {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         if let percentText = stripPercent(trimmed) {
             guard let points = signedDecimal(percentText), let delta = AutomationLevelDelta(percentagePoints: points) else {
-                throw .invalidValue(parameter, "'\(text)' is not a change from -100% to +100%")
+                throw .invalidValue(parameter, "'\(text)' is not a finite percentage-point change")
             }
             return delta
         }
@@ -151,7 +164,7 @@ public enum AutomationValueParser {
     public static func delta(number: Double, parameter: String = "offset",
                              original: String? = nil) throws(AutomationIssue) -> AutomationLevelDelta {
         guard let delta = AutomationLevelDelta(normalized: number) else {
-            throw .invalidValue(parameter, "'\(original ?? String(number))' is outside -1…+1 (-100%…+100%)")
+            throw .invalidValue(parameter, "'\(original ?? String(number))' is not a finite change")
         }
         return delta
     }

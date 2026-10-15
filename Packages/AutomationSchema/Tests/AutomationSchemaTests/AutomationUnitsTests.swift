@@ -73,7 +73,9 @@ final class AutomationUnitsTests: XCTestCase {
         XCTAssertEqual(delta("+0.05")?.normalized, 0.05)
         XCTAssertEqual(delta("-0.05")?.normalized, -0.05)
         XCTAssertEqual(delta("-100%")?.normalized, -1)
-        for text in ["", "+", "-", "++5%", "+150%", "-1.5", "5", "x%", "+-1"] {
+        XCTAssertEqual(delta("+150%")?.normalized, 1.5)
+        XCTAssertEqual(delta("5")?.normalized, 5)
+        for text in ["", "+", "-", "++5%", "x%", "+-1"] {
             XCTAssertNil(delta(text), "'\(text)' should be refused")
         }
     }

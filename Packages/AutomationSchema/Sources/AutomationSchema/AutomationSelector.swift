@@ -11,7 +11,7 @@ public struct AutomationDisplayCandidate: Hashable, Sendable, Codable, Identifia
         case active
         /// Connected but not a desktop of its own (e.g. a mirror member).
         case inactive
-        /// Not connected: turned off by OpenDisplay, unplugged, or only remembered.
+        /// Not connected: turned off by FreeDisplay, unplugged, or only remembered.
         case disconnected
     }
 
@@ -67,7 +67,7 @@ public struct AutomationDisplayCandidate: Hashable, Sendable, Codable, Identifia
 
 /// Every display a surface can name right now, plus the group names that exist (so `group:x` can tell
 /// "no such group" from "its members aren't here") and the topology generation the list came from.
-public struct AutomationDisplaySet: Hashable, Sendable {
+public struct AutomationDisplaySet: Hashable, Sendable, Codable {
     public var candidates: [AutomationDisplayCandidate]
     public var knownGroups: [String]
     public var topologyGeneration: UInt64
@@ -89,7 +89,7 @@ public struct AutomationDisplaySet: Hashable, Sendable {
 /// - `group:<name>` — every member of a display group (case-insensitive name);
 /// - `nameLike:<text>` — every display whose name or alias contains the text (case- and
 ///   diacritic-insensitive).
-public enum AutomationSelector: Hashable, Sendable {
+public enum AutomationSelector: Hashable, Sendable, Codable {
     case display(DisplaySelector)
     case cgDisplayID(UInt32)
     case group(String)
@@ -262,7 +262,7 @@ public enum AutomationSelectorResolver {
             return candidates.filter { $0.containsPointer == true }
         case .role(.focus):
             throw AutomationIssue(.unsupportedSelector,
-                                  "'\(shown)' isn't supported: finding the focused window's display needs window access OpenDisplay doesn't request",
+                                  "'\(shown)' isn't supported: finding the focused window's display needs window access FreeDisplay doesn't request",
                                   subject: shown)
         case .state(let reachability):
             return candidates.filter { $0.reachability == reachability }

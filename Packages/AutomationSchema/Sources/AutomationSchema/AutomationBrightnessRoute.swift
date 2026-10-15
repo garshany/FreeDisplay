@@ -38,7 +38,7 @@ public enum BrightnessRoute: String, Hashable, Sendable, Codable, CaseIterable {
     case native
     /// DDC/CI — the monitor's backlight over I²C.
     case ddc
-    /// Gamma/overlay dimming applied by OpenDisplay.
+    /// Gamma/overlay dimming applied by FreeDisplay.
     case software
 
     public var isHardware: Bool { self != .software }
@@ -55,7 +55,7 @@ public enum BrightnessRouteUnavailableReason: String, Hashable, Sendable, Codabl
     case notInThisBuild
     /// DDC was withheld for safety (ambiguous identity, Apple display without the user's override).
     case refused
-    /// The user set this display to software dimming in OpenDisplay.
+    /// The user set this display to software dimming in FreeDisplay.
     case softwarePreferred
     /// Software dimming lives in the process that sets it, so a command-line run that exits would
     /// take it away again.
@@ -65,8 +65,8 @@ public enum BrightnessRouteUnavailableReason: String, Hashable, Sendable, Codabl
 }
 
 /// Which routes one display offers right now, and the one its slider uses.
-public struct BrightnessRouteAvailability: Hashable, Sendable {
-    public enum State: Hashable, Sendable {
+public struct BrightnessRouteAvailability: Hashable, Sendable, Codable {
+    public enum State: Hashable, Sendable, Codable {
         case available
         case unavailable(BrightnessRouteUnavailableReason, detail: String? = nil)
     }
@@ -86,6 +86,27 @@ public struct BrightnessRouteAvailability: Hashable, Sendable {
     }
 
     public func isAvailable(_ route: BrightnessRoute) -> Bool { state(of: route) == .available }
+}
+
+public extension BrightnessRouteAvailability {
+    /// App automation follows the user's current route. An explicit method never changes the
+    /// display's configured ownership, and a public-only build cannot offer private transports.
+    static func appRoutes(current: BrightnessRoute?, publicAPIOnly: Bool,
+                          softwarePreferred: Bool, ddcRefusal: String?) -> Self {
+        let effective = publicAPIOnly && current?.isHardware == true ? nil : current
+        var states: [BrightnessRoute: State] = [:]
+        for route in BrightnessRoute.allCases {
+            if publicAPIOnly && route.isHardware { states[route] = .unavailable(.notInThisBuild) }
+            else if softwarePreferred && route.isHardware { states[route] = .unavailable(.softwarePreferred) }
+            else if route == effective { states[route] = .available }
+            else if route == .ddc, effective != .native, let ddcRefusal {
+                states[route] = .unavailable(.refused, detail: ddcRefusal)
+            } else if effective == nil || (route.isHardware && effective == .software) {
+                states[route] = .unavailable(.notOffered)
+            } else { states[route] = .unavailable(.notCurrentRoute) }
+        }
+        return Self(current: effective, states: states)
+    }
 }
 
 /// Chooses the route for a request (FD-066). Pure, so "hardware only never falls back to software"
@@ -132,20 +153,20 @@ public enum BrightnessRoutePolicy {
         case .notOffered: return "the display doesn't offer it"
         case .notInThisBuild: return "not included in this build"
         case .refused: return "withheld for safety"
-        case .softwarePreferred: return "the display is set to software dimming in OpenDisplay"
+        case .softwarePreferred: return "the display is set to software dimming in FreeDisplay"
         case .notInThisProcess: return "software dimming would end when the command exits"
-        case .notCurrentRoute: return "OpenDisplay drives this display through another route"
+        case .notCurrentRoute: return "FreeDisplay drives this display through another route"
         }
     }
 }
 
 /// What could be read from a display after (or without) a brightness write.
-public enum BrightnessReadback: Hashable, Sendable {
+public enum BrightnessReadback: Hashable, Sendable, Codable {
     /// A 0…1 level the display reported (native control).
     case level(Double)
     /// A DDC/CI reading in the monitor's own units.
     case ddc(current: Int, max: Int)
-    /// The level OpenDisplay applied with software dimming — known, but not reported by the display.
+    /// The level FreeDisplay applied with software dimming — known, but not reported by the display.
     case applied(Double)
     /// Nothing could be read.
     case none
@@ -159,7 +180,7 @@ public enum BrightnessReadback: Hashable, Sendable {
         }
     }
 
-    /// True when the display itself reported the value (not OpenDisplay's own record of it).
+    /// True when the display itself reported the value (not FreeDisplay's own record of it).
     public var isReportedByDisplay: Bool {
         switch self {
         case .level, .ddc: return true
@@ -169,7 +190,7 @@ public enum BrightnessReadback: Hashable, Sendable {
 }
 
 /// What a surface's brightness primitive reports back to the engine.
-public struct BrightnessWriteReport: Hashable, Sendable {
+public struct BrightnessWriteReport: Hashable, Sendable, Codable {
     /// The absolute level that was written — for a relative change, where it landed after clamping.
     public var requested: AutomationLevel
     /// Whether the route accepted the write (false: it failed before anything changed).
@@ -191,7 +212,7 @@ public struct BrightnessWriteReport: Hashable, Sendable {
 /// - A native read-back must land on the requested whole percent (the unit actions speak).
 /// - A DDC read-back is judged in the monitor's units with one unit of rounding, exactly as the
 ///   app's own DDC write verification judges every slider write (`DDCWriteVerification`).
-/// - Software dimming is reported with the level OpenDisplay applied (the software floor
+/// - Software dimming is reported with the level FreeDisplay applied (the software floor
 ///   included) but never as confirmed by the display: nothing on the display can report it.
 /// - No read-back is `sent`: accepted, unconfirmed.
 public enum BrightnessSettlement {
@@ -227,14 +248,14 @@ public enum BrightnessSettlement {
                 return Verdict(outcome: .sent, observed: nil, verifiedByDisplay: false, note: "unreadable DDC read-back")
             }
             let target = requested.raw(maximum: max)
-            if DDCWriteVerification.outcome(target: target, readback: current, tolerance: 1) == .applied {
+            if DDCWriteVerification.outcome(target: target, readback: current, tolerance: DDCReadbackPolicy.tolerance(.continuous)) == .applied {
                 return Verdict(outcome: .verified, observed: observed, verifiedByDisplay: true, note: nil)
             }
             return Verdict(outcome: .sent, observed: observed, verifiedByDisplay: false,
                            note: "the panel reports \(current)/\(max) instead of \(target)")
         case .applied(let value):
             let observed = AutomationLevel(normalized: value)
-            var note = "software dimming: the level OpenDisplay applies; the display can't report it"
+            var note = "software dimming: the level FreeDisplay applies; the display can't report it"
             if let observed, observed.wholePercent != requested.wholePercent {
                 note += " (applied \(observed.wholePercent)%)"
             }

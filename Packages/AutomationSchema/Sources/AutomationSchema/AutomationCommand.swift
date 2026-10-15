@@ -28,6 +28,7 @@ public enum AutomationSurface: String, Hashable, Sendable, Codable, CaseIterable
 /// console. Never rename a case; add an alias in the catalog instead.
 public enum AutomationCommandName: String, Hashable, Sendable, Codable, CaseIterable {
     case listDisplays
+    case getCapabilities
     case getBrightness
     case setBrightness
     case adjustBrightness
@@ -45,15 +46,19 @@ public enum AutomationCommandName: String, Hashable, Sendable, Codable, CaseIter
 
 /// One typed command with its validated arguments. Building one is the only way into the engine, so
 /// a value that reached here is already in canonical units.
-public enum AutomationCommand: Hashable, Sendable {
+public enum AutomationCommand: Hashable, Sendable, Codable {
     case listDisplays
+    case getCapabilities
     case getBrightness(method: BrightnessMethodRequest)
     case setBrightness(AutomationLevel, method: BrightnessMethodRequest)
     /// A relative change applied atomically against the level at execution time (FA-44).
     case adjustBrightness(AutomationLevelDelta, method: BrightnessMethodRequest)
     case listModes
     case getMode
-    case setMode(AutomationModeSpec)
+    /// `keepWithoutConfirmation` keeps a verified mode at once instead of opening the keep-or-revert
+    /// countdown. Only the App Intent offers it (owner decision #20, default off); the shared parser
+    /// never sets it, so no link, HTTP client or console line can skip the countdown.
+    case setMode(AutomationModeSpec, keepWithoutConfirmation: Bool = false)
     case setMain
     case listColorProfiles
     case getColorProfile
@@ -65,6 +70,7 @@ public enum AutomationCommand: Hashable, Sendable {
     public var name: AutomationCommandName {
         switch self {
         case .listDisplays: return .listDisplays
+        case .getCapabilities: return .getCapabilities
         case .getBrightness: return .getBrightness
         case .setBrightness: return .setBrightness
         case .adjustBrightness: return .adjustBrightness
@@ -83,7 +89,7 @@ public enum AutomationCommand: Hashable, Sendable {
 }
 
 /// A request as every surface hands it to the engine.
-public struct AutomationRequest: Hashable, Sendable {
+public struct AutomationRequest: Hashable, Sendable, Codable {
     public var command: AutomationCommand
     /// The display selector; nil for commands without a target (and for the brightness action's
     /// documented built-in default, which its surface fills in explicitly).
@@ -141,7 +147,7 @@ public struct AutomationParameterSpec: Hashable, Sendable, Codable {
         case selector
         /// A level: `0…1` or `N%`.
         case level
-        /// A signed change: `±0…1` or `±N%`.
+        /// A signed change: a signed normalized offset or `±N%`.
         case delta
         case method
         /// `WxH[@Hz][@2x|@1x]` or an exact mode key.
@@ -210,6 +216,10 @@ public enum AutomationCatalog {
         .init(name: .listDisplays, aliases: ["list", "displays"],
               summary: "Lists the displays automation can name, connected or remembered.",
               effect: .read, target: .none, surfaces: [.cli, .http, .appIntent, .console]),
+        .init(name: .getCapabilities, aliases: ["capabilities"],
+              summary: "Reports command admission and brightness routes for one display on this surface.",
+              effect: .read, target: .anyDisplay, parameters: [display],
+              surfaces: [.cli, .http, .appIntent, .console]),
         .init(name: .getBrightness, aliases: ["brightness"],
               summary: "Reads a display's brightness (0…1) and says which route reported it.",
               effect: .read, target: .activeDisplay, parameters: [display, method],
@@ -222,7 +232,7 @@ public enum AutomationCatalog {
         .init(name: .adjustBrightness, aliases: ["brightness"],
               summary: "Changes a display's brightness by a signed amount, clamped at the ends of its range.",
               effect: .setting, target: .activeDisplay,
-              parameters: [display, .init("offset", .delta, required: true, "±0…1, or percentage points like +5% or -5%."), method],
+              parameters: [display, .init("offset", .delta, required: true, "A signed normalized offset, or percentage points like +5% or -5%."), method],
               surfaces: [.cli, .http, .appIntent, .console]),
         .init(name: .listModes, aliases: ["modes"],
               summary: "Lists every exact mode a connected display offers, current mode first.",
@@ -257,7 +267,7 @@ public enum AutomationCatalog {
               summary: "Returns a display to its factory ICC profile.",
               effect: .setting, target: .activeDisplay, parameters: [display], surfaces: appSurfaces),
         .init(name: .reconnectAll,
-              summary: "Reconnects every display OpenDisplay turned off — the always-available recovery action.",
+              summary: "Reconnects every display FreeDisplay turned off — the always-available recovery action.",
               effect: .recovery, target: .none, surfaces: [.cli, .url, .http, .appIntent, .console]),
         .init(name: .disconnect,
               summary: "Turns one display off; refused when it would leave no usable screen.",
@@ -284,7 +294,7 @@ public enum AutomationCatalog {
 
 /// A mode as a request names it (FA-18, TB-06). Matching never manufactures or approximates a mode:
 /// the request must pick exactly one offered mode, or it fails naming what it matched.
-public enum AutomationModeSpec: Hashable, Sendable {
+public enum AutomationModeSpec: Hashable, Sendable, Codable {
     /// Every field of an exact mode (what a stored mode key or an App Intent mode entity carries).
     case exact(DisplayMode)
     /// A logical size with optional refresh rate and density; unspecified parts match any value.
@@ -373,7 +383,7 @@ public struct AutomationProfileInfo: Hashable, Sendable, Codable {
 
 /// An ICC profile as a request names it: a file path (exact), or a name that must match exactly one
 /// installed profile.
-public enum AutomationProfileSpec: Hashable, Sendable {
+public enum AutomationProfileSpec: Hashable, Sendable, Codable {
     case path(String)
     case name(String)
 

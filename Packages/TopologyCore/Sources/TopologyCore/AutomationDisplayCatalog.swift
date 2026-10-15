@@ -212,20 +212,15 @@ public enum AutomationBrightness {
     /// exactly as the app's own write verification judges every DDC brightness write (one unit of
     /// rounding/quantisation), so a monitor with a coarse scale isn't called wrong for rounding.
     public static func outcome(requestedPercent: Int, readback: Readback) -> Outcome {
-        let requested = min(100, max(0, requestedPercent))
+        let translated: BrightnessReadback
         switch readback {
-        case .none:
-            return Outcome(resultingPercent: nil, verified: false)
-        case .level(let level):
-            let actual = percent(level)
-            return Outcome(resultingPercent: actual, verified: actual == requested)
-        case .ddc(let current, let max):
-            guard max > 0 else { return Outcome(resultingPercent: nil, verified: false) }
-            // The same scaling `AppModel.setBrightness` uses to turn a level into a DDC target.
-            let target = Int((level(percent: requested) * Float(max)).rounded())
-            let verdict = DDCWriteVerification.outcome(target: target, readback: current, tolerance: 1)
-            return Outcome(resultingPercent: percent(Float(current) / Float(max)), verified: verdict == .applied)
+        case .none: translated = .none
+        case .level(let level): translated = .level(Double(level))
+        case .ddc(let current, let max): translated = .ddc(current: current, max: max)
         }
+        let verdict = BrightnessSettlement.settle(.init(requested: AutomationLevel(clamping: Double(requestedPercent) / 100),
+                                                        accepted: true, readback: translated))
+        return Outcome(resultingPercent: verdict.observed?.wholePercent, verified: verdict.verifiedByDisplay)
     }
 }
 
