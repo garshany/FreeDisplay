@@ -66,7 +66,9 @@ public struct DiskRegistryStore: RegistryStoring {
 
 /// The source of remembered display identity (PRD §10.5, REG-003/004/005). Resolves a live
 /// observation's fingerprint to a stable `DisplayRecord` — recognizing a display we've seen before
-/// or minting a new record — and owns user-attached alias/tag/pairing edits. Resolution order:
+/// or minting a new record — and owns user-attached alias/tag/pairing edits. A record whose identity
+/// positively conflicts with the observation (`IdentityScorer.identitiesConflict`: another vendor or
+/// model, or the same model with another serial) takes part in none of the stages. Resolution order:
 ///   1. serial match qualified by vendor and model (`IdentityScorer.serialsMatch`); when several
 ///      records share it, the one this CG UUID already points at,
 ///   2. same-Mac CG-UUID fast path,
@@ -243,13 +245,17 @@ public actor DisplayRegistry {
     /// the records not in `excluded`.
     private func claim(for fingerprint: DisplayFingerprint, cgUUID: String?,
                        excluding excluded: Set<DisplayRecordID>) -> Claim {
-        let candidates = state.records.filter { !excluded.contains($0.id) }
-        // The CG UUID index is a same-Mac routing hint, not identity: a record whose own vendor,
-        // model or qualified serial says it is a different display is not this one, whatever the
-        // index says — following it would merge the two and overwrite the record's identity.
+        // A record whose own vendor, model or qualified serial says it is a different display is not
+        // this one, whatever else points at it — so it is out of EVERY stage below, not just one. The
+        // CG UUID index is a same-Mac routing hint, and a score is a sum of agreements: a paired record
+        // of the same model still scores 0.925 for its twin with another serial. Following either
+        // would merge the two displays, hand this one the other's alias and tags, and overwrite the
+        // record's identity with this display's serial.
+        let candidates = state.records.filter {
+            !excluded.contains($0.id) && !IdentityScorer.identitiesConflict(fingerprint, $0.fingerprint)
+        }
         let indexed = cgUUID.flatMap { state.cgUUIDIndex[$0] }
-            .flatMap { id in candidates.first { $0.id == id } }
-            .flatMap { IdentityScorer.identitiesConflict(fingerprint, $0.fingerprint) ? nil : $0.id }
+            .flatMap { id in candidates.first { $0.id == id }?.id }
 
         // 1. Qualified serial: the same serial from the same vendor and model.
         let serialMatches = candidates
