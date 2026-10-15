@@ -61,6 +61,7 @@ struct SettingsView: View {
                             .frame(maxWidth: .infinity, alignment: .topLeading)
                     }.navigationTitle("On-screen display")
                 case .automation: LocalControlPanel()
+                case .actions: IntegrationSettingsView()
                 case .virtual:
 #if !PUBLIC_API_ONLY
                     VirtualDisplaysSettingsView(
@@ -101,7 +102,7 @@ struct SettingsView: View {
 }
 
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
-    case displays, application, menu, arrange, scenes, virtual, capture, advanced, keyboard, feedback, automation, health, about
+    case displays, application, menu, arrange, scenes, virtual, capture, advanced, keyboard, feedback, automation, actions, health, about
     var id: String { rawValue }
 
     /// The section a newly created Settings window starts on: the launch argument when given (the
@@ -126,6 +127,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .keyboard: return String(localized: "Keyboard")
         case .feedback: return String(localized: "On-screen display")
         case .automation: return String(localized: "Automation")
+        case .actions: return String(localized: "Actions & Hooks")
         case .health: return String(localized: "Diagnostics")
         case .about: return String(localized: "About")
         }
@@ -143,6 +145,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .keyboard: return "keyboard"
         case .feedback: return "speaker.wave.2.bubble"
         case .automation: return "terminal"
+        case .actions: return "bolt.horizontal.circle"
         case .health: return "stethoscope"
         case .about: return "info.circle"
         }

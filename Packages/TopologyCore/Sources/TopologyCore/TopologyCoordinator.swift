@@ -191,10 +191,12 @@ public actor TopologyCoordinator {
 
     /// Reconnects every managed-offline display. Always available; intended to preempt queued work
     /// (PRD §9.2 invariant 6, LIF-009/010). Returns per-target success/failure.
-    public func reconnectAll(deadline: Date = Date().addingTimeInterval(15)) async -> [DisplayRecordID: Bool] {
+    public func reconnectAll(deadline: Date = Date().addingTimeInterval(15),
+                             beforeRequest: (@Sendable (DisplayRecordID) async -> Void)? = nil) async -> [DisplayRecordID: Bool] {
         let snapshot = await observer.currentSnapshot()
         var results: [DisplayRecordID: Bool] = [:]
         for record in snapshot.managedOffline {
+            await beforeRequest?(record.displayID)
             do {
                 try await lifecycleProvider.reconnect(record.displayID, deadline: deadline)
                 results[record.displayID] = true

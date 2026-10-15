@@ -330,6 +330,8 @@ private struct RememberedDisplayCleanupSheet: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Keeps").font(.subheadline.weight(.semibold))
             ForEach(kept(plan), id: \.self) { bullet($0) }
+            Text("Integration actions and hooks stay under their original identifiers, including after Forget or Reset. They may contain device-specific executable arguments or URLs. Review or remove them in Actions & Hooks; transfer never retargets them.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         HStack {
             if working { ProgressView().controlSize(.small) }

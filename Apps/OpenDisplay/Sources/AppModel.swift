@@ -537,6 +537,8 @@ final class AppModel: ObservableObject {
     private var appManagementIsQuitting = false
 
     /// Safe startup (FA-09): Shift was held at launch, or the app was started with `--safe-mode`.
+    let integrationSession = IntegrationSession()
+
     /// For this whole session OpenDisplay changes nothing on its own (`SafeStartup`); explicit
     /// requests and the recovery safety nets still work, and no setting is altered, so an ordinary
     /// relaunch is all it takes to resume. Read once, here: the key state is only meaningful at launch.
@@ -627,6 +629,7 @@ final class AppModel: ObservableObject {
             retentionReady = true
             logDisplayEvent("launch")
             await refresh()
+            integrationSession.start(model: self)
             // Safe startup (FA-09) leaves owed restores in their ledgers rather than writing to the
             // displays unasked; quitting still pays them, as every quit does (`teardownForQuit`).
             if !safeStartup { await restoreOwedFaceLightState() }  // crash-safe: relaunching mid-FaceLight restores it
@@ -646,7 +649,9 @@ final class AppModel: ObservableObject {
                 // A prior experimental rotation didn't confirm — restore that display's safe angle and
                 // a safe layout, then clear the marker.
                 try? await rotationBackend.setRotation(marker.safeAngle, for: marker.cgID)
-                _ = await coordinator.reconnectAll()
+                _ = await coordinator.reconnectAll(beforeRequest: { [weak self] id in
+                    await self?.integrationSession.soft(.softReconnect, display: id, attempt: UUID())
+                })
                 Self.clearRotationMarker()
                 await refresh()
             }
@@ -3880,7 +3885,9 @@ final class AppModel: ObservableObject {
             // The helper validates + rolls back itself, but ensure the safe angle is restored and a
             // safe surface remains even if the helper died before its own rollback.
             try? await rotationBackend.setRotation(safeAngle, for: cgID)
-            _ = await coordinator.reconnectAll()
+            _ = await coordinator.reconnectAll(beforeRequest: { [weak self] id in
+                await self?.integrationSession.soft(.softReconnect, display: id, attempt: UUID())
+            })
         }
         Self.clearRotationMarker()
         await refresh()
@@ -5340,6 +5347,7 @@ final class AppModel: ObservableObject {
         let result = try? await coordinator.disconnect(
             observation.recordID,
             options: DisconnectOptions(actor: actor, identityConfidence: 1.0))
+        integrationSession.soft(.softDisconnect, display: observation.recordID, attempt: UUID())
         var committed = false
         if case .committed? = result {
             committed = true
@@ -5384,7 +5392,9 @@ final class AppModel: ObservableObject {
             try await ManagedOfflineRecovery.requestReconnect(
                 offline, lifecycle: lifecycle, observations: await observer.currentSnapshot().observations,
                 ledger: managedOffline, uuidForDisplayNumber: { CoreGraphicsProvider.persistentUUID(for: $0) },
-                deadline: Date().addingTimeInterval(10))
+                deadline: Date().addingTimeInterval(10), beforeRequest: { [weak self] in
+                    await self?.integrationSession.soft(.softReconnect, display: offline.recordID, attempt: UUID())
+                })
         } catch {
             // Keep the ledger entry: it is the ONLY record that this display exists and is owed a
             // reconnect. Forgetting it on a failed attempt orphans the display permanently — the
@@ -5521,6 +5531,7 @@ final class AppModel: ObservableObject {
             resetDDCProbeCache()
             await refresh()
             clockModeLastRequests.removeAll()
+            integrationSession.synchronize()
             logDisplayEvent("topology")
             await enforceActiveSurfaceInvariant()
             reconcileDisplaySleepGuard()  // external arrived/left → acquire or release the keep-awake assertion
@@ -5881,7 +5892,9 @@ final class AppModel: ObservableObject {
             logDisplayEvent("blackout:lifted \(blackedOut.count) (reconnect all)")
             liftBlackOuts(blackedOut)
         }
-        var results = await coordinator.reconnectAll()
+        var results = await coordinator.reconnectAll(beforeRequest: { [weak self] id in
+            await self?.integrationSession.soft(.softReconnect, display: id, attempt: UUID())
+        })
             .sorted { $0.key.rawValue < $1.key.rawValue }
             .map { (displayId: $0.key.rawValue, reconnected: $0.value) }
         for offline in managedOffline {
@@ -5923,6 +5936,7 @@ final class AppModel: ObservableObject {
                 MainActor.assumeIsolated {
                     self?.configuredReactionTimer.cancel()
                     self?.pendingReactionTrigger = nil
+                    self?.integrationSession.sleep()
                     self?.isBetweenSleepAndWake = true
                     self?.clockModeLastRequests.removeAll()
                     self?.logDisplayEvent("sleep")
@@ -5932,6 +5946,7 @@ final class AppModel: ObservableObject {
                                queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
+                    self.integrationSession.wake()
                     Task { await self.convergeAfterWake() }
                 }
             }
@@ -6371,6 +6386,7 @@ final class AppModel: ObservableObject {
         clockModeLifecycleSuspended = true
         clockModeTask?.cancel()
         clockModeTask = nil
+        integrationSession.stop()
         // Black Out goes first: the reconnects below can leave a blacked-out screen as the only lit
         // one, and the overlay would otherwise stay up for as long as teardown takes.
         liftBlackOuts(blackedOut)
@@ -6478,7 +6494,8 @@ final class AppModel: ObservableObject {
             createdAt: Date(), appVersion: Self.archiveAppVersion, settings: settings, favorites: favorites,
             registry: registryState, scenes: savedScenes,
             defaults: ArchivedDefaults(experimentalRotationEnabled: experimentalRotationEnabled),
-            menuLayout: menuLayout)
+            menuLayout: menuLayout,
+            integrations: integrationSession.configuration)
     }
 
     /// Writes the current configuration to `url` (a user-chosen file).
@@ -6549,7 +6566,7 @@ final class AppModel: ObservableObject {
 
     /// The stores an archive installs into, in the order `install` writes them.
     private enum InstallStep: CaseIterable {
-        case settings, favorites, registry, scenes, defaults, menuLayout
+        case settings, favorites, registry, scenes, defaults, menuLayout, integrations
     }
 
     /// Puts `archive` into memory and on disk together. The in-memory half matters as much as the
@@ -6585,6 +6602,8 @@ final class AppModel: ObservableObject {
     /// write that throws has left that store's file as it was.
     private func write(_ step: InstallStep, from archive: SettingsArchive) async throws {
         switch step {
+        case .integrations:
+            try integrationSession.install(archive.integrations)
         case .settings:
             settings = archive.settings
             NotificationDelivery.style = settings.notificationStyle
@@ -7978,7 +7997,7 @@ extension AppModel {
             displays: displays, offline: managedOffline, name: displayName(for:),
             record: { [records, registryKnownRecords] in records[$0] ?? registryKnownRecords[$0] },
             groups: settings.displayGroups, pointerDisplayID: pointerDisplayID,
-            generation: displays.map(\.generation.value).max() ?? 0)
+            generation: displays.map(\.generation.value).max() ?? 0, remembered: registryKnownRecords)
     }
 
     /// The brightness routes a display offers automation (FD-066): the route its slider uses, and why

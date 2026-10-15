@@ -363,6 +363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// restored synchronously by `AppModel`'s `willTerminate` backstop.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         model.integrationService.stop()
+        model.integrationSession.stop()
         guard model.needsQuitReversion else { return .terminateNow }
         Task {
             await model.teardownForQuit()

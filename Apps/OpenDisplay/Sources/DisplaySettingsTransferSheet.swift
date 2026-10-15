@@ -62,6 +62,7 @@ struct DisplaySettingsTransferSheet: View {
                             Text("The source has a failed reconnect record. Forgetting removes its recovery card too; if it is still attached and dark, unplug/replug or restart may be necessary.")
                         }
                     }
+                    Text("Integration actions and hooks stay under their original identifiers, including after Forget or Reset. They may contain device-specific executable arguments or URLs. Review or remove them in Actions & Hooks; transfer never retargets them.")
                     Text("No monitor settings, macOS modes or colour profiles are written by this transfer.")
                     if plan.needsDifferentDisplayAcknowledgement {
                         Toggle("I am replacing a different physical display", isOn: $acknowledged)
