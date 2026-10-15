@@ -130,6 +130,13 @@ public struct DisplayReportFacts: Sendable {
 
     public var edid: EDIDSource
 
+    /// The refresh-interval range macOS reports for the screen (`NSScreen`), nil when it reports none.
+    public var refreshRange: ReportedRefreshRange?
+    /// The luminance anchors the user configured for this display, nil when none are stored.
+    public var luminanceAnchors: LuminanceAnchorSettings?
+    /// The brightness control's current position (0...1), when it has been read.
+    public var brightnessLevel: Double?
+
     public init(appName: String, appVersion: String, generatedAt: String, presence: Presence, name: String,
                 displayClass: DisplayClass, recordID: String) {
         self.appName = appName
@@ -160,10 +167,13 @@ public enum DisplayInformationReport {
         if facts.presence == .connected {
             sections.append(state(facts, l))
             sections.append(currentMode(facts, l))
+            sections.append(RefreshTimingReport.section(nominalHz: facts.currentMode?.refreshHz,
+                                                        range: facts.refreshRange, l))
             sections.append(physical(facts, l))
             sections.append(modes(facts, l))
             sections.append(capabilities(facts, l))
         }
+        sections.append(luminance(facts, l))
         sections.append(connection(facts, l))
         sections.append(contentsOf: edid(facts, l))
         return InfoReport(
@@ -381,6 +391,37 @@ public enum DisplayInformationReport {
         return section
     }
 
+    /// Entered and EDID-stated luminance, with an estimate for the current brightness where the
+    /// brightness route allows one. Saved-only reports keep the entered values.
+    static func luminance(_ f: DisplayReportFacts, _ l: ReportLocalizer) -> InfoReport.Section {
+        var reported = ReportedLuminance()
+        if case .matched(let bytes) = f.edid { reported = ReportedLuminance.from(EDIDDecoder.decode(bytes)) }
+        let input = f.presence == .connected
+            ? luminanceEstimateInput(f.brightness, level: f.brightnessLevel, l)
+            : (position: nil, note: nil)
+        return LuminanceReport.section(
+            settings: f.luminanceAnchors, reported: reported,
+            includeHDR: LuminanceAnchorResolver.showsHDRAnchors(reported: reported, potentialEDRHeadroom: f.potentialEDRHeadroom,
+                                                                settings: f.luminanceAnchors),
+            brightnessPosition: input.position, estimateNote: input.note, l)
+    }
+
+    /// Which brightness positions a luminance estimate is given for. Hardware and macOS brightness
+    /// get the linear estimate between the SDR anchors; software brightness gets none, because it
+    /// scales signal values and how the panel turns those into light isn't known.
+    public static func luminanceEstimateInput(_ route: DisplayReportFacts.BrightnessRoute, level: Double?,
+                                              _ l: ReportLocalizer = .english) -> (position: Double?, note: String?) {
+        switch route {
+        case .system, .ddc:
+            guard let level else { return (nil, l("No estimate: the brightness position isn’t known")) }
+            return (level, nil)
+        case .softwareGamma:
+            return (nil, l("No estimate for software brightness: it scales the signal, and how the panel turns that into light isn’t known"))
+        case .notResolved:
+            return (nil, l("No estimate: brightness hasn’t been read yet"))
+        }
+    }
+
     static func connection(_ f: DisplayReportFacts, _ l: ReportLocalizer) -> InfoReport.Section {
         var section = InfoReport.Section(title: l("Connection"))
         let transport: String
@@ -420,6 +461,7 @@ public enum DisplayInformationReport {
         case .matched(let bytes):
             section.rows = [.init(l("Source"), l("Read from the macOS registry, matched by vendor, product code and serial")),
                             .init("Base64", EDIDByteFormat.base64.render(bytes))]
+            section.notes = [l("Decoded values are what the EDID states — advertised capability and receiver maxima, not measured values or the current link.")]
             let decoded = EDIDDecoder.decode(bytes)
             let decodedSections = EDIDReportFormatter.sections(decoded, l).map { sub in
                 InfoReport.Section(title: "EDID — " + sub.title, rows: sub.rows, notes: sub.notes)

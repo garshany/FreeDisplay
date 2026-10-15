@@ -177,6 +177,10 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// How far one brightness/volume step moves, for the native keys and the custom shortcuts alike
     /// (SO-29). Defaults to macOS's 1/16 and 1/64 steps.
     public var adjustmentSteps: AdjustmentSteps
+    /// Luminance anchors per display (SD-13/TB-13): values the user entered, with their stated
+    /// basis, for labelling and estimating nits. Keyed like the other per-display preferences; a
+    /// display with nothing entered has no entry. They describe, they never drive the display.
+    public var luminanceAnchorsByDisplay: [String: LuminanceAnchorSettings]
 
     public init(
         persistencePolicy: PersistencePolicy = .reconnectOnQuit,
@@ -231,7 +235,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         notificationStyle: NotificationStyle = .notificationCenter,
         routineProtectionNoticesEnabled: Bool = true,
         dockIconPolicy: DockIconPolicy = .whileSettingsOpen,
-        adjustmentSteps: AdjustmentSteps = .default
+        adjustmentSteps: AdjustmentSteps = .default,
+        luminanceAnchorsByDisplay: [String: LuminanceAnchorSettings] = [:]
     ) {
         self.persistencePolicy = persistencePolicy
         self.confirmationCountdownSeconds = confirmationCountdownSeconds
@@ -286,6 +291,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.routineProtectionNoticesEnabled = routineProtectionNoticesEnabled
         self.dockIconPolicy = dockIconPolicy
         self.adjustmentSteps = adjustmentSteps
+        self.luminanceAnchorsByDisplay = luminanceAnchorsByDisplay
     }
 
     public static let `default` = OpenDisplaySettings()
@@ -342,6 +348,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case routineProtectionNoticesEnabled
         case dockIconPolicy
         case adjustmentSteps
+        case luminanceAnchorsByDisplay
     }
 
     /// Tolerant decoder: every missing OR undecodable key falls back to its default and unknown
@@ -466,6 +473,9 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             ?? defaults.dockIconPolicy
         adjustmentSteps = container.lenient(AdjustmentSteps.self, forKey: .adjustmentSteps)
             ?? defaults.adjustmentSteps
+        luminanceAnchorsByDisplay = container.lenient([String: LuminanceAnchorSettings].self,
+                                                      forKey: .luminanceAnchorsByDisplay)
+            ?? defaults.luminanceAnchorsByDisplay
     }
 }
 
