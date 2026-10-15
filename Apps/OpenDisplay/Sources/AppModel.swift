@@ -1207,6 +1207,11 @@ final class AppModel: ObservableObject {
         customProfileGuardRead &+= 1
         let read = customProfileGuardRead
         let targets = displays.compactMap { display in display.cgDisplayID.map { (display.recordID, $0) } }
+        // Until this read lands, a display never verified counts as unverified — blocking — so a
+        // dim or warmth write racing startup or a hot-plug can't reach gamma before its custom
+        // assignment is known. Verified displays keep what was verified.
+        applyColorProfileKnowledge(ColorProfileGuard.knowledge(connected: Set(targets.map(\.0)), readings: [:],
+                                                               previous: colorProfileKnowledge))
         let readings = await Task.detached(priority: .utility) {
             targets.map { id, cgID in (id, ColorProfileService.guardReading(for: cgID)) }
         }.value
@@ -1234,11 +1239,16 @@ final class AppModel: ObservableObject {
         // Judged against the displays connected NOW: one that arrived during the read has no
         // reading yet, so it counts as unverified — blocking — until its own refresh reads it.
         let connected = Set(displays.filter { $0.cgDisplayID != nil }.map(\.recordID))
-        colorProfileKnowledge = ColorProfileGuard.knowledge(connected: connected, readings: classified,
-                                                            previous: colorProfileKnowledge)
-        let unverified = ColorProfileGuard.unverifiedDisplays(colorProfileKnowledge)
+        applyColorProfileKnowledge(ColorProfileGuard.knowledge(connected: connected, readings: classified,
+                                                               previous: colorProfileKnowledge))
+    }
+
+    /// Installs what the safeguard knows and, when its verdict changes, re-expresses every display.
+    private func applyColorProfileKnowledge(_ knowledge: [DisplayRecordID: ColorProfileGuard.Knowledge]) {
+        colorProfileKnowledge = knowledge
+        let unverified = ColorProfileGuard.unverifiedDisplays(knowledge)
         if unverifiedProfileDisplays != unverified { unverifiedProfileDisplays = unverified }
-        let blocking = ColorProfileGuard.blockingDisplays(colorProfileKnowledge)
+        let blocking = ColorProfileGuard.blockingDisplays(knowledge)
         guard blocking != customProfileDisplays else { return }
         let wasBlocked = gammaBlockedByCustomProfile
         customProfileDisplays = blocking

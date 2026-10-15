@@ -118,6 +118,24 @@ final class RevertMarkerPolicyTests: XCTestCase {
         XCTAssertEqual(RevertMarkerPolicy.recordToKeep(narrowed, after: again), narrowed)
     }
 
+    /// Final review: B mirrors A, B is away, so only B stayed on record. A later launch with B back
+    /// and A away then had no `.absent(A)` to wait on — the mirror check skips a missing source — and
+    /// cleared the record without ever putting B's mirror of A back. The source stays with its mirror.
+    func testAKeptMirrorKeepsItsRecordedSource() {
+        let recorded = [obs(a, mode: good), obs(b, mirrorOf: a), obs(c, x: 1920, mode: good)]
+        let bAway = RevertMarkerPolicy.Outcome.restored(
+            providerWarnings: [],
+            mismatches: RevertMarkerPolicy.mismatches(wanted: recorded,
+                                                      current: [obs(a, mode: good), obs(c, x: 1920, mode: good)]))
+        let narrowed = RevertMarkerPolicy.recordToKeep(recorded, after: bAway)
+        XCTAssertEqual(narrowed?.map(\.recordID), [a, b], "a stays as b's mirror source; c goes")
+        // The next launch: b is back, a is away — the record is still awaited, not cleared.
+        let aAway = RevertMarkerPolicy.Outcome.restored(
+            providerWarnings: [],
+            mismatches: RevertMarkerPolicy.mismatches(wanted: narrowed ?? [], current: [obs(b)]))
+        XCTAssertFalse(RevertMarkerPolicy.mayClearMarker(after: aAway))
+    }
+
     /// OpenDisplay's own virtual screens come back under a new identity every launch, if at all.
     func testAWindowServerOnlyScreenIsNeverAwaited() {
         var virtualScreen = obs(b, x: 1920)

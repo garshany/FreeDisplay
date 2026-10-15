@@ -142,8 +142,16 @@ public enum RevertMarkerPolicy {
             return recorded
         case .awaitingDisplays(let ids):
             let awaited = Set(ids)
+            let owed = recorded.filter {
+                awaited.contains($0.recordID) || $0.mirrorSourceID.map(awaited.contains) == true
+            }
+            // A kept display's recorded mirror source stays with it: otherwise a later launch where
+            // the SOURCE is the one away has no `.absent(source)` left to wait on — the mirror
+            // check skips a missing source — and the record clears with the mirror never put back.
+            let sources = Set(owed.compactMap(\.mirrorSourceID))
             return recorded.filter {
                 awaited.contains($0.recordID) || $0.mirrorSourceID.map(awaited.contains) == true
+                    || sources.contains($0.recordID)
             }
         }
     }
