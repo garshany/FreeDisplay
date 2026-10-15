@@ -94,6 +94,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// curve, the fallback when CoreLocation is unavailable. Nil ⇒ solar-anchored schedule entries
     /// are skipped and Location Mode degrades to the flat schedule; time anchors always work.
     public var clockManualLocation: GeoCoordinate?
+    /// Explicit per-display Clock Mode recipes; nil preserves the legacy shared schedule.
+    public var clockMode: ClockModeConfiguration?
     /// When on, let the updater check the release feed on its own schedule (about once a day) and
     /// surface what it finds in the menu. The menu's own "Check for Updates…" works either way, and
     /// nothing is downloaded until the user asks — unless `automaticUpdateDownloadEnabled` is also on.
@@ -208,6 +210,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         clockScheduleEnabled: Bool = false,
         clockScheduleEntries: [ClockScheduleEntry] = [],
         clockManualLocation: GeoCoordinate? = nil,
+        clockMode: ClockModeConfiguration? = nil,
         updateCheckEnabled: Bool = true,
         automaticUpdateDownloadEnabled: Bool = false,
         dimmingMethod: DimmingMethod = .gamma,
@@ -262,6 +265,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.clockScheduleEnabled = clockScheduleEnabled
         self.clockScheduleEntries = clockScheduleEntries
         self.clockManualLocation = clockManualLocation
+        self.clockMode = clockMode
         self.updateCheckEnabled = updateCheckEnabled
         self.automaticUpdateDownloadEnabled = automaticUpdateDownloadEnabled
         self.dimmingMethod = dimmingMethod
@@ -318,6 +322,7 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case clockScheduleEnabled
         case clockScheduleEntries
         case clockManualLocation
+        case clockMode
         case updateCheckEnabled
         case automaticUpdateDownloadEnabled
         case dimmingMethod
@@ -409,6 +414,12 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             ?? defaults.clockScheduleEnabled
         clockScheduleEntries = container.lenient([ClockScheduleEntry].self, forKey: .clockScheduleEntries)
             ?? defaults.clockScheduleEntries
+        clockMode = container.lenient(ClockModeConfiguration.self, forKey: .clockMode)
+        // A damaged explicit configuration must not reactivate a legacy all-external schedule.
+        if container.contains(.clockMode), (try? container.decodeNil(forKey: .clockMode)) == false,
+           clockMode == nil {
+            clockMode = ClockModeConfiguration(timeZoneIdentifier: nil, resumePolicy: .pauseUntilResumed, displays: [])
+        }
         clockManualLocation = container.lenient(GeoCoordinate.self, forKey: .clockManualLocation)
             ?? defaults.clockManualLocation
         updateCheckEnabled = container.lenient(Bool.self, forKey: .updateCheckEnabled)

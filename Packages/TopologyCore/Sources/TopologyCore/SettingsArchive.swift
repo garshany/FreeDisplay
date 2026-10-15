@@ -133,6 +133,7 @@ public struct SettingsArchive: Hashable, Sendable {
         for preset in settings.appPresets {
             if case .display(let raw) = preset.target { ids.insert(DisplayRecordID(rawValue: raw)) }
         }
+        ids.formUnion(settings.clockMode?.displays.map(\.displayID) ?? [])
         for group in settings.displayGroups { ids.formUnion(group.memberRecordIDs) }
         ids.formUnion(settings.hotkeyShortcuts.inputSwitchBindings.map(\.displayID))
         for layout in settings.protectedLayouts.values {

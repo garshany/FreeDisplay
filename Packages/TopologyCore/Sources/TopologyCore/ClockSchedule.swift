@@ -47,6 +47,9 @@ public struct ClockScheduleEntry: Hashable, Sendable, Codable, Identifiable {
 /// cooldown, and hardware writes belong to the caller (which routes this target through
 /// `AdaptiveDisplayPolicy` so the write is silent and never fights a manual change).
 public enum ClockSchedulePolicy {
+    /// Existing app sampling cadence, shared by legacy and explicit Clock Mode.
+    public static let samplingNanoseconds: UInt64 = 5_000_000_000
+
     /// Ramp width for `.ramp` transitions (the Lunar-parity "30-minute transition").
     public static let defaultRampMinutes = 30
 
