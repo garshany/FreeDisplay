@@ -18,6 +18,8 @@ public struct DiagnosticPrivacy: Sendable, Equatable {
         self.knownSerials = knownSerials
     }
 
+    private var removesOpaqueIdentifiers: Bool { removeSerials || removeUUIDs }
+
     public func redact(_ text: String) -> String {
         var text = text
         for value in knownSecrets where !value.isEmpty {
@@ -35,8 +37,10 @@ public struct DiagnosticPrivacy: Sendable, Equatable {
         if removeUUIDs {
             text = replace(#"(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"#, in: text)
         }
-        if removeSerials {
+        if removesOpaqueIdentifiers {
             text = replace(#"(?im)([\"']?[^\s\"':=]*edid[\"']?\s*[:=]\s*)(?:<[^>]*>|\"[^\"]*\"|[^\r\n]+)"#, in: text, template: "$1<redacted>")
+        }
+        if removeSerials {
             text = replace(#"(?im)([\"']?[^\s\"':=]*(?:serial(?:[ _-]?number)?)[\"']?\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\r\n,;]+)"#, in: text, template: "$1<redacted>")
         }
         if removeRegistryPaths {
@@ -76,7 +80,7 @@ public struct DiagnosticPrivacy: Sendable, Equatable {
             if ["token", "password", "secret", "credential", "apikey", "api_key", "authorization"].contains(where: lower.contains) {
                 return "<redacted>"
             }
-            if removeSerials && (lower.contains("serial") || lower.contains("edid")) { return "<redacted>" }
+            if (removeSerials && lower.contains("serial")) || (removesOpaqueIdentifiers && lower.contains("edid")) { return "<redacted>" }
             if removeUUIDs && lower.contains("uuid") { return "<redacted>" }
             if removeRegistryPaths && (lower.contains("ioservicepath") || lower.contains("registrypath")) { return "<redacted>" }
         }
@@ -114,7 +118,7 @@ extension DiagnosticPrivacy {
         result.title = redact(result.title)
         result.header = result.header.map(redact)
         result.footer = result.footer.map(redact)
-        if removeSerials || removeUUIDs {
+        if removesOpaqueIdentifiers {
             result.sections.removeAll { section in
                 section.containsOpaqueIdentifiers || opaqueSectionPrefixes.contains { section.title.hasPrefix($0) }
             }
@@ -129,7 +133,7 @@ extension DiagnosticPrivacy {
                 case .serial: hidden = removeSerials
                 case .uuid, .record: hidden = removeUUIDs
                 case .registryPath: hidden = removeRegistryPaths
-                case .opaque: hidden = removeSerials || removeUUIDs
+                case .opaque: hidden = removesOpaqueIdentifiers
                 case nil: hidden = false
                 }
                 if hidden || (removeSerials && serialLabels.contains(row.label))

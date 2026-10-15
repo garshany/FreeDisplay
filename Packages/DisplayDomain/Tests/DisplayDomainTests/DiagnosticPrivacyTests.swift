@@ -104,6 +104,8 @@ final class DiagnosticPrivacyTests: XCTestCase {
         let policy = DiagnosticPrivacy(removeSerials: false, removeUUIDs: true, removeRegistryPaths: false)
         let values = policy.redactedReport(report).sections[0].rows.map(\.value)
         XCTAssertEqual(values, ["12345", "<redacted>", "<redacted>", "custom/path"])
+        XCTAssertEqual(policy.object(["EDID": "opaque"]) as? [String: String], ["EDID": "<redacted>"])
+        XCTAssertFalse(policy.redact("EDID: opaque").contains("opaque"))
         XCTAssertEqual(DiagnosticPrivacy(removeSerials: false, removeUUIDs: false, removeRegistryPaths: false)
             .redactedReport(report), report)
     }

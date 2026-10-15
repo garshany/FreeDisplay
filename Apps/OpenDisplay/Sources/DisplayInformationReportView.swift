@@ -206,12 +206,14 @@ struct DisplayInformationReportSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(report?.title ?? String(localized: "Display report")).font(.headline)
+                Text(shownReport?.title ?? String(localized: "Display report")).font(.headline)
                 Spacer()
                 if loading { ProgressView().controlSize(.small) }
             }
             Text("The report can include serial numbers, UUIDs and registry paths that identify your hardware. Review it before sharing.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("Credentials and URLs are always removed from report previews, copies and exports.")
+                .font(.caption).foregroundStyle(.secondary)
             Toggle("Hide serial numbers, UUIDs, registry paths and EDID bytes", isOn: $removeIdentifiers)
                 .font(.caption)
             if removeIdentifiers {
