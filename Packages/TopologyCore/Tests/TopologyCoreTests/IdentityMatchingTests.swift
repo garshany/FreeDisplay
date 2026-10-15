@@ -56,6 +56,21 @@ final class IdentityMatchingTests: XCTestCase {
         XCTAssertTrue(result[0].record.isProvisional)
     }
 
+    func testUnsupportedStrategyAfterCollisionRetryNeverMintsOrReindexes() async {
+        let known = record("disp_a", fingerprint(), paired: true)
+        let registry = await registry([known], index: ["UUID-A": "disp_a"])
+        for _ in 0..<3 {
+            let result = await registry.resolveAllExplained(
+                [input(fingerprint(), "UUID-A"), input(fingerprint(), "UUID-B")],
+                newRecordStrategy: .qualifiedSerial)
+            XCTAssertEqual(result[0].record.id, known.id)
+            XCTAssertTrue(result[1].record.isProvisional)
+            let state = await registry.currentState()
+            XCTAssertEqual(state.records.map(\.id), [known.id])
+            XCTAssertEqual(state.cgUUIDIndex, ["UUID-A": known.id])
+        }
+    }
+
     func testSystemUUIDStrategyRejectsSerialFallbackButStillRejectsConflicts() async {
         var known = record("disp_a", fingerprint(serial: "A"))
         known.identityStrategy = .systemUUID

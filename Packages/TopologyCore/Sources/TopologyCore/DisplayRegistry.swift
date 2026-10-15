@@ -176,12 +176,6 @@ public actor DisplayRegistry {
     ) -> [(record: DisplayRecord, explanation: IdentityMatchExplanation)] {
         var explanations = inputs.map { explain($0.fingerprint, cgUUID: $0.cgUUID, excluding: []) }
         var claims = explanations.map(Self.claim(from:))
-        for index in inputs.indices {
-            guard case .mint = claims[index] else { continue }
-            let input = inputs[index]
-            let supported = Self.supports(newRecordStrategy, fingerprint: input.fingerprint, cgUUID: input.cgUUID)
-            if !supported { claims[index] = .ambiguous([]) }
-        }
 
         // One record per present display. Two displays on the desk at once are two displays, so a
         // record both claim can be at most one of them: the strictly better-evidenced claimant
@@ -230,6 +224,15 @@ public actor DisplayRegistry {
                     explanations[index].decision = .ambiguous([id], .claimedByAnotherDisplay)
                 }
             }
+        }
+
+        // Collision retries can turn a scored claim into minting too. Check support only after
+        // the final claim is known, before any durable record or UUID index can be created.
+        for index in inputs.indices {
+            guard case .mint = claims[index] else { continue }
+            let input = inputs[index]
+            let supported = Self.supports(newRecordStrategy, fingerprint: input.fingerprint, cgUUID: input.cgUUID)
+            if !supported { claims[index] = .ambiguous([]) }
         }
 
         var handedOut: [DisplayRecordID: (record: DisplayRecord, cgUUID: String?)] = [:]
