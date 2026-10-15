@@ -96,10 +96,11 @@ private struct TrayNotices: View {
                 ui.openSettings(.health)
             }
         }
-        let update = SoftwareUpdatePolicy.presentation(for: model.updatePhase)
+        let update = model.updateStatus.presentation
         if let badge = update.badge {
-            TrayRow(icon: update.systemImage, iconTint: ODColor.accent, title: update.title.appLocalized, detail: badge) {
-                model.checkForUpdates()
+            TrayRow(icon: update.systemImage, iconTint: UpdateCheckStatusView.tint(update.tone), title: update.title.appLocalized, detail: badge,
+                    enabled: update.isActionable) {
+                model.performUpdateAction(update.action)
             }
         }
     }
@@ -240,6 +241,10 @@ private struct TrayDeviceHeader: View {
                         Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 4)
+                    if model.displaySleepPrevention.decision.owners.contains(display.recordID) {
+                        Image(systemName: "sun.max.fill").foregroundStyle(ODColor.caution)
+                            .help("This display is keeping idle displays awake; manage owners in Settings › Application.")
+                    }
                     Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
@@ -251,6 +256,16 @@ private struct TrayDeviceHeader: View {
             .accessibilityLabel(model.displayName(for: display))
             .accessibilityValue(expanded ? "expanded" : "collapsed")
             .accessibilityIdentifier("tray.header")
+            if model.preventsDisplaySleep(display.recordID) {
+                Button {
+                    model.setPreventsDisplaySleep(false, for: display.recordID)
+                } label: {
+                    Image(systemName: "sun.max")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop this display’s sleep-prevention request")
+                .help("Removes only this display’s request. Other owners can still keep displays awake.")
+            }
             TraySwitch(isOn: display.isActive, enabled: canDisconnect) { on in
                 if !on { Task { await model.setDisplayActive(false, for: display) } }
             }
@@ -1387,9 +1402,12 @@ private struct TrayToolsSection: View {
                 }
             }
             if shows(.updates) {
-                let update = SoftwareUpdatePolicy.presentation(for: model.updatePhase)
-                TrayRow(icon: update.systemImage, title: update.title.appLocalized, detail: update.badge,
-                        enabled: !update.showsProgress) { model.checkForUpdates() }
+                // AM-20: one click does what the state offers — check or retry, cancel, or bring the
+                // waiting offer forward — and a stale result clears when the row is shown again.
+                let update = model.updateStatus.presentation
+                TrayRow(icon: update.systemImage, iconTint: UpdateCheckStatusView.tint(update.tone), title: update.title.appLocalized, detail: update.badge,
+                        enabled: update.isActionable) { model.performUpdateAction(update.action) }
+                    .onAppear { model.updateSurfaceAppeared() }
             }
         }
         .padding(.vertical, 4)
@@ -1471,12 +1489,20 @@ private struct TrayButtonRow: View {
 /// the content instead of snapping a frame later.
 @MainActor
 enum TrayMotion {
-    static let duration: Double = 0.24
+    /// The transition length while the "Animation duration" field (SO-10) is blank.
+    static let automaticDuration: Double = 0.24
+    /// The user's animation duration (SO-10), set by `AppModel` from the settings.
+    static var animationDuration: TimingValue = .automatic
+    static var duration: Double { ApplicationTiming.seconds(animationDuration, automatic: automaticDuration) }
     /// Settings → Menu's "Animate the menu", set from the menu layout by `TrayUIState`.
     static var animates = true
-    /// Whether opening and closing animate right now: the preference, and never under macOS Reduce
-    /// Motion (read live, so changing it in System Settings applies at once).
-    static var isAnimating: Bool { animates && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    /// Whether opening and closing animate right now: the preference, a non-zero duration, and
+    /// never under macOS Reduce Motion (read live, so changing it in System Settings applies at once).
+    static var isAnimating: Bool {
+        ApplicationTiming.transitionDuration(
+            animationDuration, automatic: automaticDuration, animationsEnabled: animates,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) != nil
+    }
     /// Nil when animation is off — `withAnimation(nil)` applies the change at once.
     static var expand: Animation? { isAnimating ? .easeInOut(duration: duration) : nil }
 }

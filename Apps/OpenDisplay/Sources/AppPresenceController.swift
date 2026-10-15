@@ -72,13 +72,35 @@ final class DockPresenceController {
     }
 }
 
-/// What the Settings window remembers between openings and launches (SD-08): the last section
-/// and the window's size. Position is not kept on purpose — the window opens centred on the
-/// screen under the pointer, which matters more with several displays than where it was last.
+/// What the Settings window remembers between openings and launches (SD-08): the last section,
+/// the window's size and where it was left. Whether it reopens there or on the screen under the
+/// pointer is the user's choice (`placement`); `SettingsWindowPlacementPolicy` decides the spot.
 enum SettingsWindowMemory {
     /// The section shown when Settings opens, unless `-OpenDisplaySettingsSection` is given.
     static let lastSectionKey = "OpenDisplayLastSettingsSection"
     private static let contentSizeKey = "OpenDisplaySettingsWindowContentSize"
+    private static let frameKey = "OpenDisplaySettingsWindowFrame"
+    static let placementKey = "OpenDisplaySettingsWindowPlacement"
+
+    /// Where the window opens. Defaults to where it was left.
+    static var placement: SettingsWindowPlacement {
+        get {
+            UserDefaults.standard.string(forKey: placementKey).flatMap(SettingsWindowPlacement.init(rawValue:))
+                ?? .lastPosition
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: placementKey) }
+    }
+
+    /// The window frame last left by the user, if any (AppKit screen coordinates).
+    static var frame: NSRect? {
+        get {
+            guard let stored = UserDefaults.standard.string(forKey: frameKey) else { return nil }
+            let frame = NSRectFromString(stored)
+            return frame.origin.x.isFinite && frame.origin.y.isFinite && frame.width.isFinite
+                && frame.height.isFinite && frame.width > 0 && frame.height > 0 ? frame : nil
+        }
+        set { UserDefaults.standard.set(newValue.map(NSStringFromRect), forKey: frameKey) }
+    }
 
     static var lastSection: String? {
         get { UserDefaults.standard.string(forKey: lastSectionKey) }

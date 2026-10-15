@@ -2,6 +2,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import TopologyCore
 
 /// Menu-bar-first entry point (PRD UX-001). `LSUIElement` keeps it out of the Dock unless the user's
 /// Dock icon policy asks otherwise (`DockPresenceController`). The menu bar AND
@@ -181,7 +182,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Safe startup (FA-09) says so straight away: Settings opens with the banner explaining
         // what this session holds back, rather than leaving a quieter-than-usual app to puzzle over.
-        if model.safeStartup { showSettings() }
+        // A relaunch asked for from Settings (language, import, reset) brings Settings back too
+        // (SD-08); that flag only ever arrives as a launch argument — the app never writes it.
+        if model.safeStartup || UserDefaults.standard.bool(forKey: AppLanguage.reopenSettingsArgument) {
+            showSettings()
+        }
     }
 
     @objc private func statusItemClicked(_ sender: Any?) {
@@ -244,10 +249,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             created.setContentSize(Self.settingsContentSize(onScreenWith: created.contentMinSize))
             settingsWindow = created
             window = created
-            // SD-08: remember the size the user leaves it at, for the next opening and launch — at
-            // the end of a drag, after a zoom (a resize with no drag) and on close.
+            // SD-08: remember the size and place the user leaves it at, for the next opening and
+            // launch — at the end of a drag, after a zoom (a resize with no drag), after a move and
+            // on close.
             for name in [NSWindow.didEndLiveResizeNotification, NSWindow.didResizeNotification,
-                         NSWindow.willCloseNotification] {
+                         NSWindow.didMoveNotification, NSWindow.willCloseNotification] {
                 settingsWindowObservers.append(NotificationCenter.default.addObserver(
                     forName: name, object: created, queue: .main) { [weak created] _ in
                     MainActor.assumeIsolated {
@@ -257,17 +263,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 })
             }
         }
-        if let screen = NSScreen.screens.first(where: {
-            NSMouseInRect(NSEvent.mouseLocation, $0.frame, false)
-        }) ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            let size = window.frame.size
-            window.setFrameOrigin(NSPoint(x: visible.midX - size.width / 2,
-                                          y: visible.midY - size.height / 2))
-        }
+        placeSettingsWindow(window)
         dockPresence?.update(opening: window)  // SO-13: Dock icon first, so activation shows the app's menus
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// SD-08: puts the Settings window where it was left (when that spot is still on a connected
+    /// screen) or centred on the screen under the pointer, as the user chose. A window already on
+    /// screen stays where it is unless the choice is "the pointer's screen", which follows the
+    /// pointer every time Settings is asked for.
+    private func placeSettingsWindow(_ window: NSWindow) {
+        let placement = SettingsWindowMemory.placement
+        guard !window.isVisible || placement == .pointerScreen else { return }
+        let frame = { (rect: NSRect) in
+            WindowFrame(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height)
+        }
+        let pointerScreen = NSScreen.screens.first(where: {
+            NSMouseInRect(NSEvent.mouseLocation, $0.frame, false)
+        }) ?? NSScreen.main
+        let size = window.frame.size
+        guard let origin = SettingsWindowPlacementPolicy.origin(
+            placement: placement, saved: SettingsWindowMemory.frame.map(frame),
+            width: size.width, height: size.height,
+            screens: NSScreen.screens.map { frame($0.visibleFrame) },
+            pointerScreen: pointerScreen.map { frame($0.visibleFrame) }) else { return }
+        window.setFrameOrigin(NSPoint(x: origin.x, y: origin.y))
     }
 
     /// The Settings window's starting content size: the remembered one (SD-08), else the default,
@@ -275,8 +296,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// not open past the edges of the laptop panel — and never below the window's minimum.
     private static func settingsContentSize(onScreenWith minimum: NSSize) -> NSSize {
         let wanted = SettingsWindowMemory.contentSize ?? NSSize(width: 900, height: 660)
-        guard let visible = (NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })
-                             ?? NSScreen.main)?.visibleFrame else { return wanted }
+        let frame = { (rect: NSRect) in
+            WindowFrame(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height)
+        }
+        let pointer = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
+        guard let visible = SettingsWindowPlacementPolicy.destinationScreen(
+            placement: SettingsWindowMemory.placement, saved: SettingsWindowMemory.frame.map(frame),
+            screens: NSScreen.screens.map { frame($0.visibleFrame) },
+            pointerScreen: pointer.map { frame($0.visibleFrame) }) else { return wanted }
         return NSSize(width: max(minimum.width, min(wanted.width, visible.width)),
                       height: max(minimum.height, min(wanted.height, visible.height)))
     }
@@ -323,16 +350,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
-    /// A quit or relaunch with Settings still open sends no `willClose`, so its size (SD-08) is
-    /// saved here too.
+    /// A quit or relaunch with Settings still open sends no `willClose`, so its size and place
+    /// (SD-08) are saved here too.
     func applicationWillTerminate(_ notification: Notification) {
         if let window = settingsWindow, window.isVisible { Self.rememberSettingsSize(of: window) }
     }
 
-    /// Full screen is the screen's size, not one the user chose, so it is never remembered.
+    /// Full screen is the screen's size, not one the user chose, so it is never remembered. Neither
+    /// is a minimised window's frame: it is the Dock's animation, not where the window lives.
     private static func rememberSettingsSize(of window: NSWindow) {
-        guard !window.styleMask.contains(.fullScreen) else { return }
+        guard !window.styleMask.contains(.fullScreen), !window.isMiniaturized else { return }
         SettingsWindowMemory.contentSize = window.contentRect(forFrameRect: window.frame).size
+        SettingsWindowMemory.frame = window.frame
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
