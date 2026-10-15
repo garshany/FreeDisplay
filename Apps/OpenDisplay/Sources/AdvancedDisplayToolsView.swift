@@ -24,6 +24,7 @@ struct AdvancedDisplayToolsView: View {
     @State private var status: String?
     @State private var width = 1920
     @State private var height = 1080
+    @State private var pastingBase64 = false
 
     private enum Source: Hashable { case display, file }
 
@@ -53,6 +54,8 @@ struct AdvancedDisplayToolsView: View {
     private struct ImportedEDID {
         let name: String
         let bytes: [UInt8]
+        /// Pasted as Base64 text rather than read from a file.
+        var pasted = false
     }
 
     /// Online displays macOS gave an ID; the pane follows the Displays selection until a display
@@ -73,6 +76,9 @@ struct AdvancedDisplayToolsView: View {
         switch inspecting {
         case .file:
             guard let imported else { return nil }
+            if imported.pasted {
+                return (imported.bytes, String(localized: "Pasted Base64 text. It isn’t matched to any display."))
+            }
             return (imported.bytes, String(localized: "File “\(imported.name)”. It isn’t matched to any display."))
         case .display:
             guard case .read(.matched(let bytes), _) = liveForDisplay else { return nil }
@@ -124,8 +130,11 @@ struct AdvancedDisplayToolsView: View {
                 inspector(bytes: inspected.bytes, source: inspected.source)
             }
             Section("EDID file") {
-                Button("Import EDID…", action: importEDID)
-                if let imported {
+                HStack {
+                    Button("Import EDID…", action: importEDID)
+                    Button("Paste Base64…") { pastingBase64 = true }
+                }
+                if let imported, !imported.pasted {
                     LabeledContent("File", value: imported.name)
                 }
                 Text("The imported file isn’t matched to a display automatically. Check the manufacturer and product code before installing it by other means. OpenDisplay doesn’t install system configurations.")
@@ -146,6 +155,13 @@ struct AdvancedDisplayToolsView: View {
         // the value column, the form is centred vertically and long captions widen the window.
         .formStyle(.grouped)
         .navigationTitle("EDID & HiDPI")
+        .sheet(isPresented: $pastingBase64) {
+            Base64EDIDSheet { bytes in
+                imported = ImportedEDID(name: String(localized: "Pasted Base64"), bytes: bytes, pasted: true)
+                inspecting = .file
+                status = nil
+            }
+        }
         .task(id: display?.recordID) {
             inspecting = .display
             await readLive()
@@ -300,6 +316,54 @@ struct AdvancedDisplayToolsView: View {
             let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             save(try encoder.encode(HiDPIConfigurationPlan(width: width, height: height)), name: "HiDPI-plan.json")
         } catch { status = String(localized: "Invalid HiDPI plan: \(error.localizedDescription.appLocalized)") }
+    }
+}
+/// Takes pasted Base64 EDID text for inspection (SD-15): whitespace and line breaks are ignored,
+/// anything that isn't canonical Base64 is refused with the reason, and the decoded bytes go to the
+/// inspector unchanged — valid EDID or not.
+private struct Base64EDIDSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let accept: ([UInt8]) -> Void
+    @State private var text = ""
+    @State private var problem: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Paste EDID as Base64").font(.headline)
+            Text("Spaces and line breaks are ignored. The bytes are only inspected: nothing is installed or written to a display.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            TextEditor(text: $text)
+                .font(.system(size: 11, design: .monospaced))
+                .frame(minHeight: 160)
+                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.secondary.opacity(0.3)))
+            if let problem {
+                Text(problem).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Inspect") { inspect() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 480, minHeight: 300)
+    }
+
+    private func inspect() {
+        do throws(EDIDByteFormat.Base64Error) {
+            let bytes = try EDIDByteFormat.decodeBase64(text)
+            accept(bytes)
+            dismiss()
+        } catch {
+            switch error {
+            case .empty:
+                problem = String(localized: "Nothing to inspect: the text is empty.")
+            case .invalid:
+                problem = String(localized: "This isn’t Base64: it has characters outside the Base64 alphabet, or a length or padding no encoder writes.")
+            case .nonCanonical:
+                problem = String(localized: "This Base64 doesn’t encode its bytes the standard way (stray bits at the end), so it isn’t used.")
+            }
+        }
     }
 }
 #endif

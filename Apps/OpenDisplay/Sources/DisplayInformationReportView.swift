@@ -54,6 +54,7 @@ extension AppModel {
         facts.uuid = observation.cgUUID
         facts.ioServicePath = observation.ioServicePath
         facts.transport = observation.transport
+        facts.luminanceAnchors = luminanceAnchors(for: observation)
         if let fingerprint = record?.fingerprint {
             facts.vendorNumber = fingerprint.vendorID.flatMap { UInt32(exactly: $0) }
             facts.modelNumber = fingerprint.productID.flatMap { UInt32(exactly: $0) }
@@ -108,7 +109,10 @@ extension AppModel {
         if let screen {
             facts.edrHeadroom = Double(screen.maximumExtendedDynamicRangeColorComponentValue)
             facts.potentialEDRHeadroom = Double(screen.maximumPotentialExtendedDynamicRangeColorComponentValue)
+            facts.refreshRange = ReportedRefreshRange(minimumInterval: screen.minimumRefreshInterval,
+                                                      maximumInterval: screen.maximumRefreshInterval)
         }
+        facts.brightnessLevel = brightness[id].map(Double.init)
         facts.hdrOutput = observation.hdrEnabled
         let lookup = await Task.detached(priority: .userInitiated) { EDIDReader.lookup(for: cgID) }.value
         switch lookup {

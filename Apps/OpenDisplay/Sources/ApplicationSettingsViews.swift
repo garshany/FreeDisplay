@@ -350,7 +350,7 @@ struct ManageAppSettingsSheet: View {
             Text("Manage App Settings").font(.title2.weight(.semibold))
 
             section(title: String(localized: "Back up"),
-                    text: String(localized: "Saves OpenDisplay’s preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts and scenes to a file you choose.")) {
+                    text: String(localized: "Saves FreeDisplay’s preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts, scenes, menu layout and luminance values to a file you choose.")) {
                 Button("Export Settings…") { export() }
             }
             section(title: String(localized: "Restore"),
@@ -408,7 +408,7 @@ struct ManageAppSettingsSheet: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts and scenes return to their defaults. A backup of the current settings is written first, and OpenDisplay then relaunches — like any quit, turning the displays it turned off back on.")
+            Text("Preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts, scenes, menu layout and luminance values return to their defaults. A backup of the current settings is written first, and FreeDisplay then relaunches — like any quit, turning the displays it turned off back on.")
         }
         .confirmationDialog("Relaunch OpenDisplay?", isPresented: $confirmingRelaunch) {
             Button("Relaunch") { AppLanguage.relaunch() }
