@@ -2700,6 +2700,10 @@ final class AppModel: ObservableObject {
             attempts += 1
         }
         displays = snapshot.observations.sorted { $0.recordID.rawValue < $1.recordID.rawValue }
+        // Discovery may yield to key-capture settings changes: no previous registry answer can
+        // authorize hardware reads while the new topology's identity is still being resolved.
+        records = [:]
+        await resolveRecords(snapshot)
         observeAutoDisconnectArrival()
         reconcileDisplaySleepGuard()
         refreshRevertRecord()
@@ -2745,7 +2749,6 @@ final class AppModel: ObservableObject {
         let status = String(localized: "\(snapshot.activeDisplays.count) active · \(snapshot.observations.count) total")
         if statusText != status { statusText = status }
         phase = displays.isEmpty ? .empty : .ready
-        await resolveRecords(snapshot)
         await applyRememberedDisplayRetention()
         await refreshDiagnostics()
         // A display that arrived (or left) can carry a custom profile; the safeguard covers every
@@ -7548,14 +7551,11 @@ final class AppModel: ObservableObject {
     /// its speakers are macOS's.
     private func audioSink(for observation: DisplayObservation, preferences: DisplayKeyboardAudioPreferences,
                            devices: [AudioOutputDevice]) -> DisplayAudioSink {
-        guard observation.displayClass != .builtIn else { return .none }
-        if preferences.nativeAudioEnabled {
-            let resolution = AudioDeviceSelector.resolve(preferences.nativeAudioDevice, in: devices, strictness: .exact)
-            return resolution.device.map(DisplayAudioSink.native) ?? .unresolvedNative(resolution)
-        }
         let capability = audioCapability(for: observation)
-        return .hardware(volume: DDCAudioPolicy.volumeKeysUsable(capability),
-                         mute: DDCAudioPolicy.muteKeyUsable(capability, remembered: preMuteVolume[observation.recordID]))
+        return DisplayAudioSink.resolve(observation: observation, record: records[observation.recordID],
+            preferences: preferences, devices: devices,
+            hardwareVolume: DDCAudioPolicy.volumeKeysUsable(capability),
+            hardwareMute: DDCAudioPolicy.muteKeyUsable(capability, remembered: preMuteVolume[observation.recordID]))
     }
 
     /// Steps or toggles a macOS output through CoreAudio, then reports what the output reads back —
@@ -7706,7 +7706,7 @@ final class AppModel: ObservableObject {
                let controller = await self.ddcController(for: observation),
                !Task.isCancelled, self.canProbeAudioControls(for: id) {
                 await self.readHardwareControl(.volume, controller: controller, observation: observation)
-                if !Task.isCancelled, !self.safeStartup,
+                if !Task.isCancelled, !self.safeStartup, self.canPersistDisplaySettings(id),
                    !self.keyboardAudioPreferences(for: id).nativeAudioEnabled {
                     await self.refreshDiscreteMute(controller, observation: observation)
                 }
