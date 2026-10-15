@@ -57,7 +57,11 @@ import Foundation
         try save(configuration, display: display, approvedPin: nil)
     }
     func canPerform(_ action: TVAction, display: DisplayRecordID) -> Bool {
-        controller(display)?.canPerform(action) ?? false
+        if let controller = controllers[display] { return controller.canPerform(action) }
+        // SwiftUI reads this while rendering buttons. Only explicit actions may install/publish a
+        // session; a separately saved wake interface is usable without opening a paired socket.
+        guard action == .wake, let configuration = configuration(for: display) else { return false }
+        return configuration.enabled && configuration.wake != nil
     }
     func capabilities(display: DisplayRecordID) -> TVCapabilityReport? { controller(display)?.capabilities }
     func perform(_ action: TVAction, display: DisplayRecordID) async throws(AutomationIssue) -> TVCommandReceipt {
