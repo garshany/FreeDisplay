@@ -13,7 +13,7 @@ final class AutomationCatalogTests: XCTestCase {
     /// Only `brightness`, `mode` and `profile` choose between commands by their parameters; any other
     /// alias must name one command, and no alias may shadow a canonical name.
     func testAliasesAreUnambiguous() {
-        let multi: Set<String> = ["brightness", "mode", "profile", "colorprofile"]
+        let multi: Set<String> = ["brightness", "contrast", "mode", "profile", "colorprofile"]
         var owners: [String: Set<AutomationCommandName>] = [:]
         for descriptor in AutomationCatalog.descriptors {
             for alias in descriptor.aliases {
@@ -36,7 +36,7 @@ final class AutomationCatalogTests: XCTestCase {
     /// changes go through keep/revert everywhere), never from a separate CLI process or a link.
     func testArrangementChangesStayOnTheApp() {
         for descriptor in AutomationCatalog.descriptors where descriptor.effect == .arrangement {
-            XCTAssertEqual(descriptor.surfaces, [.http, .appIntent, .console], descriptor.name.rawValue)
+            XCTAssertEqual(descriptor.surfaces, [.cli, .http, .appIntent, .console], descriptor.name.rawValue)
         }
         XCTAssertEqual(AutomationCatalog.descriptor(for: .disconnect).surfaces, [.cli])
     }

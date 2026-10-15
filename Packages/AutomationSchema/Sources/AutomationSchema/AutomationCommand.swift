@@ -32,6 +32,8 @@ public enum AutomationCommandName: String, Hashable, Sendable, Codable, CaseIter
     case getBrightness
     case setBrightness
     case adjustBrightness
+    case getContrast
+    case setContrast
     case listModes
     case getMode
     case setMode
@@ -53,6 +55,8 @@ public enum AutomationCommand: Hashable, Sendable, Codable {
     case setBrightness(AutomationLevel, method: BrightnessMethodRequest)
     /// A relative change applied atomically against the level at execution time (FA-44).
     case adjustBrightness(AutomationLevelDelta, method: BrightnessMethodRequest)
+    case getContrast
+    case setContrast(AutomationLevel)
     case listModes
     case getMode
     /// `keepWithoutConfirmation` keeps a verified mode at once instead of opening the keep-or-revert
@@ -74,6 +78,8 @@ public enum AutomationCommand: Hashable, Sendable, Codable {
         case .getBrightness: return .getBrightness
         case .setBrightness: return .setBrightness
         case .adjustBrightness: return .adjustBrightness
+        case .getContrast: return .getContrast
+        case .setContrast: return .setContrast
         case .listModes: return .listModes
         case .getMode: return .getMode
         case .setMode: return .setMode
@@ -210,7 +216,7 @@ public enum AutomationCatalog {
         "method", .method, required: false, "automatic (default), hardware (never software dimming), native, ddc or software.")
 
     /// Every surface that drives the app's live model.
-    private static let appSurfaces: Set<AutomationSurface> = [.http, .appIntent, .console]
+    private static let appSurfaces: Set<AutomationSurface> = [.cli, .http, .appIntent, .console]
 
     public static let descriptors: [AutomationCommandDescriptor] = [
         .init(name: .listDisplays, aliases: ["list", "displays"],
@@ -234,6 +240,13 @@ public enum AutomationCatalog {
               effect: .setting, target: .activeDisplay,
               parameters: [display, .init("offset", .delta, required: true, "A signed normalized offset, or percentage points like +5% or -5%."), method],
               surfaces: [.cli, .http, .appIntent, .console]),
+        .init(name: .getContrast, aliases: ["contrast"],
+              summary: "Reads managed hardware contrast in normalized units, with raw readback when available.",
+              effect: .read, target: .activeDisplay, parameters: [display], surfaces: appSurfaces),
+        .init(name: .setContrast, aliases: ["contrast"],
+              summary: "Sets managed hardware contrast through the running app and reports readback; never software contrast.",
+              effect: .setting, target: .activeDisplay,
+              parameters: [display, .init("value", .level, required: true, "0…1, or an explicit percentage.")], surfaces: appSurfaces),
         .init(name: .listModes, aliases: ["modes"],
               summary: "Lists every exact mode a connected display offers, current mode first.",
               effect: .read, target: .activeDisplay, parameters: [display],
@@ -247,8 +260,7 @@ public enum AutomationCatalog {
               effect: .arrangement, target: .activeDisplay,
               parameters: [display, .init("mode", .mode, required: true, "WxH[@Hz][@2x|@1x] or an exact mode key; must match exactly one offered mode.")],
               surfaces: appSurfaces),
-        // Main-display changes go through the app's keep-or-revert path (owner decision), which a
-        // separate CLI process can't hold, so the CLI doesn't offer it.
+        // CLI requests use the running app's keep-or-revert path over same-user IPC.
         .init(name: .setMain, aliases: ["main"],
               summary: "Makes a connected display the main display, keeping the arrangement.",
               effect: .arrangement, target: .activeDisplay, parameters: [display], surfaces: appSurfaces),

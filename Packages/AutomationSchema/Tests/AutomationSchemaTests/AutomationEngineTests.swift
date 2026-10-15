@@ -373,7 +373,7 @@ final class AutomationEngineTests: XCTestCase {
                                             unavailable: [.adjustBrightness: .init(.capabilityUnavailable, "IPC required")])
         let active = await engine(environment).run(.byID(.getCapabilities, .init(rawValue: "cg:desk")))
         XCTAssertTrue(active.capabilities?.brightnessRoutes.isAvailable(.ddc) ?? false)
-        XCTAssertEqual(active.capabilities?.commands.first { $0.command == .setMode }?.issue?.code, .refusedFromSurface)
+        XCTAssertNil(active.capabilities?.commands.first { $0.command == .setMode }?.issue)
         XCTAssertEqual(active.capabilities?.commands.first { $0.command == .adjustBrightness }?.issue?.code, .capabilityUnavailable)
         await environment.configure { $0.candidates = $0.candidates.map { candidate in
             var copy = candidate

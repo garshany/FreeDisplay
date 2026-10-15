@@ -78,6 +78,8 @@ public enum AutomationRequestParser {
             case (nil, .some): return .adjustBrightness
             case (nil, nil): return .getBrightness
             }
+        case "contrast":
+            return parameters["value"] == nil ? .getContrast : .setContrast
         case "mode":
             return parameters["mode"] != nil ? .setMode : .getMode
         case "profile", "colorprofile":
@@ -103,6 +105,10 @@ public enum AutomationRequestParser {
         case .adjustBrightness:
             guard let offset = parameters["offset"] else { throw .missing("offset", for: name.rawValue) }
             return .adjustBrightness(try delta(offset), method: try method(parameters))
+        case .getContrast: return .getContrast
+        case .setContrast:
+            guard let value = parameters["value"] else { throw .missing("value", for: name.rawValue) }
+            return .setContrast(try level(value))
         case .listModes: return .listModes
         case .getMode: return .getMode
         case .setMode:
