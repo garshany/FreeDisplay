@@ -5490,7 +5490,9 @@ final class AppModel: ObservableObject {
     /// automatic callers (wake re-assert, auto-disconnect) can audit their outcome truthfully.
     @discardableResult
     func setDisplayActive(_ active: Bool, for observation: DisplayObservation,
-                          as actor: Actor = .ui) async -> Bool {
+                          as actor: Actor = .ui, reaction: UUID? = nil) async -> Bool {
+        guard configuredReactionIsCurrent(reaction) else { return false }
+        let authorization = reaction.map { configuredReactionGeneration.admission(for: $0) }
         guard !active else { return false }  // turning back on is handled by reconnectOffline
         busy = true
         defer { busy = false }
@@ -5502,7 +5504,8 @@ final class AppModel: ObservableObject {
         backUpWindowServerConfig(before: offline.name)
         let result = try? await coordinator.disconnect(
             observation.recordID,
-            options: DisconnectOptions(actor: actor, identityConfidence: 1.0))
+            options: DisconnectOptions(actor: actor, identityConfidence: 1.0, authorization: authorization))
+        if authorization?.isAuthorized == false, case .cancelled? = result { return false }
         integrationSession.soft(.softDisconnect, display: observation.recordID, attempt: UUID())
         var committed = false
         if case .committed? = result {
@@ -5783,12 +5786,17 @@ final class AppModel: ObservableObject {
     private func applyAutoDisconnectBuiltInIfNeeded(reaction: UUID? = nil) async -> Bool {
         observeAutoDisconnectArrival()
         guard configuredReactionIsCurrent(reaction), !safeStartup, !busy else { return false }
-        guard autoDisconnectPolicy.takePendingArrival(),
-              let builtIn = displays.first(where: { $0.displayClass == .builtIn && $0.isActive }) else { return false }
+        guard let arrival = autoDisconnectPolicy.pendingArrival else { return false }
+        guard let builtIn = displays.first(where: { $0.displayClass == .builtIn && $0.isActive }) else {
+            autoDisconnectPolicy.consumeArrival(arrival)
+            return false
+        }
         #if DEBUG
         Self.err("AUTO-DISCONNECT firing: turning off \(displayName(for: builtIn))")
         #endif
-        let committed = await setDisplayActive(false, for: builtIn, as: .system)
+        let committed = await setDisplayActive(false, for: builtIn, as: .system, reaction: reaction)
+        if committed || configuredReactionIsCurrent(reaction) { autoDisconnectPolicy.consumeArrival(arrival) }
+        guard committed || configuredReactionIsCurrent(reaction) else { return false }
         await appendAudit(AutoDisconnectBuiltInPolicy.auditEntry(
             builtIn: builtIn.recordID, committed: committed, at: Date()))
         return true
@@ -6238,11 +6246,12 @@ final class AppModel: ObservableObject {
             guard configuredReactionIsCurrent(reaction) else { return }
             guard let live = displays.first(where: { $0.recordID == offline.recordID && $0.isActive })
             else { continue }
-            offlineReassertAttempts[offline.recordID, default: 0] += 1
             #if DEBUG
             Self.err("WAKE: \(offline.name) came back with the machine — turning it off again")
             #endif
-            let committed = await setDisplayActive(false, for: live, as: .wakeConvergence)
+            let committed = await setDisplayActive(false, for: live, as: .wakeConvergence, reaction: reaction)
+            guard committed || configuredReactionIsCurrent(reaction) else { return }
+            offlineReassertAttempts[offline.recordID, default: 0] += 1
             await appendAudit(
                 WakeConvergencePolicy.reassertAudit(of: offline, committed: committed, at: Date()))
             // Convergence pays the owed "off", so the wake's stamp comes off with it. Leaving it

@@ -17,7 +17,7 @@ public struct AutoDisconnectBuiltInPolicy {
                 && $0.physicalPresence == .physical && $0.isActive }
     }
 
-    private var pendingArrival = false
+    public private(set) var pendingArrival: UUID?
     private var externalPresent: Bool
 
     public init(externalPresent: Bool = false) {
@@ -29,20 +29,26 @@ public struct AutoDisconnectBuiltInPolicy {
     /// mistaken for a fresh arrival.
     public mutating func seed(externalPresent: Bool) {
         self.externalPresent = externalPresent
-        pendingArrival = false
+        pendingArrival = nil
     }
 
     /// Observe every topology, independently of when configured reactions are allowed to run.
     public mutating func observe(enabled: Bool, externalPresent: Bool, suppressed: Bool) {
         let arrived = onTopologyChange(enabled: enabled, externalPresent: externalPresent)
-        if !enabled || !externalPresent || suppressed { pendingArrival = false }
-        else { pendingArrival = pendingArrival || arrived }
+        if !enabled || !externalPresent || suppressed { pendingArrival = nil }
+        else if arrived { pendingArrival = UUID() }
     }
 
     public mutating func takePendingArrival() -> Bool {
         let pending = pendingArrival
-        pendingArrival = false
-        return pending
+        pendingArrival = nil
+        return pending != nil
+    }
+
+    /// A refused obsolete preflight leaves the arrival owed to the newest delayed run. A later
+    /// arrival is independent and cannot be consumed by an earlier operation completing late.
+    public mutating func consumeArrival(_ token: UUID) {
+        if pendingArrival == token { pendingArrival = nil }
     }
 
     /// Feed the latest `(enabled, externalPresent)` on every topology change. Returns true exactly when

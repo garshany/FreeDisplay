@@ -18,6 +18,7 @@ public struct DisconnectOptions: Sendable {
     public var isFirstUseForRoute: Bool
     public var deadline: Date
     public var persistencePolicy: PersistencePolicy
+    public var authorization: WriteAuthorization?
 
     public init(
         actor: Actor,
@@ -25,7 +26,8 @@ public struct DisconnectOptions: Sendable {
         identityConfidence: Double,
         isFirstUseForRoute: Bool = false,
         deadline: Date = Date().addingTimeInterval(10),
-        persistencePolicy: PersistencePolicy = .reconnectOnQuit
+        persistencePolicy: PersistencePolicy = .reconnectOnQuit,
+        authorization: WriteAuthorization? = nil
     ) {
         self.actor = actor
         self.reason = reason
@@ -33,6 +35,7 @@ public struct DisconnectOptions: Sendable {
         self.isFirstUseForRoute = isFirstUseForRoute
         self.deadline = deadline
         self.persistencePolicy = persistencePolicy
+        self.authorization = authorization
     }
 }
 
@@ -153,6 +156,13 @@ public actor TopologyCoordinator {
                 try transition(to: .failed)
                 return .cancelled(txID)
             }
+        }
+
+        // Preflight, checkpoint persistence and confirmation can all suspend after a deferred
+        // reaction was admitted. Refuse obsolete intent at the last boundary before dispatch.
+        guard !Task.isCancelled, options.authorization?.isAuthorized != false else {
+            try transition(to: .failed)
+            return .cancelled(txID)
         }
 
         // 5. Apply.
