@@ -57,6 +57,13 @@ final class DisplaySettingsTransferTests: XCTestCase {
                          offsetByMember: [other.rawValue: 0, old.rawValue: 0.2]),
             DisplayGroup(id: groupB, name: "Elsewhere", memberRecordIDs: [new], offsetByMember: [new.rawValue: -0.1]),
         ]
+        settings.defaultDisplayGroup.offsetByMember[old.rawValue] = 0.15
+        settings.luminanceAnchorsByDisplay = [old.rawValue: .init(manualValuesEnabled: false,
+            overrides: [.sdrMaximum: .init(nits: 320, basis: .specification)])]
+        settings.keyboardAudioByDisplay = [old.rawValue: .init(keyboardControl: false, nativeAudioEnabled: true,
+                                                              nativeAudioDevice: "USB")]
+        settings.preventDisplaySleepDisplayIDs = [old.rawValue]
+        settings.osdFeedback.volumeHiddenDisplayIDs = [old.rawValue]
         settings.softwareBrightnessDisplayIDs = [old.rawValue]
         settings.ddcAppleDisplayOverrideIDs = [old.rawValue]
         settings.ddcChannelMappings = [DDCChannelMapping(
@@ -382,4 +389,83 @@ final class DisplaySettingsTransferTests: XCTestCase {
             XCTAssertEqual(error as? DisplaySettingsTransfer.Refusal, .destinationNotConnected)
         }
     }
+    func testTransferMovesMergedPreferencesAndClearsEveryDestinationAlias() throws {
+        var (settings, favorites, menu) = populated()
+        let anchor = LuminanceAnchorSettings(manualValuesEnabled: false,
+            overrides: [.sdrMaximum: .init(nits: 320, basis: .specification)])
+        let audio = settings.keyboardAudioByDisplay[old.rawValue]
+        settings.luminanceAnchorsByDisplay[newOtherPort.rawValue] = .init()
+        settings.keyboardAudioByDisplay[newOtherPort.rawValue] = .init(nativeAudioDevice: "other")
+        var destination = newEntry()
+        destination.observationIDs.append(newOtherPort)
+        let plan = try DisplaySettingsTransfer.transferPlan(from: oldEntry(), to: destination, destinationLiveID: new,
+            settings: settings, favorites: favorites, menuLayout: menu, ledger: [])
+        XCTAssertEqual(plan.source.luminanceAnchors, anchor)
+        XCTAssertEqual(plan.source.keyboardAudio, audio)
+        XCTAssertTrue(plan.source.keepAwake)
+        XCTAssertTrue(plan.source.volumeFeedback)
+        let moved = DisplaySettingsTransfer.applying(plan, selection: plan.defaultSelection, to: settings)
+        XCTAssertEqual(moved.luminanceAnchorsByDisplay, [new.rawValue: anchor])
+        XCTAssertEqual(moved.keyboardAudioByDisplay, [new.rawValue: try XCTUnwrap(audio)])
+        XCTAssertEqual(moved.preventDisplaySleepDisplayIDs, [new.rawValue])
+        XCTAssertEqual(moved.osdFeedback.volumeHiddenDisplayIDs, [new.rawValue])
+        XCTAssertTrue(moved.ddcChannelMappings.isEmpty, "physical pairing is never retargeted")
+        XCTAssertEqual(moved.defaultDisplayGroup.offsetByMember, [new.rawValue: 0.15])
+        let skipped = DisplaySettingsTransfer.applying(plan, selection: [], to: settings)
+        XCTAssertNil(skipped.luminanceAnchorsByDisplay[old.rawValue], "source is forgotten even if a category is skipped")
+        XCTAssertEqual(skipped.luminanceAnchorsByDisplay[newOtherPort.rawValue], .init())
+        XCTAssertEqual(skipped.keyboardAudioByDisplay[newOtherPort.rawValue]?.nativeAudioDevice, "other")
+    }
+
+    func testTransferCanClearMergedDestinationPreferences() throws {
+        let (initial, favorites, menu) = populated()
+        var settings = initial
+        settings.luminanceAnchorsByDisplay = [new.rawValue: .init(manualValuesEnabled: false)]
+        settings.keyboardAudioByDisplay = [new.rawValue: .init(keyboardControl: false)]
+        settings.preventDisplaySleepDisplayIDs = [new.rawValue]
+        settings.osdFeedback.volumeHiddenDisplayIDs = [new.rawValue]
+        let plan = try DisplaySettingsTransfer.transferPlan(from: oldEntry(), to: newEntry(), destinationLiveID: new,
+            settings: settings, favorites: favorites, menuLayout: menu, ledger: [])
+        let cleared = DisplaySettingsTransfer.applying(plan, selection: plan.defaultSelection, to: settings)
+        XCTAssertTrue(cleared.luminanceAnchorsByDisplay.isEmpty)
+        XCTAssertTrue(cleared.keyboardAudioByDisplay.isEmpty)
+        XCTAssertTrue(cleared.preventDisplaySleepDisplayIDs.isEmpty)
+        XCTAssertTrue(cleared.osdFeedback.volumeHiddenDisplayIDs.isEmpty)
+    }
+
+    func testMigrationMovesMergedPreferencesButPreservesConflictsAndPreviewEvidence() throws {
+        var (entry, settings, favorites, menu) = migrating()
+        let anchors = LuminanceAnchorSettings(manualValuesEnabled: false)
+        settings.defaultDisplayGroup.offsetByMember[old.rawValue] = 0.25
+        let audio = DisplayKeyboardAudioPreferences(keyboardControl: false, nativeAudioDevice: "USB")
+        settings.luminanceAnchorsByDisplay[old.rawValue] = anchors
+        settings.keyboardAudioByDisplay[old.rawValue] = audio
+        settings.preventDisplaySleepDisplayIDs.insert(old.rawValue)
+        settings.osdFeedback.volumeHiddenDisplayIDs.insert(old.rawValue)
+        let plan = try DisplaySettingsTransfer.migrationPlan(for: entry, liveID: new, settings: settings,
+            favorites: favorites, menuLayout: menu)
+        for category in [DisplaySettingsTransfer.Category.defaultGroupOffset, .luminanceAnchors, .keyboardAudio, .keepAwake, .volumeFeedback] {
+            XCTAssertEqual(plan.change(for: category)?.effect, .move)
+        }
+        let moved = DisplaySettingsTransfer.applying(plan, selection: plan.defaultSelection, to: settings)
+        XCTAssertEqual(moved.luminanceAnchorsByDisplay, [new.rawValue: anchors])
+        XCTAssertEqual(moved.defaultDisplayGroup.offsetByMember, [new.rawValue: 0.25])
+        XCTAssertEqual(moved.keyboardAudioByDisplay, [new.rawValue: audio])
+        XCTAssertEqual(moved.preventDisplaySleepDisplayIDs, [new.rawValue])
+        XCTAssertEqual(moved.osdFeedback.volumeHiddenDisplayIDs, [new.rawValue])
+        settings.keyboardAudioByDisplay[new.rawValue] = .init(nativeAudioEnabled: true)
+        settings.luminanceAnchorsByDisplay[new.rawValue] = .init()
+        let conflicting = try DisplaySettingsTransfer.migrationPlan(for: entry, liveID: new, settings: settings,
+            favorites: favorites, menuLayout: menu)
+        XCTAssertEqual(conflicting.change(for: .keyboardAudio)?.effect, .conflict)
+        XCTAssertEqual(conflicting.change(for: .luminanceAnchors)?.effect, .conflict)
+        let kept = DisplaySettingsTransfer.applying(conflicting, selection: Set(DisplaySettingsTransfer.Category.allCases), to: settings)
+        XCTAssertEqual(kept.keyboardAudioByDisplay, settings.keyboardAudioByDisplay)
+        XCTAssertEqual(kept.luminanceAnchorsByDisplay, settings.luminanceAnchorsByDisplay)
+        settings.keyboardAudioByDisplay[old.rawValue]?.nativeAudioDevice = "changed UID"
+        let changed = try DisplaySettingsTransfer.migrationPlan(for: entry, liveID: new, settings: settings,
+            favorites: favorites, menuLayout: menu)
+        XCTAssertNotEqual(changed, conflicting, "changed values invalidate the confirmation, even when both remain conflicts")
+    }
+
 }

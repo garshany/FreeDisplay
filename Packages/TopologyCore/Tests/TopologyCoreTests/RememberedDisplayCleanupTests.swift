@@ -399,4 +399,38 @@ final class RememberedDisplayCleanupTests: XCTestCase {
         XCTAssertTrue(favorites.favoriteKeys(for: desk).isEmpty)
         XCTAssertEqual(favorites.favoriteKeys(for: deskOtherPort).count, 1)
     }
+    func testCleanupListsAndRemovesEveryMergedPreferenceAcrossAliases() throws {
+        for status in [RememberedDisplay.Status.connected, .notConnected] {
+            let entry = deskEntry(status: status)
+            var settings = populatedSettings()
+            settings.luminanceAnchorsByDisplay = [deskOtherPort.rawValue: .init(manualValuesEnabled: false),
+                                                  laptop.rawValue: .init(manualValuesEnabled: false)]
+            settings.keyboardAudioByDisplay = [desk.rawValue: .init(keyboardControl: false),
+                                               laptop.rawValue: .init(nativeAudioEnabled: true)]
+            settings.defaultDisplayGroup.offsetByMember = [deskOtherPort.rawValue: 0.1, laptop.rawValue: 0.2]
+            settings.preventDisplaySleepDisplayIDs = [deskOtherPort.rawValue, laptop.rawValue]
+            settings.osdFeedback.volumeHiddenDisplayIDs = [desk.rawValue, laptop.rawValue]
+            let plan = try RememberedDisplayCleanup.plan(for: entry, mode: entry.cleanupMode,
+                settings: settings, favorites: FavoriteResolutions(), menuLayout: .default, ledger: [])
+            XCTAssertTrue(plan.luminanceAnchors)
+            XCTAssertTrue(plan.keyboardAudioPreferences)
+            XCTAssertTrue(plan.keepsDisplaysAwake)
+            XCTAssertTrue(plan.volumeFeedback)
+            XCTAssertTrue(plan.defaultGroupOffset)
+            XCTAssertFalse(plan.removesOnlyRecord)
+            let cleaned = RememberedDisplayCleanup.applying(plan, to: settings)
+            XCTAssertEqual(Set(cleaned.luminanceAnchorsByDisplay.keys), [laptop.rawValue])
+            XCTAssertEqual(Set(cleaned.keyboardAudioByDisplay.keys), [laptop.rawValue])
+            XCTAssertEqual(cleaned.preventDisplaySleepDisplayIDs, [laptop.rawValue])
+            XCTAssertEqual(cleaned.defaultDisplayGroup.offsetByMember, [laptop.rawValue: 0.2])
+            XCTAssertEqual(cleaned.osdFeedback.volumeHiddenDisplayIDs, [laptop.rawValue])
+            XCTAssertEqual(cleaned.faceLightPriorStateByDisplay, settings.faceLightPriorStateByDisplay)
+        }
+        var settings = OpenDisplaySettings()
+        settings.luminanceAnchorsByDisplay[desk.rawValue] = .init(manualValuesEnabled: false)
+        let plan = try RememberedDisplayCleanup.plan(for: deskEntry(status: .notConnected), mode: .forget,
+            settings: settings, favorites: FavoriteResolutions(), menuLayout: .default, ledger: [])
+        XCTAssertFalse(plan.removesOnlyRecord, "luminance alone is a saved preference")
+    }
+
 }

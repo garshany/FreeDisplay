@@ -1977,7 +1977,8 @@ final class AppModel: ObservableObject {
         #endif
         let updatedSettings = RememberedDisplayCleanup.applying(plan, to: settings)
         if updatedSettings != settings {
-            if updatedSettings.displayGroups != settings.displayGroups { groupSyncStates.removeAll() }
+            if updatedSettings.displayGroups != settings.displayGroups
+                || updatedSettings.defaultDisplayGroup != settings.defaultDisplayGroup { groupSyncStates.removeAll() }
             settings = updatedSettings
             persistSettings()
         }
@@ -2171,7 +2172,8 @@ final class AppModel: ObservableObject {
 
         let updatedSettings = DisplaySettingsTransfer.applying(current, selection: selection, to: settings)
         if updatedSettings != settings {
-            if updatedSettings.displayGroups != settings.displayGroups { groupSyncStates.removeAll() }
+            if updatedSettings.displayGroups != settings.displayGroups
+                || updatedSettings.defaultDisplayGroup != settings.defaultDisplayGroup { groupSyncStates.removeAll() }
             settings = updatedSettings
             persistSettings()
         }

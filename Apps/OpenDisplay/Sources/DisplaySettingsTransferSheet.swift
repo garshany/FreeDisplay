@@ -57,7 +57,7 @@ struct DisplaySettingsTransferSheet: View {
                         Text("Removed with the source record").font(.subheadline.bold())
                         ForEach(cleanup.groupNames, id: \.self) { Text(verbatim: $0) }
                         ForEach(cleanup.protectedLayoutKeys, id: \.self) { Text(verbatim: $0) }
-                        Text("The source alias, tags, favourites, menu presentation, software-brightness preference, adaptive offset, Apple DDC permission and paired channel are removed. Pending restores, input hotkeys, app presets and scenes remain under their original identifiers; review them separately.")
+                        Text("The source alias, tags, favourites, menu presentation, brightness preferences, Default group offset, luminance anchors, keyboard and audio preferences, keep-awake request, volume feedback preference, Apple DDC permission and paired channel are removed. Pending restores, input hotkeys, app presets and scenes remain under their original identifiers; review them separately.")
                         if cleanup.removesTurnedOffRecord {
                             Text("The source has a failed reconnect record. Forgetting removes its recovery card too; if it is still attached and dark, unplug/replug or restart may be necessary.")
                         }
@@ -106,6 +106,10 @@ struct DisplaySettingsTransferSheet: View {
         }
     }
 
+    private func state(_ enabled: Bool) -> String {
+        enabled ? String(localized: "Enabled") : String(localized: "Disabled")
+    }
+
     private func value(_ category: DisplaySettingsTransfer.Category, in saved: DisplaySettingsTransfer.SavedSettings) -> String {
         switch category {
         case .name: return saved.alias ?? String(localized: "None")
@@ -117,6 +121,23 @@ struct DisplaySettingsTransferSheet: View {
         case .groupMembership: return saved.group.map { "\($0.groupName) · \($0.offset.map { String($0) } ?? "—")" } ?? String(localized: "None")
         case .softwareBrightness: return saved.softwareBrightness ? String(localized: "Enabled") : String(localized: "Disabled")
         case .adaptiveOffset: return saved.adaptiveOffset.map { String($0) } ?? String(localized: "None")
+        case .defaultGroupOffset: return saved.defaultGroupOffset.map { String($0) } ?? String(localized: "None")
+        case .keepAwake: return state(saved.keepAwake)
+        case .volumeFeedback: return saved.volumeFeedback ? String(localized: "Hidden") : String(localized: "Visible")
+        case .luminanceAnchors:
+            guard let anchors = saved.luminanceAnchors else { return String(localized: "None") }
+            let l = ReportLocalizer.app
+            let values = LuminanceAnchor.allCases.compactMap { anchor -> String? in
+                guard let value = anchors.overrides[anchor] else { return nil }
+                return "\(LuminanceReport.anchorName(anchor, l)): \(value.nits) cd/m² · \(LuminanceReport.provenanceText(.manual(value.basis), l))"
+            }
+            return ([state(anchors.manualValuesEnabled)] + values).joined(separator: "; ")
+        case .keyboardAudio:
+            guard let audio = saved.keyboardAudio else { return String(localized: "None") }
+            let keys = state(audio.keyboardControl), native = state(audio.nativeAudioEnabled), hud = state(audio.showsVolumeOSD)
+            let match = audio.audioMatch ?? String(localized: "Automatic")
+            let device = audio.nativeAudioDevice ?? String(localized: "None")
+            return String(localized: "Keyboard: \(keys); matching output: \(match); native audio: \(native); sound output: \(device); volume HUD: \(hud)")
         }
     }
 }

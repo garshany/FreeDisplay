@@ -340,7 +340,7 @@ struct ManageAppSettingsSheet: View {
             Text("Manage App Settings").font(.title2.weight(.semibold))
 
             section(title: String(localized: "Back up"),
-                    text: String(localized: "Saves FreeDisplay’s preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts, scenes, menu layout and luminance values to a file you choose.")) {
+                    text: String(localized: "Saves FreeDisplay’s preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts, scenes, menu layout, luminance anchors, keyboard and audio bindings, idle-sleep requests and volume feedback preferences to a file you choose.")) {
                 Button("Export Settings…") { export() }
             }
             section(title: String(localized: "Restore"),
@@ -398,7 +398,7 @@ struct ManageAppSettingsSheet: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts, scenes, menu layout and luminance values return to their defaults. A backup of the current settings is written first, and FreeDisplay then relaunches — like any quit, turning the displays it turned off back on.")
+            Text("Preferences, display names, favourite resolutions, groups, app presets, protected layouts, shortcuts, scenes, menu layout, luminance anchors, keyboard and audio bindings, idle-sleep requests and volume feedback preferences return to their defaults. A backup is written first, and FreeDisplay then relaunches — like any quit, turning the displays it turned off back on.")
         }
         .confirmationDialog("Relaunch OpenDisplay?", isPresented: $confirmingRelaunch) {
             Button("Relaunch") { AppLanguage.relaunch() }
@@ -567,7 +567,7 @@ private struct ImportConfirmationView: View {
     private var unmatchedMessage: String {
         let names = preview.unmatchedDisplays.map { "\u{2022} " + ($0.name ?? $0.id.rawValue) }
         return ([String(localized: "Their settings are imported as they are and take effect only when a display with the same identity connects — nothing is moved to a different display.")]
-                + names).joined(separator: "\n")
+                + names + [String(localized: "After relaunch, open Settings › Displays › Identity and settings transfer to preview a transfer from an offline record or migrate preferences from an earlier identifier. Manual DDC channels require a new physical pairing test for a different identity.")]).joined(separator: "\n")
     }
 
     private func countRow(_ label: String, _ count: Int) -> some View {

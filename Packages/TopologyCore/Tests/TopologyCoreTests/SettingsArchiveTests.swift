@@ -590,4 +590,34 @@ final class SettingsArchiveTests: XCTestCase {
     func testFactoryDefaultsResetTheMenuLayoutToo() {
         XCTAssertEqual(SettingsArchive.factoryDefaults(createdAt: now, appVersion: "1").menuLayout, .default)
     }
+    func testMergedPreferencesAreReferencedBackedUpImportedAndReset() throws {
+        var settings = OpenDisplaySettings()
+        let ids = (0..<6).map { DisplayRecordID.forCGUUID("family-\($0)") }
+        settings.luminanceAnchorsByDisplay[ids[0].rawValue] = .init(manualValuesEnabled: false)
+        settings.keyboardAudioByDisplay[ids[1].rawValue] = .init(nativeAudioEnabled: true, nativeAudioDevice: "USB")
+        settings.defaultDisplayGroup.offsetByMember[ids[5].rawValue] = 0.2
+        settings.preventDisplaySleepDisplayIDs = [ids[2].rawValue]
+        settings.osdFeedback.volumeHiddenDisplayIDs = [ids[3].rawValue]
+        settings.ddcChannelMappings = [.init(displayID: ids[4],
+            displayIdentity: .init(vendorNumber: 1, productNumber: 2, serialNumber: 0),
+            channelPath: "IOService:/paired", channelAttributes: nil, confirmedAt: now)]
+        let incoming = SettingsArchive(createdAt: now, appVersion: nil, settings: settings,
+            favorites: FavoriteResolutions(), registry: RegistryState(), scenes: [], defaults: ArchivedDefaults())
+        let decoded = try SettingsArchive.decode(incoming.encoded())
+        XCTAssertEqual(decoded.referencedDisplayIDs, Set(ids))
+        XCTAssertEqual(Set(decoded.unmatchedDisplays(known: []).map(\.id)), Set(ids))
+        XCTAssertEqual(decoded.settings, settings, "import preserves original identities; no silent remapping")
+        let backups = SettingsBackupStore(directory: directory)
+        let replacement = try backups.prepareReplacement(current: incoming, live: settings,
+            incoming: .factoryDefaults(createdAt: now, appVersion: nil))
+        let backup = try SettingsArchive.read(from: replacement.backupURL)
+        XCTAssertEqual(backup.settings, settings)
+        XCTAssertTrue(replacement.archive.referencedDisplayIDs.isEmpty)
+        XCTAssertTrue(replacement.archive.settings.luminanceAnchorsByDisplay.isEmpty)
+        XCTAssertTrue(replacement.archive.settings.keyboardAudioByDisplay.isEmpty)
+        XCTAssertTrue(replacement.archive.settings.preventDisplaySleepDisplayIDs.isEmpty)
+        XCTAssertTrue(replacement.archive.settings.ddcChannelMappings.isEmpty)
+        XCTAssertTrue(replacement.archive.settings.osdFeedback.volumeHiddenDisplayIDs.isEmpty)
+    }
+
 }

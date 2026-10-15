@@ -234,6 +234,9 @@ public enum RememberedDisplayCleanup {
         public var appleDDCOverride: Bool
         /// A DDC channel the user paired with this display by hand (`DDCChannelMappingPolicy`).
         public var ddcChannelMapping: Bool
+        public var luminanceAnchors: Bool = false
+        public var volumeFeedback: Bool = false
+        public var defaultGroupOffset: Bool = false
         public var adaptiveOffset: Bool
         /// This display's own "keep displays awake while connected" (AM-42).
         public var keepsDisplaysAwake: Bool = false
@@ -253,7 +256,7 @@ public enum RememberedDisplayCleanup {
             alias == nil && tagCount == 0 && favoriteModeCount == 0 && groupNames.isEmpty
                 && protectedLayoutKeys.isEmpty && !hasMenuPreferences && !softwareBrightness
                 && !appleDDCOverride && !ddcChannelMapping && !adaptiveOffset && !keepsDisplaysAwake
-                && !keyboardAudioPreferences && !removesTurnedOffRecord
+                && !keyboardAudioPreferences && !luminanceAnchors && !volumeFeedback && !defaultGroupOffset && !removesTurnedOffRecord
         }
     }
 
@@ -272,7 +275,9 @@ public enum RememberedDisplayCleanup {
         let ids = Set(display.observationIDs)
         let raw = Set(ids.map(\.rawValue))
         let record = display.isRegistered ? display.record : nil
-        let groups = settings.displayGroups.filter { group in group.memberRecordIDs.contains(where: ids.contains) }
+        let groups = settings.displayGroups.filter { group in
+            group.memberRecordIDs.contains(where: ids.contains) || !raw.isDisjoint(with: group.offsetByMember.keys)
+        }
         let layouts = settings.protectedLayouts.filter { _, config in
             LayoutProtectionPolicy.members(of: config).contains(where: ids.contains)
         }
@@ -302,6 +307,9 @@ public enum RememberedDisplayCleanup {
                 guard case .display(let target) = preset.target, raw.contains(target) else { return nil }
                 return preset.applicationName
             }.sorted())
+        plan.defaultGroupOffset = !raw.isDisjoint(with: settings.defaultDisplayGroup.offsetByMember.keys)
+        plan.luminanceAnchors = !raw.isDisjoint(with: settings.luminanceAnchorsByDisplay.keys)
+        plan.volumeFeedback = !raw.isDisjoint(with: settings.osdFeedback.volumeHiddenDisplayIDs)
         plan.keepsDisplaysAwake = !raw.isDisjoint(with: settings.preventDisplaySleepDisplayIDs)
         return plan
     }
@@ -315,14 +323,22 @@ public enum RememberedDisplayCleanup {
                 updated.displayGroups = DisplayGroupStore.removeMember(member, from: group.id, in: updated.displayGroups)
             }
         }
+        // Default membership is resolved live, but its learned offsets are durable per-display data.
+        for index in updated.displayGroups.indices {
+            for key in raw { updated.displayGroups[index].offsetByMember[key] = nil }
+        }
+        updated.defaultDisplayGroup.memberRecordIDs.removeAll { plan.observationIDs.contains($0) }
+        for key in raw { updated.defaultDisplayGroup.offsetByMember[key] = nil }
         for key in plan.protectedLayoutKeys { updated.protectedLayouts[key] = nil }
         updated.softwareBrightnessDisplayIDs.subtract(raw)
         updated.ddcAppleDisplayOverrideIDs.subtract(raw)
         updated.ddcChannelMappings.removeAll { plan.observationIDs.contains($0.displayID) }
         updated.preventDisplaySleepDisplayIDs.subtract(raw)
+        updated.osdFeedback.volumeHiddenDisplayIDs.subtract(raw)
         for key in raw {
             updated.adaptiveBrightnessOffsetByDisplay[key] = nil
             updated.keyboardAudioByDisplay[key] = nil
+            updated.luminanceAnchorsByDisplay[key] = nil
         }
         return updated
     }

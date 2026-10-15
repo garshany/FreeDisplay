@@ -23,7 +23,8 @@ import Foundation
 /// confirmed by watching one monitor respond on one port; pending restores hold one monitor's own
 /// values; input-switch hotkeys and app presets are rules the user wrote naming a display (input
 /// codes are monitor-specific); protected layouts describe a whole desk. Nothing here writes to a
-/// monitor or to macOS's display configuration. Cancelling — not applying the plan — changes nothing.
+/// monitor or to macOS's display configuration. Scenes contain selectors in their own library and
+/// are deliberately not rewritten by a per-record transfer. Cancelling changes nothing.
 public enum DisplaySettingsTransfer {
     public enum Kind: String, Hashable, Sendable {
         case transfer, migrate
@@ -45,6 +46,11 @@ public enum DisplaySettingsTransfer {
         case softwareBrightness
         /// Adaptive Display's learned brightness offset.
         case adaptiveOffset
+        case defaultGroupOffset
+        case luminanceAnchors
+        case keyboardAudio
+        case keepAwake
+        case volumeFeedback
     }
 
     /// Saved data that never moves, listed so nothing stays behind silently.
@@ -73,6 +79,11 @@ public enum DisplaySettingsTransfer {
         public var group: GroupMembership?
         public var softwareBrightness: Bool
         public var adaptiveOffset: Float?
+        public var defaultGroupOffset: Float?
+        public var luminanceAnchors: LuminanceAnchorSettings?
+        public var keyboardAudio: DisplayKeyboardAudioPreferences?
+        public var keepAwake: Bool
+        public var volumeFeedback: Bool
         public var appleDDCOverride: Bool
         public var ddcChannelMapping: Bool
         public var pendingRestores: [RememberedDisplayCleanup.PendingRestore]
@@ -90,6 +101,11 @@ public enum DisplaySettingsTransfer {
             case .groupMembership: return group != nil
             case .softwareBrightness: return softwareBrightness
             case .adaptiveOffset: return adaptiveOffset != nil
+            case .defaultGroupOffset: return defaultGroupOffset != nil
+            case .luminanceAnchors: return luminanceAnchors != nil
+            case .keyboardAudio: return keyboardAudio != nil
+            case .keepAwake: return keepAwake
+            case .volumeFeedback: return volumeFeedback
             }
         }
 
@@ -116,6 +132,11 @@ public enum DisplaySettingsTransfer {
             case .groupMembership: return AnyHashable([AnyHashable(group?.groupID), AnyHashable(group?.offset)])
             case .softwareBrightness: return AnyHashable(softwareBrightness)
             case .adaptiveOffset: return AnyHashable(adaptiveOffset)
+            case .defaultGroupOffset: return AnyHashable(defaultGroupOffset)
+            case .luminanceAnchors: return AnyHashable(luminanceAnchors)
+            case .keyboardAudio: return AnyHashable(keyboardAudio)
+            case .keepAwake: return AnyHashable(keepAwake)
+            case .volumeFeedback: return AnyHashable(volumeFeedback)
             }
         }
     }
@@ -239,6 +260,11 @@ public enum DisplaySettingsTransfer {
             group: group,
             softwareBrightness: raw.contains(where: settings.softwareBrightnessDisplayIDs.contains),
             adaptiveOffset: raw.lazy.compactMap { settings.adaptiveBrightnessOffsetByDisplay[$0] }.first,
+            defaultGroupOffset: raw.lazy.compactMap { settings.defaultDisplayGroup.offsetByMember[$0] }.first,
+            luminanceAnchors: raw.lazy.compactMap { settings.luminanceAnchorsByDisplay[$0] }.first,
+            keyboardAudio: raw.lazy.compactMap { settings.keyboardAudioByDisplay[$0] }.first,
+            keepAwake: raw.contains(where: settings.preventDisplaySleepDisplayIDs.contains),
+            volumeFeedback: raw.contains(where: settings.osdFeedback.volumeHiddenDisplayIDs.contains),
             appleDDCOverride: raw.contains(where: settings.ddcAppleDisplayOverrideIDs.contains),
             ddcChannelMapping: settings.ddcChannelMappings.contains { idSet.contains($0.displayID) },
             pendingRestores: restores,
@@ -347,6 +373,13 @@ public enum DisplaySettingsTransfer {
                 changes.append(Change(category: .adaptiveOffset, effect: .conflict))
             }
         }
+        for category in [Category.defaultGroupOffset, .luminanceAnchors, .keyboardAudio, .keepAwake, .volumeFeedback] where from.has(category) {
+            if !to.has(category) {
+                changes.append(Change(category: category, effect: .move))
+            } else if from.value(of: category) != to.value(of: category) {
+                changes.append(Change(category: category, effect: .conflict))
+            }
+        }
         guard !changes.isEmpty else { throw .nothingToMove }
         return Plan(
             kind: .migrate, sourceEntryID: entry.id, destinationEntryID: entry.id,
@@ -404,6 +437,29 @@ public enum DisplaySettingsTransfer {
         let chosen = plan.chosen(selection)
         let live = plan.destinationLiveID
         var updated = settings
+        // Selected transfer categories replace every destination alias; migration fills only absent
+        // values (conflicts are not selectable). The original ID is cleared only when a value moves.
+        let replacedIDs = (plan.kind == .transfer ? plan.destinationIDs : plan.sourceIDs).map(\.rawValue)
+        if chosen.contains(.defaultGroupOffset) {
+            for id in replacedIDs { updated.defaultDisplayGroup.offsetByMember[id] = nil }
+            updated.defaultDisplayGroup.offsetByMember[live.rawValue] = plan.source.defaultGroupOffset
+        }
+        if chosen.contains(.luminanceAnchors) {
+            for id in replacedIDs { updated.luminanceAnchorsByDisplay[id] = nil }
+            updated.luminanceAnchorsByDisplay[live.rawValue] = plan.source.luminanceAnchors
+        }
+        if chosen.contains(.keyboardAudio) {
+            for id in replacedIDs { updated.keyboardAudioByDisplay[id] = nil }
+            updated.keyboardAudioByDisplay[live.rawValue] = plan.source.keyboardAudio
+        }
+        if chosen.contains(.keepAwake) {
+            updated.preventDisplaySleepDisplayIDs.subtract(replacedIDs)
+            if plan.source.keepAwake { updated.preventDisplaySleepDisplayIDs.insert(live.rawValue) }
+        }
+        if chosen.contains(.volumeFeedback) {
+            updated.osdFeedback.volumeHiddenDisplayIDs.subtract(replacedIDs)
+            if plan.source.volumeFeedback { updated.osdFeedback.volumeHiddenDisplayIDs.insert(live.rawValue) }
+        }
         switch plan.kind {
         case .transfer:
             if chosen.contains(.groupMembership) {

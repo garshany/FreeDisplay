@@ -129,18 +129,27 @@ public struct SettingsArchive: Hashable, Sendable {
     /// Every display the archived preferences are keyed to: per-display brightness routes and DDC
     /// overrides, learned offsets, luminance anchors, keyboard/audio preferences, app-preset targets,
     /// group members, input-switch shortcuts, protected layouts, favourite resolutions and
-    /// per-display menu preferences and order.
+    /// per-display menu preferences and order, keep-awake requests and volume feedback overrides.
+    /// Import preserves these IDs exactly. Unmatched IDs stay inert and are listed for explicit
+    /// transfer/migration after import; manual DDC pairings still require matching route evidence.
     public var referencedDisplayIDs: Set<DisplayRecordID> {
         var ids = Set<DisplayRecordID>()
         ids.formUnion(settings.softwareBrightnessDisplayIDs.map(DisplayRecordID.init(rawValue:)))
         ids.formUnion(settings.ddcAppleDisplayOverrideIDs.map(DisplayRecordID.init(rawValue:)))
+        ids.formUnion(settings.preventDisplaySleepDisplayIDs.map(DisplayRecordID.init(rawValue:)))
+        ids.formUnion(settings.osdFeedback.volumeHiddenDisplayIDs.map(DisplayRecordID.init(rawValue:)))
         ids.formUnion(settings.ddcChannelMappings.map(\.displayID))
         ids.formUnion(settings.adaptiveBrightnessOffsetByDisplay.keys.map(DisplayRecordID.init(rawValue:)))
         ids.formUnion(settings.keyboardAudioByDisplay.keys.map(DisplayRecordID.init(rawValue:)))
         for preset in settings.appPresets {
             if case .display(let raw) = preset.target { ids.insert(DisplayRecordID(rawValue: raw)) }
         }
-        for group in settings.displayGroups { ids.formUnion(group.memberRecordIDs) }
+        for group in settings.displayGroups {
+            ids.formUnion(group.memberRecordIDs)
+            ids.formUnion(group.offsetByMember.keys.map(DisplayRecordID.init(rawValue:)))
+        }
+        // Default-group membership is derived from live eligibility; only its saved offsets are references.
+        ids.formUnion(settings.defaultDisplayGroup.offsetByMember.keys.map(DisplayRecordID.init(rawValue:)))
         ids.formUnion(settings.hotkeyShortcuts.inputSwitchBindings.map(\.displayID))
         for layout in settings.protectedLayouts.values {
             ids.formUnion(LayoutProtectionPolicy.members(of: layout))
