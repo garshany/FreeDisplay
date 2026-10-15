@@ -230,6 +230,10 @@ public enum RefreshTimingReport {
         case .stopped(.displayUnavailable): state = l("Stopped: the display is no longer available")
         }
         rows.append(.init(l("Measurement"), state))
+        if case .stopped = session.phase {
+            // A kept result may outlive its mode: say which mode it measured.
+            rows.append(.init(l("Nominal rate of the measured mode"), nominalText(session.nominalHz, l)))
+        }
         if session.restartsForModeChange > 0 {
             rows.append(.init(l("Restarted for a mode change"), "\(session.restartsForModeChange)"))
         }

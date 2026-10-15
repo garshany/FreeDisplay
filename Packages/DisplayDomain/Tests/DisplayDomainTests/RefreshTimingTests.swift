@@ -163,6 +163,7 @@ final class RefreshTimingTests: XCTestCase {
         session.stop(.displayUnavailable)
         let rows = Dictionary(uniqueKeysWithValues: RefreshTimingReport.measurementRows(session, .english).map { ($0.label, $0.value) })
         XCTAssertEqual(rows["Measurement"], "Stopped: the display is no longer available")
+        XCTAssertEqual(rows["Nominal rate of the measured mode"], "60 Hz")
         XCTAssertEqual(rows["Callbacks not counted"], "1 (timestamp missing or out of order)")
     }
 }
