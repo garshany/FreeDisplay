@@ -88,12 +88,12 @@ private struct BrightnessSyncModeRows: View {
         // the public-API-only build doesn't have — there is nothing for the switch to decide there.
         #if !PUBLIC_API_ONLY
         ODDivider()
-        ODRow(String(localized: "Follow changes made outside OpenDisplay"),
+        ODRow(String(localized: "Follow changes made outside FreeDisplay"),
               secondary: String(localized: "macOS brightness keys, System Settings, automatic brightness")) {
             Toggle("", isOn: Binding(get: { group.followsOutsideChanges },
                                      set: { model.setDisplayGroupFollowsOutsideChanges($0, for: group) }))
                 .labelsHidden().toggleStyle(.switch).controlSize(.small)
-                .accessibilityLabel("Follow changes made outside OpenDisplay")
+                .accessibilityLabel("Follow changes made outside FreeDisplay")
         }
         #endif
     }

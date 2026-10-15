@@ -40,6 +40,15 @@ final class DisplayInformationReportTests: XCTestCase {
         return facts
     }
 
+    func testModeNoteUsesFreeDisplayInTheReportAndLocalizationKey() {
+        let note = "macOS lists only the modes the display, connection and GPU offer now; FreeDisplay can’t add modes."
+        let report = DisplayInformationReport.build(connectedFacts())
+        XCTAssertTrue(report.plainText().contains(note))
+        let localized = DisplayInformationReport.build(connectedFacts(), ReportLocalizer(
+            text: { $0 == note ? "Translated mode note" : $0 }, decimal: ReportLocalizer.posixDecimal))
+        XCTAssertTrue(localized.plainText().contains("Translated mode note"))
+    }
+
     // MARK: Plain text
 
     func testPlainTextKeepsEverySectionRowNoteAndTheFooter() {

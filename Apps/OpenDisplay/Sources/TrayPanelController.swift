@@ -519,10 +519,10 @@ enum TrayQuickMenu {
             model.setAutoDisconnectBuiltInOnExternal(!model.settings.autoDisconnectBuiltInOnExternal)
         })
         menu.addItem(.separator())
-        menu.addItem(ActionMenuItem(String(localized: "About OpenDisplay")) {
+        menu.addItem(ActionMenuItem(String(localized: "About FreeDisplay")) {
             NotificationCenter.default.post(name: .openDisplayShowAbout, object: nil)
         })
-        menu.addItem(ActionMenuItem(String(localized: "Quit OpenDisplay"), key: "q") { NSApp.terminate(nil) })
+        menu.addItem(ActionMenuItem(String(localized: "Quit FreeDisplay"), key: "q") { NSApp.terminate(nil) })
         return menu
     }
 }

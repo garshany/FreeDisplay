@@ -3,9 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>OpenDisplay Rescue</string>
+	<string>FreeDisplay Rescue</string>
 	<key>CFBundleDisplayName</key>
-	<string>OpenDisplay Rescue</string>
+	<string>FreeDisplay Rescue</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleShortVersionString</key>

@@ -256,7 +256,7 @@ private struct ProtectedLayoutCard: View {
             )) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Put my arrangement back when it changes")
-                    Text("When macOS (or another app) moves a display, changes its resolution, or hands “main” to the other screen, the protected arrangement is restored — including which displays are switched off. A display you turned off in OpenDisplay is switched back off after sleep whether this is on or not.")
+                    Text("When macOS (or another app) moves a display, changes its resolution, or hands “main” to the other screen, the protected arrangement is restored — including which displays are switched off. A display you turned off in FreeDisplay is switched back off after sleep whether this is on or not.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -268,7 +268,7 @@ private struct ProtectedLayoutCard: View {
                     Text("Rotation isn’t protected: this build can’t rotate displays.")
                         .font(.caption).foregroundStyle(.secondary)
                     #else
-                    Text("Rotation isn’t protected: OpenDisplay can rotate displays only with Labs › Experimental display rotation on.")
+                    Text("Rotation isn’t protected: FreeDisplay can rotate displays only with Labs › Experimental display rotation on.")
                         .font(.caption).foregroundStyle(.secondary)
                     #endif
                 }
@@ -608,7 +608,7 @@ private struct HealthSection: View {
                     )) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Download and install updates automatically")
-                            Text("Installs a new release on its own and relaunches OpenDisplay into it. Every download’s signature is checked before it runs. Needs the automatic check above.")
+                            Text("Installs a new release on its own and relaunches FreeDisplay into it. Every download’s signature is checked before it runs. Needs the automatic check above.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -649,7 +649,7 @@ private struct HealthSection: View {
                         }
                         .fixedSize()
                     }
-                    Text("OpenDisplay draws every style itself; none of them is the macOS system HUD.")
+                    Text("FreeDisplay draws every style itself; none of them is the macOS system HUD.")
                         .font(.caption).foregroundStyle(.secondary)
                     // SO-04: "External HUD only" hides this HUD so another app can draw it, which
                     // needs the broadcast below. Without it nothing shows at all — say so, and offer
@@ -657,7 +657,7 @@ private struct HealthSection: View {
                     if OSDFeedbackPolicy.externalOnlyDeliversNothing(model.settings) {
                         ODInlineBanner(tone: .orange, systemImage: "exclamationmark.triangle",
                                        title: String(localized: "No feedback is shown"),
-                                       message: String(localized: "“External HUD only” hides OpenDisplay’s HUD, and broadcasting is off, so no app receives the changes either.")) {
+                                       message: String(localized: "“External HUD only” hides FreeDisplay’s HUD, and broadcasting is off, so no app receives the changes either.")) {
                             Button("Turn On Broadcasting") { model.setPublishOSDEventsEnabled(true) }
                         }
                     }
@@ -668,7 +668,7 @@ private struct HealthSection: View {
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Broadcast display events for notch / external HUD apps")
-                        Text("Publishes each brightness and volume change OpenDisplay makes — including slider, HTTP, command-line and Shortcuts brightness changes — over the dev.opendisplay.osd distributed notification, whether or not OpenDisplay shows its own HUD. Off by default.")
+                        Text("Publishes each brightness and volume change FreeDisplay makes — including slider, HTTP, command-line and Shortcuts brightness changes — over the dev.opendisplay.osd distributed notification, whether or not FreeDisplay shows its own HUD. Off by default.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -979,7 +979,7 @@ private struct LanguageRow: View {
 
     var body: some View {
         ODRow(String(localized: "Interface language"),
-              secondary: choice == launched ? nil : String(localized: "Takes effect after OpenDisplay relaunches.")) {
+              secondary: choice == launched ? nil : String(localized: "Takes effect after FreeDisplay relaunches.")) {
             HStack(spacing: ODSpacing.sm) {
                 if choice != launched {
                     Button("Relaunch") { AppLanguage.relaunch() }
@@ -997,7 +997,7 @@ private struct LanguageRow: View {
 /// App icon, name, and running version/build — the same bundle-info source `AboutView` reads.
 private struct AppIdentityRow: View {
     var body: some View {
-        ODRow("OpenDisplay", secondary: String(localized: "Version \(AboutView.version) (build \(AboutView.build))")) {
+        ODRow("FreeDisplay", secondary: String(localized: "Version \(AboutView.version) (build \(AboutView.build))")) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable().frame(width: 28, height: 28)
                 .accessibilityHidden(true)

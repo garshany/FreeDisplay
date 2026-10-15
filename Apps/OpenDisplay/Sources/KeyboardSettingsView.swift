@@ -16,9 +16,9 @@ extension HotkeyAction {
         case .brightnessUpFine: return String(localized: "Brightness Up (Fine Step)")
         case .brightnessDownFine: return String(localized: "Brightness Down (Fine Step)")
         case .faceLight: return String(localized: "Toggle FaceLight")
-        case .toggleMenu: return String(localized: "Show or Hide the OpenDisplay Menu")
-        case .openSettings: return String(localized: "Open OpenDisplay Settings")
-        case .quit: return String(localized: "Quit OpenDisplay")
+        case .toggleMenu: return String(localized: "Show or Hide the FreeDisplay Menu")
+        case .openSettings: return String(localized: "Open FreeDisplay Settings")
+        case .quit: return String(localized: "Quit FreeDisplay")
         }
     }
 }
@@ -53,13 +53,13 @@ private struct KeyboardShortcutsCard: View {
         ("Recovery", [.reconnectAll]),
         ("Displays", [.cycleMainDisplay, .faceLight]),
         ("Brightness", [.brightnessUp, .brightnessDown, .brightnessUpFine, .brightnessDownFine]),
-        ("OpenDisplay", [.toggleMenu, .openSettings, .quit]),
+        ("FreeDisplay", [.toggleMenu, .openSettings, .quit]),
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
             Text("Keyboard shortcuts").font(.title3)
-            Text("These shortcuts work in every app while OpenDisplay is running. Click a shortcut, then press the new keys: a function key, or a key together with ⌘, ⌥ or ⌃. Esc cancels; Delete removes the shortcut. Shortcuts are paused while you record one. A registered shortcut can still be taken first by macOS or by another app that uses the same keys.")
+            Text("These shortcuts work in every app while FreeDisplay is running. Click a shortcut, then press the new keys: a function key, or a key together with ⌘, ⌥ or ⌃. Esc cancels; Delete removes the shortcut. Shortcuts are paused while you record one. A registered shortcut can still be taken first by macOS or by another app that uses the same keys.")
                 .font(.caption).foregroundStyle(.secondary)
             ForEach(Self.groups.indices, id: \.self) { index in
                 let group = Self.groups[index]
@@ -101,7 +101,7 @@ private struct ShortcutRow: View {
                 if isRecording, let feedback = recorder.feedback {
                     Text(feedback).font(.caption).foregroundStyle(ODColor.danger)
                 } else if let binding, HotkeyRecorderPolicy.mayShadowAppMenus(binding) {
-                    Text("Apps use shortcuts like this in their menus; they won’t receive it while OpenDisplay runs.")
+                    Text("Apps use shortcuts like this in their menus; they won’t receive it while FreeDisplay runs.")
                         .font(.caption).foregroundStyle(ODColor.caution)
                 }
                 if action == .quit, binding != nil {

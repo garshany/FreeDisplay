@@ -31,7 +31,7 @@ private struct MenuIconRecoveryCard: View {
     var body: some View {
         ODCard(title: String(localized: "Menu bar icon"), padded: true) {
             VStack(alignment: .leading, spacing: ODSpacing.sm) {
-                Text("If the OpenDisplay icon isn’t in the menu bar, macOS may be hiding it — behind the camera notch when the menu bar is full, or because it is switched off in System Settings → Menu Bar. Opening OpenDisplay again from Finder, Spotlight or Launchpad always brings up this window, and the button below opens the menu panel without the icon.")
+                Text("If the FreeDisplay icon isn’t in the menu bar, macOS may be hiding it — behind the camera notch when the menu bar is full, or because it is switched off in System Settings → Menu Bar. Opening FreeDisplay again from Finder, Spotlight or Launchpad always brings up this window, and the button below opens the menu panel without the icon.")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: ODSpacing.sm) {
@@ -55,7 +55,7 @@ private struct MenuDisplaysCard: View {
         let entries = model.rememberedDisplaysInMenuOrder
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
             ODCard(title: String(localized: "Displays in the menu"),
-                   footnote: String(localized: "Hiding a display only takes it out of this menu: it stays connected and keeps responding to brightness keys, hotkeys and automation. A display OpenDisplay turned off, or one that is blacked out, always stays in the menu, so it can be brought back. The order is the menu’s only — it doesn’t move displays on the desktop.")) {
+                   footnote: String(localized: "Hiding a display only takes it out of this menu: it stays connected and keeps responding to brightness keys, hotkeys and automation. A display FreeDisplay turned off, or one that is blacked out, always stays in the menu, so it can be brought back. The order is the menu’s only — it doesn’t move displays on the desktop.")) {
                 if entries.isEmpty {
                     Text("No displays yet.").font(.callout).foregroundStyle(.secondary).padding(12)
                 }
@@ -100,7 +100,7 @@ private struct MenuDisplayRow: View {
                     .textFieldStyle(.roundedBorder).frame(maxWidth: 220)
                     .onSubmit { Task { await model.setAlias(name, forRemembered: entry) } }
                     .disabled(!canRename)
-                    .help(canRename ? String(localized: "The name OpenDisplay shows; leave it empty for the display’s own name")
+                    .help(canRename ? String(localized: "The name FreeDisplay shows; leave it empty for the display’s own name")
                                     : String(localized: "This display has no saved record to name yet"))
                 Text(statusText).font(.system(size: 11)).foregroundStyle(.secondary)
             }
@@ -135,7 +135,7 @@ private struct MenuDisplayRow: View {
         switch entry.status {
         case .connected: return String(localized: "Connected")
         case .turnedOff, .reconnectFailed: return model.logicalOffMethod == .mirror
-            ? String(localized: "Mirrored by OpenDisplay") : String(localized: "Turned off by OpenDisplay")
+            ? String(localized: "Mirrored by FreeDisplay") : String(localized: "Turned off by FreeDisplay")
         case .notConnected: return String(localized: "Not connected")
         }
     }

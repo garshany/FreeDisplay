@@ -328,7 +328,7 @@ public enum DisplayInformationReport {
             return modeText(option.mode, l) + (tags.isEmpty ? "" : " [" + tags.map { DisplayModeCatalog.tagLabel($0, l) }.joined(separator: ", ") + "]")
         }
         if !lines.isEmpty { section.rows.append(.init(l("All modes"), lines.joined(separator: "\n"))) }
-        section.notes = [l("macOS lists only the modes the display, connection and GPU offer now; OpenDisplay can’t add modes.")]
+        section.notes = [l("macOS lists only the modes the display, connection and GPU offer now; FreeDisplay can’t add modes.")]
         if summary.duplicates > 0 {
             section.notes.append(l.fill("Entries that repeat another mode’s size, framebuffer and rate exactly, shown once: %1.", "\(summary.duplicates)"))
         }

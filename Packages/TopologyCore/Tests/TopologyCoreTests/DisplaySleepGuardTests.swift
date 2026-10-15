@@ -29,6 +29,13 @@ private final class FakePowerAssertions: PowerAssertionControlling, @unchecked S
 }
 
 final class DisplaySleepGuardTests: XCTestCase {
+    func testDefaultAssertionUsesFreeDisplay() {
+        let backend = FakePowerAssertions()
+        let guardian = DisplaySleepGuard(backend: backend)
+        guardian.update(enabled: true, externalPresent: true)
+        XCTAssertEqual(backend.lastName, "FreeDisplay: external display connected")
+    }
+
     func testHoldsOnlyWhenEnabledAndExternalPresent() {
         let backend = FakePowerAssertions()
         let guardian = DisplaySleepGuard(backend: backend)

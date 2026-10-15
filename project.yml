@@ -171,6 +171,8 @@ targets:
         buildPhase: resources
     settings:
       base:
+        PRODUCT_NAME: FreeDisplay
+        PRODUCT_MODULE_NAME: OpenDisplay
         PRODUCT_BUNDLE_IDENTIFIER: dev.opendisplay.app
         INFOPLIST_FILE: Apps/OpenDisplay/Resources/Info.plist
         SWIFT_EMIT_LOC_STRINGS: YES
@@ -218,6 +220,8 @@ targets:
         buildPhase: resources
     settings:
       base:
+        PRODUCT_NAME: FreeDisplay-PublicAPIOnly
+        PRODUCT_MODULE_NAME: OpenDisplay_PublicAPIOnly
         PRODUCT_BUNDLE_IDENTIFIER: dev.opendisplay.app.publicapionly
         INFOPLIST_FILE: Apps/OpenDisplay/Resources/Info.plist
         SWIFT_EMIT_LOC_STRINGS: YES
@@ -243,6 +247,9 @@ targets:
     sources: [Apps/OpenDisplayRescue/Sources]
     settings:
       base:
+        PRODUCT_NAME: FreeDisplayRescue
+        PRODUCT_MODULE_NAME: OpenDisplayRescue
+        SWIFT_EMIT_LOC_STRINGS: YES
         PRODUCT_BUNDLE_IDENTIFIER: dev.opendisplay.rescue
         INFOPLIST_FILE: Apps/OpenDisplayRescue/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: Apps/OpenDisplayRescue/Resources/OpenDisplayRescue.entitlements
@@ -268,7 +275,7 @@ targets:
         LD_RUNPATH_SEARCH_PATHS:
           - "@executable_path"
           - "@loader_path"
-          # Bundled at OpenDisplay.app/Contents/Helpers, the embedded frameworks are in ../Frameworks.
+          # Bundled at FreeDisplay.app/Contents/Helpers, the embedded frameworks are in ../Frameworks.
           - "@executable_path/../Frameworks"
     dependencies:
       - target: DisplayDomain
