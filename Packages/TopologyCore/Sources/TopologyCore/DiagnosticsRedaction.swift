@@ -1,4 +1,5 @@
 import Foundation
+import AutomationSchema
 
 /// Scrubs OpenDisplay's own settings before they go into a diagnostics bundle.
 ///
@@ -18,7 +19,7 @@ public enum DiagnosticsRedaction {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
-        return try? JSONSerialization.data(withJSONObject: redact(object),
+        return try? JSONSerialization.data(withJSONObject: DiagnosticPrivacy().object(redact(object)),
                                            options: [.prettyPrinted, .sortedKeys])
     }
 

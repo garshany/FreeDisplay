@@ -5,6 +5,7 @@ import Dispatch
 import DisplayDomain
 import ExperimentalLifecycleProvider
 import Foundation
+import OSLog
 import ProviderInterfaces
 import SceneEngine
 import TopologyCore
@@ -21,13 +22,13 @@ let isAppleSilicon = false
 #endif
 
 func fail(_ message: String, code: Int32 = CLIExitCode.failure.rawValue) -> Never {
-    FileHandle.standardError.write(Data("error: \(message)\n".utf8))
+    FileHandle.standardError.write(Data("error: \(DiagnosticPrivacy().redact(message))\n".utf8))
     exit(code)
 }
 
 /// A non-fatal problem worth a line on stderr, so stdout stays the command's result.
 func warn(_ message: String) {
-    FileHandle.standardError.write(Data("warning: \(message)\n".utf8))
+    FileHandle.standardError.write(Data("warning: \(DiagnosticPrivacy().redact(message))\n".utf8))
 }
 
 /// Ends the run with the exit status a result implies (`CLIExitCode`): returns for success, so a
@@ -72,6 +73,9 @@ let helpText = """
     Options are accepted only by the commands listed with them; any other option is an error, so
     for example `--dry-run` never silently performs a real write.
 
+    DIAGNOSTICS: --log-output off|stdout|stderr (default off); -v = stdout, -v2e = stderr.
+    stdout diagnostics are refused with --json or listen. Use stderr for machine-readable results.
+
     RESULTS: a write is reported as `verified` only when reading the value back shows it; `sent`
     means the display accepted the write but nothing confirmed it took. Failures go to stderr.
 
@@ -93,8 +97,10 @@ let helpText = """
 // without probing hardware or reading (let alone writing) state.
 let rawArgs = Array(CommandLine.arguments.dropFirst())
 let invocation: CLIInvocation
+let diagnosticOptions: CLIDiagnosticOptions
 do {
-    switch try CLIGrammar.parse(rawArgs) {
+    diagnosticOptions = try CLIDiagnosticOptions.parse(rawArgs)
+    switch try CLIGrammar.parse(diagnosticOptions.arguments) {
     case .help:
         print(helpText)
         exit(CLIExitCode.success.rawValue)
@@ -117,6 +123,18 @@ let selectorArg: String? = invocation.argument1
 let valueArg: String? = invocation.argument2
 let asJSON = flags.contains("--json")
 let dryRun = flags.contains("--dry-run")
+
+func diagnostic(_ message: String) {
+    let record = DiagnosticRecord(message)
+    let logger = Logger(subsystem: DiagnosticRecord.subsystem, category: DiagnosticRecord.category)
+    logger.info("\(record.message, privacy: .public)")
+    switch diagnosticOptions.stream {
+    case .off: break
+    case .stdout: FileHandle.standardOutput.write(Data((record.line + "\n").utf8))
+    case .stderr: FileHandle.standardError.write(Data((record.line + "\n").utf8))
+    }
+}
+diagnostic("CLI command=\(command) started")
 
 func emit<T: Encodable>(_ value: T) {
     let encoder = JSONEncoder()
@@ -409,12 +427,16 @@ func runDiagnoseBundle() async {
     let app = DiagnosticsBundle.AppInfo(
         version: info?["CFBundleShortVersionString"] as? String ?? "unknown",
         build: info?["CFBundleVersion"] as? String ?? "unknown", flavor: "cli")
-    print("Collecting diagnostics (this takes a few seconds)…")
+    if !asJSON { print("Collecting diagnostics (this takes a few seconds)…") }
     do {
         let zip = try DiagnosticsBundle.export(to: directory, app: app)
-        print("Saved \(zip.path)")
-        print("Nothing was sent anywhere. It contains:")
-        for item in DiagnosticsBundle.contents { print("  - \(item)") }
+        if asJSON {
+            emit(["path": zip.path])
+        } else {
+            print("Saved \(zip.path)")
+            print("Nothing was sent anywhere. It contains:")
+            for item in DiagnosticsBundle.contents { print("  - \(item)") }
+        }
     } catch {
         fail("could not write the diagnostics bundle: \(error)")
     }
@@ -1918,3 +1940,5 @@ default:
     // grammar's command list and this switch disagree.
     fail("command '\(command)' is not dispatched", code: CLIExitCode.usage.rawValue)
 }
+
+diagnostic("CLI command=\(command) completed")

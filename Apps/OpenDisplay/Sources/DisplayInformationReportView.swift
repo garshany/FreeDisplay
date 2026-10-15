@@ -145,6 +145,8 @@ struct DisplayInformationReportSheet: View {
     @Environment(\.dismiss) private var dismiss
     let display: DisplayObservation
     @State private var report: InfoReport?
+    @State private var removeIdentifiers = true
+    @State private var knownSerials: [String] = []
     @State private var loading = false
     @State private var status: String?
 
@@ -157,6 +159,11 @@ struct DisplayInformationReportSheet: View {
             }
             Text("The report can include serial numbers, UUIDs and registry paths that identify your hardware. Review it before sharing.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Toggle("Copy and export without serial numbers, UUIDs and registry paths", isOn: $removeIdentifiers)
+            if removeIdentifiers {
+                Text("Copied and exported reports omit EDID sections because raw data can encode serial numbers.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             ScrollView {
                 if let report { reportBody(report) }
             }
@@ -171,14 +178,14 @@ struct DisplayInformationReportSheet: View {
                 Button("Copy") {
                     guard let report else { return }
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(report.plainText(), forType: .string)
+                    NSPasteboard.general.setString(shareableText(report), forType: .string)
                     status = String(localized: "Report copied.")
                 }
                 .disabled(report == nil)
                 Button("Export…") {
                     guard let report else { return }
                     let name = DisplayInformationReport.suggestedFileName(displayName: model.displayName(for: display))
-                    if let outcome = ReportExport.saveText(report.plainText(), suggestedName: name) { status = outcome }
+                    if let outcome = ReportExport.saveText(shareableText(report), suggestedName: name) { status = outcome }
                 }
                 .disabled(report == nil)
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
@@ -193,8 +200,22 @@ struct DisplayInformationReportSheet: View {
         loading = true
         defer { loading = false }
         let facts = await model.informationReportFacts(for: display)
+        knownSerials = facts.serialNumber.map { [String($0)] } ?? []
+        if case .matched(let bytes) = facts.edid, let base = EDIDDecoder.decode(bytes).base {
+            knownSerials.append(String(base.serialNumber))
+            if let serial = base.serialText { knownSerials.append(serial) }
+        }
         report = DisplayInformationReport.build(facts, .app)
         status = nil
+    }
+
+    private func shareableText(_ report: InfoReport) -> String {
+        let privacy = DiagnosticPrivacy(removeSerials: removeIdentifiers, removeUUIDs: removeIdentifiers,
+            removeRegistryPaths: removeIdentifiers, knownSerials: knownSerials.filter { $0 != "0" && $0 != "4294967295" })
+        return privacy.redactedReport(report,
+            serialLabels: Set(["Serial number", "Serial text", "Serial number (text)"].map { $0.appLocalized }),
+            uuidLabels: ["UUID"], registryLabels: ["Registry path".appLocalized],
+            opaqueLabels: ["Base64", "Hex"], opaqueSectionPrefixes: ["EDID"]).plainText()
     }
 
     private func reportBody(_ report: InfoReport) -> some View {

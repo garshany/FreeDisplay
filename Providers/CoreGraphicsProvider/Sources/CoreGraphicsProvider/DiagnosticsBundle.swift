@@ -1,4 +1,5 @@
 #if os(macOS)
+import AutomationSchema
 import ColorSync  // CGDisplayCreateUUIDFromDisplayID
 import CoreGraphics
 import Foundation
@@ -54,11 +55,11 @@ public enum DiagnosticsBundle {
 
     /// What the bundle holds, in the words shown to the user before they export.
     public static let contents = [
-        "OpenDisplay's own records: the display event timeline, the audit log, the list of displays "
+        "FreeDisplay's own records: the display event timeline, the audit log, the list of displays "
             + "it turned off, its display registry, and its settings (location and app presets removed)",
         "macOS's saved display configuration, now and as copied before recent disconnects",
         "What macOS reports about the displays, the graphics link, and Thunderbolt devices "
-            + "(model names and serial numbers of displays and docks)",
+            + "(hardware identifiers follow the export redaction options)",
         "The last 30 minutes of display-related system log lines"
     ]
 
@@ -71,7 +72,8 @@ public enum DiagnosticsBundle {
 
     /// Collects everything into a temporary folder, zips it into `directory`, and returns the zip.
     /// Blocking (it runs `ioreg`, `system_profiler`, and `log show`) — call it off the main actor.
-    public static func export(to directory: URL, app: AppInfo, now: Date = Date()) throws -> URL {
+    public static func export(to directory: URL, app: AppInfo, now: Date = Date(),
+                              privacy: DiagnosticPrivacy = .init(), diagnosticLog: String = "") throws -> URL {
         let manager = FileManager.default
         let name = defaultFileName(now: now)
         let staging = manager.temporaryDirectory
@@ -108,6 +110,12 @@ public enum DiagnosticsBundle {
             write(run(tool, arguments), to: system.appendingPathComponent(file))
         }
         write(Data(readme(app: app, now: now).utf8), to: root.appendingPathComponent("README.txt"))
+
+        write(Data(diagnosticLog.utf8), to: root.appendingPathComponent("app-diagnostics.txt"))
+        let manifest = try DiagnosticExport.redactStagedDirectory(root, privacy: privacy)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(manifest).write(to: root.appendingPathComponent("redaction.json"), options: .atomic)
 
         try manager.createDirectory(at: directory, withIntermediateDirectories: true)
         let zip = directory.appendingPathComponent(name)
@@ -151,8 +159,8 @@ public enum DiagnosticsBundle {
 
     private static func readme(app: AppInfo, now: Date) -> String {
         """
-        OpenDisplay diagnostics bundle
-        Exported \(ISO8601DateFormatter().string(from: now)) by OpenDisplay \(app.version) (\(app.build), \(app.flavor))
+        FreeDisplay diagnostics bundle
+        Exported \(ISO8601DateFormatter().string(from: now)) by FreeDisplay \(app.version) (\(app.build), \(app.flavor))
 
         This file was created on your Mac and has not been sent anywhere. Attach it to your issue at
         https://github.com/aquitaine/OpenDisplay/issues if you are happy to share it.
@@ -160,7 +168,9 @@ public enum DiagnosticsBundle {
         What is inside:
         \(contents.map { "  - \($0)" }.joined(separator: "\n"))
 
-        It does not contain window titles, file names, screen contents, or your location.
+        Credentials and sensitive settings are removed. Hardware identifier removal follows your
+        export options. Unreadable or unsupported binary artifacts are omitted (see redaction.json).
+        Redaction is not anonymization: review names, paths and free text before sharing.
         """
     }
 
