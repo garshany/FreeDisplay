@@ -2097,6 +2097,10 @@ final class AppModel: ObservableObject {
         // every caller still awaiting it — from being used (see `ddcController`).
         for (id, builder) in ddcBuilders where !ids.contains(id) { builder.task.cancel(); ddcBuilders[id] = nil }
         ddcBindingTokens.retain(only: ids)
+        // Cancelling a writer can't reach a transaction it already queued for the bus or that is
+        // waiting out the pacing gap; withdrawing the binding at the transport does (FB-08), so
+        // nothing more goes on the wire through a dropped controller.
+        for (id, controller) in ddc where !ids.contains(id) { controller.invalidate() }
         ddc = ddc.filter { ids.contains($0.key) }
         brightnessMax = brightnessMax.filter { ids.contains($0.key) }
         ddcTarget = ddcTarget.filter { ids.contains($0.key) }

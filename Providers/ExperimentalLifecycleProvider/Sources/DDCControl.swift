@@ -8,10 +8,10 @@ import IOKit
 /// VCP feature codes follow the DDC/CI + MCCS spec: 0x10 brightness, 0x12 contrast, 0x62 audio
 /// volume, 0x60 input source. The `IOAVService*` symbols are undocumented IOKit SPI resolved with
 /// `dlsym` at runtime — so this links cleanly and is excluded from the public-API-only build, like
-/// the SkyLight lifecycle and DisplayServices brightness paths. Runs on its own actor with a FIFO
-/// bus turnstile (`lockBus`) making each multi-step transaction exclusive — the actor alone is NOT
-/// enough, since it is reentrant at the awaits inside a transaction — and uses non-blocking sleeps
-/// for the DDC inter-message delays, so the slow I2C never touches the UI.
+/// the SkyLight lifecycle and DisplayServices brightness paths. This type finds and binds the
+/// display's service by identity; the transactions themselves — framing, reply validation, the
+/// FIFO bus turnstile, pacing, and revocation — run in `DDCTransport` over that service, with
+/// non-blocking sleeps for the DDC inter-message delays, so the slow I2C never touches the UI.
 public actor ExternalDisplayDDC {
     /// Common VCP feature codes (Monitor Control Command Set). Any other code a panel implements is
     /// reachable through the raw `read(vcp:)` / `write(vcp:_:)` overloads.
@@ -38,60 +38,7 @@ public actor ExternalDisplayDDC {
     private typealias WriteFn = @convention(c) (AnyObject, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Int32
     private typealias ReadFn = @convention(c) (AnyObject, UInt32, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> Int32
 
-    private let service: AnyObject
-    private let writeFn: WriteFn
-    private let readFn: ReadFn
-
-    private static let i2cChip: UInt32 = 0x37    // DDC/CI 7-bit I2C address
-    private static let i2cSource: UInt32 = 0x51  // host source address (the "dataAddress" arg)
-
-    // DDC/CI reads are flaky and easily desynchronized (a previous reply can linger in the panel's
-    // buffer). Retry a few times, validate strictly, and give the panel time to prepare each reply.
-    // The first attempt uses the shorter delay (proven sufficient on healthy panels); retries wait
-    // longer since a slow panel is the main reason a first attempt fails.
-    private static let readRetries = 5
-    private static let readReplyFirstNanos: UInt64 = 60_000_000  // 60ms on the first attempt
-    private static let readReplyNanos: UInt64 = 100_000_000      // 100ms on retries
-
-    /// Minimum quiet gap between DDC transactions on the same panel. Enforced by *pacing* (sleep
-    /// only the unelapsed remainder before the next transaction) rather than a blanket sleep after
-    /// every operation — so a lone write returns as soon as the I2C call does, while back-to-back
-    /// operations still never hit the panel faster than it can digest (the desync trigger).
-    private static let interTransactionGapNanos: UInt64 = 50_000_000
-    private var lastTransactionUptime: UInt64 = 0
-
-    /// Waits out the inter-transaction gap since the last bus operation. Loops rather than sleeping
-    /// once: actors are reentrant during `Task.sleep`, so another task may transact while we sleep,
-    /// moving the deadline — a single fixed sleep would then hit the bus too early.
-    private func paceBus() async {
-        while lastTransactionUptime != 0 {
-            let elapsed = DispatchTime.now().uptimeNanoseconds &- lastTransactionUptime
-            if elapsed >= Self.interTransactionGapNanos { return }
-            try? await Task.sleep(nanoseconds: Self.interTransactionGapNanos - elapsed)
-        }
-    }
-
-    private func markTransaction() {
-        lastTransactionUptime = DispatchTime.now().uptimeNanoseconds
-    }
-
-    // The actor alone does NOT make a DDC transaction atomic: a read suspends between writing the
-    // request and reading the reply, and Swift actors are reentrant at suspension points — so a
-    // coalesced slider write could land on the bus inside another read's reply window, invalidating
-    // the pending reply (and reproducing the rapid-fire traffic that desyncs panels). This FIFO
-    // turnstile makes each transaction exclusive: lock around request→delay→reply, not just around
-    // individual I2C calls.
-    private var busLocked = false
-    private var busWaiters: [CheckedContinuation<Void, Never>] = []
-
-    private func lockBus() async {
-        if !busLocked { busLocked = true; return }
-        await withCheckedContinuation { busWaiters.append($0) }
-    }
-
-    private func unlockBus() {
-        if busWaiters.isEmpty { busLocked = false } else { busWaiters.removeFirst().resume() }
-    }
+    private let transport: DDCTransport
 
     /// Outcome of trying to bind a display's DDC channel.
     public enum Binding: Sendable {
@@ -113,14 +60,39 @@ public actor ExternalDisplayDDC {
         }
     }
 
-    /// A bound I2C channel before it is wrapped in the actor.
-    private struct Channel { let service: AnyObject; let writeFn: WriteFn; let readFn: ReadFn }
+    /// A bound I2C channel: the display's `IOAVService` and the SPI that talks I2C through it.
+    /// `@unchecked Sendable` because the service object isn't marked Sendable; it is only ever used
+    /// by the one `DDCTransport` that owns this channel, one call at a time on its actor.
+    private struct Channel: DDCWire, @unchecked Sendable {
+        let service: AnyObject
+        let writeFn: WriteFn
+        let readFn: ReadFn
+
+        func write(_ bytes: [UInt8]) -> Bool {
+            var packet = bytes
+            return writeFn(service, DDCTransport.i2cChip, DDCTransport.i2cSource, &packet, UInt32(packet.count)) == 0
+        }
+
+        func read(count: Int) -> [UInt8]? {
+            var buffer = [UInt8](repeating: 0, count: count)
+            guard readFn(service, DDCTransport.i2cChip, DDCTransport.i2cSource, &buffer, UInt32(count)) == 0
+            else { return nil }
+            return buffer
+        }
+    }
     private enum Lookup { case channel(Channel), refused(DDCBindingRefusal), unavailable }
 
     private init(channel: Channel) {
-        service = channel.service
-        writeFn = channel.writeFn
-        readFn = channel.readFn
+        transport = DDCTransport(wire: channel)
+    }
+
+    /// Withdraws this binding (FB-08): no further I/O goes through it — not even for a transaction
+    /// already queued for the bus or waiting out the pacing gap, which cancelling its task can't
+    /// reach (`DDCTransport.invalidate`). Synchronous, so it has taken effect by the time the
+    /// revoking caller (the Apple-display override turned off, the display gone) moves on. A
+    /// withdrawn controller stays withdrawn; the next use binds a fresh one.
+    public nonisolated func invalidate() {
+        transport.invalidate()
     }
 
     /// Binds to the external display's IOAVService, or fails if the display is the built-in, has no
@@ -172,7 +144,7 @@ public actor ExternalDisplayDDC {
 
     /// Reads a VCP feature: (current, max) in the display's native units (brightness/contrast 0...100
     /// on most panels), or nil if the display never answered with a well-formed reply.
-    /// See `read(vcp:)` for the framing/validation story.
+    /// See `DDCTransport.read(vcp:)` for the framing/validation story.
     public func read(_ feature: Feature) async -> (current: Int, max: Int)? {
         await read(vcp: feature.rawValue)
     }
@@ -180,74 +152,8 @@ public actor ExternalDisplayDDC {
     /// Raw-VCP variant of `read(_:)` for codes outside the `Feature` enum — panels implement far
     /// more of MCCS than we name (KVM toggles, OSD language, colour temperature…), and the CLI/UI
     /// shouldn't need a source change to reach them.
-    ///
-    /// Reads a WIDE buffer and scans it for the reply frame instead of demanding it at offset 0:
-    /// mildly desynchronized scalers commonly return the valid frame prefixed by a few stale bytes
-    /// (observed live on a Samsung S34J55x — `… d8 6c 6f | 6e 88 02 00 12 …`), and an offset-0-only
-    /// check reads those panels as "unsupported" forever. A scanned match must echo *our* VCP code
-    /// AND carry a valid DDC/CI reply checksum (`0x50 ^ frame bytes` — verified against captured
-    /// hardware replies), so stale garbage can't masquerade as a value.
     public func read(vcp code: UInt8) async -> (current: Int, max: Int)? {
-        for attempt in 0..<Self.readRetries {
-            await lockBus()
-            let value = await readAttempt(code, attempt: attempt)
-            unlockBus()
-            if let value { return value }
-        }
-        return nil
-    }
-
-    /// One bus-exclusive Get-VCP transaction: request → reply delay → wide read → frame scan.
-    /// Caller holds the bus lock, so nothing can interleave between the request and its reply.
-    private func readAttempt(_ code: UInt8, attempt: Int) async -> (current: Int, max: Int)? {
-        let checksum = UInt8(0x6e ^ Int(Self.i2cSource) ^ 0x82 ^ 0x01) ^ code
-        await paceBus()
-        var request: [UInt8] = [0x82, 0x01, code, checksum]
-        let wrote = writeFn(service, Self.i2cChip, Self.i2cSource, &request, 4) == 0
-        markTransaction()
-        guard wrote else { return nil }  // paceBus() spaces the retry
-        try? await Task.sleep(nanoseconds: attempt == 0 ? Self.readReplyFirstNanos : Self.readReplyNanos)
-        var buffer = [UInt8](repeating: 0, count: Self.readWindow)
-        let readOK = readFn(service, Self.i2cChip, Self.i2cSource, &buffer, UInt32(Self.readWindow)) == 0
-        markTransaction()
-        guard readOK else { return nil }
-        return Self.scanReply(in: buffer, vcp: code)
-    }
-
-    /// Bytes fetched per Get-VCP reply read. The frame itself is 11; the extra window is what lets
-    /// `scanReply` recover replies that arrive behind stale prefix bytes. Reading beyond the reply
-    /// is harmless on I2C (the device pads) — the capabilities path has always read 64 this way.
-    private static let readWindow = 48
-
-    /// Finds a well-formed Get-VCP reply for `code` anywhere in `buffer`: source `0x6e`, length
-    /// `0x88`, Get-reply opcode `0x02`, result OK, echoed code, and a valid reply checksum
-    /// (XOR of `0x50` and the 10 frame bytes must equal the 11th).
-    ///
-    /// Falls back to the structural offset-0 check WITHOUT the length/checksum requirements when no
-    /// checksummed frame is found: some panels ship malformed length bytes or wrong checksums, and
-    /// those exact replies were accepted by every previous version of this reader — the stricter
-    /// validation must only ever ADD recoveries, never regress a panel that used to work.
-    ///
-    /// Known gap (backlog SD-04, owner decision pending): this relaxation applies to every panel,
-    /// not to an explicit per-device compatibility list. It is kept unconditional on purpose until
-    /// there is hardware evidence of which panels rely on it — defaulting to strict without that list
-    /// would silently turn working DDC controls into "no response" on exactly those panels.
-    private static func scanReply(in buffer: [UInt8], vcp code: UInt8) -> (current: Int, max: Int)? {
-        guard buffer.count >= 11 else { return nil }
-        for offset in 0...(buffer.count - 11) {
-            guard buffer[offset] == 0x6e, buffer[offset + 1] == 0x88, buffer[offset + 2] == 0x02,
-                  buffer[offset + 3] == 0x00, buffer[offset + 4] == code else { continue }
-            let frame = buffer[offset..<(offset + 10)]
-            guard frame.reduce(0x50 as UInt8, ^) == buffer[offset + 10] else { continue }
-            let maxValue = Int(buffer[offset + 6]) << 8 | Int(buffer[offset + 7])
-            let current = Int(buffer[offset + 8]) << 8 | Int(buffer[offset + 9])
-            return (current, maxValue)
-        }
-        // Legacy-compat fallback: exactly the old validation, offset 0 only.
-        if buffer[0] == 0x6e, buffer[2] == 0x02, buffer[3] == 0x00, buffer[4] == code {
-            return (Int(buffer[8]) << 8 | Int(buffer[9]), Int(buffer[6]) << 8 | Int(buffer[7]))
-        }
-        return nil
+        await transport.read(vcp: code)
     }
 
     /// Sets a VCP feature to a value in the display's native units. Returns false if the write failed.
@@ -256,21 +162,11 @@ public actor ExternalDisplayDDC {
         await write(vcp: feature.rawValue, value)
     }
 
-    /// Raw-VCP variant of `write(_:_:)` — see `read(vcp:)`. Returns as soon as the I2C call does;
-    /// the mandatory settle time before the *next* transaction is enforced by pacing, not by
-    /// sleeping here, so a single slider tick doesn't pay 50ms of dead latency.
+    /// Raw-VCP variant of `write(_:_:)` — see `read(vcp:)`. False also when the binding was
+    /// withdrawn (`invalidate`) while the write waited for the bus.
     @discardableResult
     public func write(vcp code: UInt8, _ value: Int) async -> Bool {
-        let high = UInt8((value >> 8) & 0xff)
-        let low = UInt8(value & 0xff)
-        let checksum = UInt8(0x6e ^ Int(Self.i2cSource) ^ 0x84 ^ 0x03) ^ code ^ high ^ low
-        var packet: [UInt8] = [0x84, 0x03, code, high, low, checksum]
-        await lockBus()
-        await paceBus()
-        let ok = writeFn(service, Self.i2cChip, Self.i2cSource, &packet, 6) == 0
-        markTransaction()
-        unlockBus()
-        return ok
+        await transport.write(vcp: code, value)
     }
 
     /// Reads the display's DDC/CI capabilities string (the response to VCP `0xF3`, MCCS spec) by
@@ -285,47 +181,7 @@ public actor ExternalDisplayDDC {
     /// clears it — only the panel's own power switch does. Treat it as an explicit, diagnostic-only
     /// call (CLI `ddc … caps`) — never run it on the normal control-refresh path.
     public func readCapabilitiesString() async -> String? {
-        // Hold the bus for the whole multi-chunk sequence: an interleaved transaction between
-        // chunks breaks the offset continuation and is the likeliest wedge trigger.
-        await lockBus()
-        let result = await readCapabilitiesLocked()
-        unlockBus()
-        return result
-    }
-
-    private func readCapabilitiesLocked() async -> String? {
-        var bytes: [UInt8] = []
-        var offset: UInt16 = 0
-        // Safety cap: 96 chunks × ~32 bytes ≈ 3 KB, far beyond any real capabilities string.
-        for _ in 0..<96 {
-            let high = UInt8(offset >> 8)
-            let low = UInt8(offset & 0xff)
-            // Capabilities Request: length 0x83 (3 data bytes), opcode 0xF3, 16-bit offset.
-            let checksum = UInt8(0x6e ^ Int(Self.i2cSource) ^ 0x83 ^ 0xf3) ^ high ^ low
-            var request: [UInt8] = [0x83, 0xf3, high, low, checksum]
-            await paceBus()
-            let wrote = writeFn(service, Self.i2cChip, Self.i2cSource, &request, 5) == 0
-            markTransaction()
-            guard wrote else { break }
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            var buffer = [UInt8](repeating: 0, count: 64)
-            let readOK = readFn(service, Self.i2cChip, Self.i2cSource, &buffer, 64) == 0
-            markTransaction()
-            guard readOK,
-                  buffer[0] == 0x6e, buffer[2] == 0xe3 else { break }  // 0xE3 = Capabilities Reply
-            let length = Int(buffer[1] & 0x7f)
-            // length covers opcode (0xE3) + 2 offset bytes + the data; fewer means a malformed reply.
-            guard length >= 3 else { break }
-            let replyOffset = UInt16(buffer[3]) << 8 | UInt16(buffer[4])
-            guard replyOffset == offset else { break }  // out of sync — stop
-            let dataLen = length - 3
-            if dataLen == 0 { break }  // empty chunk = end of string
-            let end = min(5 + dataLen, buffer.count)
-            bytes.append(contentsOf: buffer[5..<end])
-            offset += UInt16(end - 5)
-        }
-        guard !bytes.isEmpty else { return nil }
-        return String(bytes: bytes, encoding: .ascii) ?? String(bytes: bytes, encoding: .utf8)
+        await transport.readCapabilitiesString()
     }
 
     /// Maps a `CGDirectDisplayID` to its external `IOAVService` by **identity**, not order.
