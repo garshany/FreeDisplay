@@ -106,6 +106,13 @@ final class AppModel: ObservableObject {
     /// A remembered display Settings should show in its Remembered list (set by the tray's
     /// "didn't reconnect" card); the Displays section switches to that list when it is non-nil.
     @Published var rememberedDisplayFocus: String?
+    /// How each live display was matched to a remembered record at the last refresh (TB-09), keyed
+    /// by observation id — the very decision the registry took, with every record's verdict.
+    @Published private(set) var identityExplanations: [DisplayRecordID: IdentityMatchExplanation] = [:]
+    /// Automatic forgetting (`RememberedDisplayRetention`) waits for launch to have loaded the
+    /// registry and the ledger, and never runs twice at once.
+    private var retentionReady = false
+    private var retentionRunning = false
     @Published private(set) var scenes: [Scene] = []
     /// Non-fatal note from the last scene apply (e.g. rotation skipped) — shown in the Scenes tab.
     @Published var sceneWarning: String?
@@ -164,6 +171,9 @@ final class AppModel: ObservableObject {
     /// FB-08 Apple display without the override). Set on every controller lookup, so it follows
     /// topology changes; the UI shows it instead of "the monitor didn't respond".
     @Published private(set) var ddcBindingRefusal: [DisplayRecordID: DDCBindingRefusal] = [:]
+    /// What each display's hand-paired DDC channel did at its last binding (TR-06, owner decision
+    /// #4): in use, not needed, or not applicable and why. Absent for a display with no pairing.
+    @Published private(set) var ddcPairingStatus: [DisplayRecordID: DDCChannelMappingPolicy.Status] = [:]
     /// VCP codes, per display, whose last write failed at the transport (the I2C call itself) with no
     /// read-back to say otherwise (TB-02). The control is then no longer treated as usable by the
     /// volume keys, and the UI says the change didn't reach the monitor. Cleared like
@@ -291,8 +301,13 @@ final class AppModel: ObservableObject {
     /// In-flight DDC-controller constructions, so concurrent first-uses of one display await the same
     /// build instead of each spinning up (and binding) a duplicate IOAVService. Each carries the
     /// token every caller awaiting it re-checks on resumption (`ddcBindingTokens`).
-    private var ddcBuilders: [DisplayRecordID: (task: Task<ExternalDisplayDDC.Binding, Never>,
+    private var ddcBuilders: [DisplayRecordID: (task: Task<ExternalDisplayDDC.BindingReport, Never>,
                                                 build: DDCBindingTokens.Build)] = [:]
+    /// A pairing test flash is on the wire; a second one waits for the user to try again.
+    private var ddcPairingTestRunning = false
+    private var testedDDCMapping: DDCChannelMapping?
+    private var testedDDCMappingContext: [DDCChannelMapping]?
+    private var ddcPairingEpoch: UInt64 = 0
     /// Which build each display's binding answers to; pruning a display forgets it (FB-08).
     private var ddcBindingTokens = DDCBindingTokens()
     private var brightnessMax: [DisplayRecordID: Int] = [:]
@@ -553,6 +568,7 @@ final class AppModel: ObservableObject {
         self.startupLoad = startupLoad
         Task {
             await startupLoad.value
+            retentionReady = true
             logDisplayEvent("launch")
             await refresh()
             // Safe startup (FA-09) leaves owed restores in their ledgers rather than writing to the
@@ -768,6 +784,7 @@ final class AppModel: ObservableObject {
         let observations = snapshot.observations.filter { $0.cgDisplayID != nil }
         guard !observations.isEmpty else {
             if !records.isEmpty { records = [:] }
+            if !identityExplanations.isEmpty { identityExplanations = [:] }
             await refreshRegistryKnownRecords()
             return
         }
@@ -780,12 +797,18 @@ final class AppModel: ObservableObject {
                     return (obs.recordID, observer.fingerprint(for: cgID), obs.cgUUID, obs.displayClass)
                 }
             }.value
-        let resolved = await registry.resolveAll(
-            prepared.map { (fingerprint: $0.1, cgUUID: $0.2, displayClass: $0.3) }
+        let resolved = await registry.resolveAllExplained(
+            prepared.map { (fingerprint: $0.1, cgUUID: $0.2, displayClass: $0.3) },
+            newRecordStrategy: settings.newDisplayIdentityStrategy
         )
         var byID: [DisplayRecordID: DisplayRecord] = [:]
-        for (input, record) in zip(prepared, resolved) { byID[input.0] = record }
+        var explanations: [DisplayRecordID: IdentityMatchExplanation] = [:]
+        for (input, result) in zip(prepared, resolved) {
+            byID[input.0] = result.record
+            explanations[input.0] = result.explanation
+        }
         records = byID
+        if identityExplanations != explanations { identityExplanations = explanations }
         await refreshRegistryKnownRecords()
     }
 
@@ -1876,6 +1899,20 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+        await applyCleanup(plan, of: entry, actor: .ui,
+                           command: mode == .forget ? "forgetDisplay" : "resetDisplaySettings")
+        await refresh()
+        return .done
+    }
+
+    /// Applies a forget or reset plan to every store, then the registry, and records it. Every store
+    /// changes before the first suspension, so nothing can slip in between the caller's check and
+    /// the writes. A live display's driving routes are the caller's business (see `performCleanup`).
+    private func applyCleanup(_ plan: RememberedDisplayCleanup.Plan, of entry: RememberedDisplay,
+                              actor: DisplayDomain.Actor, command: String) async {
+        #if !PUBLIC_API_ONLY
+        pruneDDCCaches(to: Set(displays.map(\.recordID)).subtracting(plan.observationIDs))
+        #endif
         let updatedSettings = RememberedDisplayCleanup.applying(plan, to: settings)
         if updatedSettings != settings {
             if updatedSettings.displayGroups != settings.displayGroups { groupSyncStates.removeAll() }
@@ -1897,20 +1934,321 @@ final class AppModel: ObservableObject {
             managedOffline = updatedLedger
             persistManagedOffline()
         }
+        let name = rememberedName(of: entry)
         if let recordID = plan.registryRecordID, let registry {
-            if mode == .forget { await registry.forget(recordID) } else { await registry.clearUserData(for: recordID) }
+            if plan.mode == .forget { await registry.forget(recordID) } else { await registry.clearUserData(for: recordID) }
         }
         NotificationCenter.default.post(name: .openDisplayForgetTrayState, object: plan.observationIDs.map(\.rawValue))
         await appendAudit(AuditEntry(
-            timestamp: Date(), actor: .ui,
-            command: mode == .forget ? "forgetDisplay" : "resetDisplaySettings",
-            transactionId: "txn_\(mode.rawValue)_\(UUID().uuidString.prefix(8))", status: "committed",
+            timestamp: Date(), actor: actor, command: command,
+            transactionId: "txn_\(plan.mode.rawValue)_\(UUID().uuidString.prefix(8))", status: "committed",
             targets: plan.observationIDs.map(\.rawValue).sorted()))
-        logDisplayEvent("\(mode.rawValue) \(rememberedName(of: entry))")
-        if rememberedDisplayFocus == entryID { rememberedDisplayFocus = nil }
+        logDisplayEvent(actor == .system ? "\(plan.mode.rawValue) (retention) \(name)" : "\(plan.mode.rawValue) \(name)")
+        if rememberedDisplayFocus == entry.id { rememberedDisplayFocus = nil }
+    }
+
+    // MARK: - Automatic forgetting (SD-09, FB-13)
+
+    /// Settings → Displays → Remembered: forget a display once it has gone this many days unseen.
+    /// Nil (or anything below one day) turns automatic forgetting off — the default.
+    func setRememberedDisplayRetention(days: Int?) async {
+        let normalized = RememberedDisplayRetention.normalizedDays(days)
+        guard settings.rememberedDisplayRetentionDays != normalized else { return }
+        settings.rememberedDisplayRetentionDays = normalized
+        persistSettings()
+        await applyRememberedDisplayRetention()
+    }
+
+    /// What automatic forgetting will do with an entry.
+    func retentionVerdict(for entry: RememberedDisplay, now: Date = Date()) -> RememberedDisplayRetention.Verdict {
+        RememberedDisplayRetention.verdict(for: entry, days: settings.rememberedDisplayRetentionDays, now: now)
+    }
+
+    /// Forgets every remembered display that has gone unseen for the configured period, exactly as a
+    /// confirmed Forget would, and records each in the audit trail. Runs after every refresh (the
+    /// display list just changed, and `lastSeen` was just brought up to date for everything present)
+    /// and when the period changes. Never during launch's load, never in safe startup, and each
+    /// entry is judged again from the current state right before it goes.
+    private func applyRememberedDisplayRetention() async {
+        guard retentionReady, !safeStartup, !retentionRunning, registry != nil,
+              settings.rememberedDisplayRetentionDays != nil else { return }
+        let due = RememberedDisplayRetention.dueEntries(rememberedDisplays, days: settings.rememberedDisplayRetentionDays,
+                                                        now: Date())
+        guard !due.isEmpty else { return }
+        retentionRunning = true
+        defer { retentionRunning = false }
+        for candidate in due {
+            guard let entry = rememberedDisplays.first(where: { $0.id == candidate.id }),
+                  case .due = retentionVerdict(for: entry),
+                  let plan = try? RememberedDisplayCleanup.plan(
+                      for: entry, mode: .forget, settings: settings, favorites: favorites,
+                      menuLayout: menuLayout, ledger: managedOffline)
+            else { continue }
+            await applyCleanup(plan, of: entry, actor: .system, command: "forgetDisplayAfterRetention")
+            await refreshRegistryKnownRecords()
+        }
+    }
+
+    // MARK: - Identity and settings transfer (SD-10, FA-11, TB-09)
+
+    func setNewDisplayIdentityStrategy(_ strategy: DisplayIdentityStrategy) {
+        settings.newDisplayIdentityStrategy = strategy
+        persistSettings()
+    }
+
+    func setIdentityStrategy(_ strategy: DisplayIdentityStrategy, for record: DisplayRecord) async {
+        guard let registry else { return }
+        await registry.setIdentityStrategy(strategy, for: record.id)
+        await refresh()
+    }
+
+    /// The id a remembered entry is connected under right now, if it is connected.
+    func liveObservationID(of entry: RememberedDisplay) -> DisplayRecordID? {
+        displays.first { entry.observationIDs.contains($0.recordID) }?.recordID
+    }
+
+    /// How a connected entry was matched at the last refresh.
+    func identityExplanation(for entry: RememberedDisplay) -> IdentityMatchExplanation? {
+        liveObservationID(of: entry).flatMap { identityExplanations[$0] }
+    }
+
+    /// The name of the remembered display a registry record id belongs to (explanations name records).
+    func rememberedName(forRecordID id: DisplayRecordID) -> String {
+        if let entry = rememberedDisplays.first(where: { $0.record?.id == id }) { return rememberedName(of: entry) }
+        return id.rawValue
+    }
+
+    /// The remembered displays a connected entry could take settings from.
+    func settingsTransferSources(for entry: RememberedDisplay) -> [RememberedDisplay] {
+        DisplaySettingsTransfer.sources(for: entry, among: rememberedDisplays)
+    }
+
+    /// The connected displays an absent entry's settings could move to.
+    func settingsTransferDestinations(for source: RememberedDisplay) -> [RememberedDisplay] {
+        rememberedDisplays.filter { destination in
+            guard let live = liveObservationID(of: destination) else { return false }
+            return (try? DisplaySettingsTransfer.transferPlan(
+                from: source, to: destination, destinationLiveID: live, settings: settings, favorites: favorites,
+                menuLayout: menuLayout, ledger: managedOffline)) != nil
+        }
+    }
+
+    func settingsTransferPlan(from source: RememberedDisplay, to destination: RememberedDisplay)
+        -> Result<DisplaySettingsTransfer.Plan, DisplaySettingsTransfer.Refusal> {
+        guard let live = liveObservationID(of: destination) else { return .failure(.destinationNotConnected) }
+        do {
+            return .success(try DisplaySettingsTransfer.transferPlan(
+                from: source, to: destination, destinationLiveID: live, settings: settings, favorites: favorites,
+                menuLayout: menuLayout, ledger: managedOffline))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    /// Settings a connected entry has under an earlier identifier that its live one lacks, if any.
+    func settingsMigrationPlan(for entry: RememberedDisplay) -> DisplaySettingsTransfer.Plan? {
+        guard entry.isRegistered, let live = liveObservationID(of: entry) else { return nil }
+        return try? DisplaySettingsTransfer.migrationPlan(for: entry, liveID: live, settings: settings,
+                                                          favorites: favorites, menuLayout: menuLayout)
+    }
+
+    enum SettingsTransferOutcome: Equatable {
+        case done
+        /// Something the preview showed changed before the action (a display came or went, a
+        /// setting was edited); nothing was changed.
+        case stateChanged
+        case refused(DisplaySettingsTransfer.Refusal)
+        /// Two different displays and the user didn't confirm it is a replacement; nothing changed.
+        case notAcknowledged
+    }
+
+    /// Carries out a previewed transfer or migration — only if the plan worked out afresh from the
+    /// current state is exactly the one the user confirmed, so what was shown is what happens. Every
+    /// store changes before the first suspension after that check. Cached driving routes are
+    /// revoked, so subsequent control uses the selected preference and fresh identity evidence.
+    /// Nothing is written to a monitor or to macOS's display configuration.
+    @discardableResult
+    func performSettingsTransfer(_ confirmed: DisplaySettingsTransfer.Plan,
+                                 selection: Set<DisplaySettingsTransfer.Category>,
+                                 acknowledgedDifferentDisplays: Bool) async -> SettingsTransferOutcome {
+        await refresh()
+        let entries = rememberedDisplays
+        let current: DisplaySettingsTransfer.Plan
+        switch confirmed.kind {
+        case .transfer:
+            guard let source = entries.first(where: { $0.id == confirmed.sourceEntryID }),
+                  let destination = entries.first(where: { $0.id == confirmed.destinationEntryID }),
+                  liveObservationID(of: destination) == confirmed.destinationLiveID else { return .stateChanged }
+            switch settingsTransferPlan(from: source, to: destination) {
+            case .success(let plan): current = plan
+            case .failure(let refusal): return .refused(refusal)
+            }
+        case .migrate:
+            guard let entry = entries.first(where: { $0.id == confirmed.destinationEntryID }),
+                  liveObservationID(of: entry) == confirmed.destinationLiveID else { return .stateChanged }
+            do {
+                current = try DisplaySettingsTransfer.migrationPlan(
+                    for: entry, liveID: confirmed.destinationLiveID, settings: settings, favorites: favorites,
+                    menuLayout: menuLayout)
+            } catch {
+                return .refused(error)
+            }
+        }
+        guard current == confirmed else { return .stateChanged }
+        if current.needsDifferentDisplayAcknowledgement, !acknowledgedDifferentDisplays { return .notAcknowledged }
+        let chosen = current.chosen(selection)
+        let sourceName = current.kind == .transfer
+            ? entries.first(where: { $0.id == current.sourceEntryID }).map(rememberedName(of:)) ?? current.sourceEntryID
+            : entries.first(where: { $0.id == current.destinationEntryID }).map(rememberedName(of:)) ?? current.destinationEntryID
+
+        let live = current.destinationLiveID
+        #if !PUBLIC_API_ONLY
+        pruneDDCCaches(to: Set(displays.map(\.recordID)).subtracting(current.sourceIDs + current.destinationIDs))
+        #endif
+        brightnessMethod[live] = nil
+
+        let updatedSettings = DisplaySettingsTransfer.applying(current, selection: selection, to: settings)
+        if updatedSettings != settings {
+            if updatedSettings.displayGroups != settings.displayGroups { groupSyncStates.removeAll() }
+            settings = updatedSettings
+            persistSettings()
+        }
+        let updatedFavorites = DisplaySettingsTransfer.applying(current, selection: selection, to: favorites)
+        if updatedFavorites != favorites {
+            favorites = updatedFavorites
+            try? favoritesStore?.save(favorites)
+        }
+        let updatedLayout = DisplaySettingsTransfer.applying(current, selection: selection, to: menuLayout)
+        if updatedLayout != menuLayout {
+            menuLayout = updatedLayout
+            persistMenuLayout()
+        }
+        let updatedLedger = DisplaySettingsTransfer.applying(current, to: managedOffline)
+        if updatedLedger != managedOffline {
+            managedOffline = updatedLedger
+            persistManagedOffline()
+        }
+        let provenance = DisplayRecordProvenance(
+            kind: current.kind == .transfer ? .transferredFrom : .migratedFrom, date: Date(),
+            sourceName: sourceName, sourceRecordID: current.sourceRecordID,
+            sourceObservationIDs: current.sourceIDs, categories: chosen.map(\.rawValue).sorted())
+        if let registry {
+            let change = DisplaySettingsTransfer.registryChange(current, selection: selection)
+            switch current.kind {
+            case .transfer:
+                if let destination = change.destinationRecordID {
+                    await registry.transferUserData(from: change.sourceRecordID, to: destination,
+                                                    alias: change.alias, tags: change.tags, provenance: provenance)
+                } else if let source = change.sourceRecordID {
+                    await registry.forget(source)
+                }
+            case .migrate:
+                if let destination = current.destinationRecordID {
+                    await registry.appendProvenance(provenance, to: destination)
+                }
+            }
+        }
+        if current.kind == .transfer {
+            NotificationCenter.default.post(name: .openDisplayForgetTrayState, object: current.sourceIDs.map(\.rawValue))
+        }
+        await appendAudit(AuditEntry(
+            timestamp: Date(), actor: .ui,
+            command: current.kind == .transfer ? "transferDisplaySettings" : "migrateDisplaySettings",
+            transactionId: "txn_\(current.kind.rawValue)_\(UUID().uuidString.prefix(8))", status: "committed",
+            targets: (current.sourceIDs + [live]).map(\.rawValue)))
+        logDisplayEvent("\(current.kind.rawValue) settings \(sourceName) → \(live.rawValue)")
         await refresh()
         return .done
     }
+
+    #if !PUBLIC_API_ONLY
+    // Manual pairing uses the existing DDC transport, only after the user requests a test.
+    func pairingChannels() async -> [DDCChannel] {
+        await Task.detached(priority: .utility) { ExternalDisplayDDC.channels() }.value
+    }
+
+    func testDDCChannel(_ channel: DDCChannel, for display: DisplayObservation,
+                        parameters: DDCChannelTest.Parameters) async -> (DDCChannelMapping?, String) {
+        guard !ddcPairingTestRunning, !safeStartup, !busy,
+              DDCChannelMappingPolicy.canPair(display.recordID),
+              displays.contains(where: { $0.recordID == display.recordID }),
+              let cgID = display.cgDisplayID,
+              !isAppleDisplay(display) || appleDisplayDDCOverride(for: display) else {
+            return (nil, String(localized: "The display cannot be tested now. Nothing was changed."))
+        }
+        ddcPairingTestRunning = true
+        testedDDCMapping = nil
+        let epoch = ddcPairingEpoch
+        let target = ExternalDisplayDDC.ddcIdentity(of: cgID)
+        let mappingContext = settings.ddcChannelMappings
+        let allowApple = appleDisplayDDCOverride(for: display)
+        // Ordinary app writes cannot overlap the diagnostic flash, including pending writers.
+        pruneDDCCaches(to: [])
+        defer { ddcPairingTestRunning = false }
+        guard let controller = ExternalDisplayDDC.bindForPairingTest(channelPath: channel.path,
+                                                                      allowAppleDisplay: allowApple),
+              await pairingChannels().contains(channel), ddcPairingEpoch == epoch,
+              settings.ddcChannelMappings == mappingContext,
+              ExternalDisplayDDC.ddcIdentity(of: cgID) == target else {
+            return (nil, String(localized: "The selected channel is unavailable or its identity changed."))
+        }
+        defer { controller.invalidate() }
+        let outcome = await DDCChannelTest.run(parameters: parameters,
+            read: { await controller.read(.brightness).map { (current: $0.current, max: $0.max) } },
+            write: { await controller.write(.brightness, $0) },
+            hold: { try? await Task.sleep(for: parameters.duration) })
+        switch outcome {
+        case .flashed(_, _, true):
+            guard ddcPairingEpoch == epoch, settings.ddcChannelMappings == mappingContext,
+                  displays.contains(where: { $0.recordID == display.recordID && $0.cgDisplayID == cgID }),
+                  ExternalDisplayDDC.ddcIdentity(of: cgID) == target,
+                  await pairingChannels().contains(channel), ddcPairingEpoch == epoch,
+                  settings.ddcChannelMappings == mappingContext,
+                  ExternalDisplayDDC.ddcIdentity(of: cgID) == target,
+                  allowApple == appleDisplayDDCOverride(for: display),
+                  let mapping = DDCChannelMappingPolicy.confirm(displayID: display.recordID,
+                      displayIdentity: target, channel: channel, at: Date()) else {
+                return (nil, String(localized: "Identity changed during the test. Test the channel again."))
+            }
+            testedDDCMapping = mapping
+            testedDDCMappingContext = mappingContext
+            return (mapping, String(localized: "The brightness test completed and the original value was sent back. Confirm only if this physical monitor responded."))
+        case .flashed(_, _, false), .flashWriteFailed(_, false):
+            return (nil, String(localized: "Restoring brightness failed. Use the monitor controls to restore it. Pairing was not saved."))
+        case .flashWriteFailed(_, true):
+            return (nil, String(localized: "The test write failed. The original brightness was sent back. Pairing was not saved."))
+        case .noReply:
+            return (nil, String(localized: "The channel did not report a valid brightness. Nothing was written."))
+        }
+    }
+
+    func confirmDDCChannel(_ mapping: DDCChannelMapping) async -> Bool {
+        guard testedDDCMapping == mapping, testedDDCMappingContext == settings.ddcChannelMappings, !ddcPairingTestRunning,
+              let display = displays.first(where: { $0.recordID == mapping.displayID }),
+              let cgID = display.cgDisplayID,
+              !isAppleDisplay(display) || appleDisplayDDCOverride(for: display) else { return false }
+        let epoch = ddcPairingEpoch
+        let channels = await pairingChannels()
+        guard testedDDCMapping == mapping, testedDDCMappingContext == settings.ddcChannelMappings, epoch == ddcPairingEpoch,
+              ExternalDisplayDDC.ddcIdentity(of: cgID) == mapping.displayIdentity,
+              channels.contains(DDCChannel(path: mapping.channelPath, attributes: mapping.channelAttributes)) else { return false }
+        // Channel reassignment is shown in the confirmation. Old owners lose the mapping and cache.
+        pruneDDCCaches(to: [])
+        settings.ddcChannelMappings = DDCChannelMappingPolicy.saving(mapping, into: settings.ddcChannelMappings)
+        testedDDCMapping = nil
+        persistSettings()
+        await refresh()
+        return true
+    }
+
+    func removeDDCChannelMapping(for id: DisplayRecordID) {
+        testedDDCMapping = nil
+        pruneDDCCaches(to: Set(displays.map(\.recordID)).subtracting([id]))
+        settings.ddcChannelMappings.removeAll { $0.displayID == id }
+        ddcPairingStatus[id] = nil
+        persistSettings()
+    }
+    #endif
 
     // MARK: - Menu layout (AM-11, SO-23, FA-12, FA-13, FA-14, SD-11)
 
@@ -2068,6 +2406,7 @@ final class AppModel: ObservableObject {
         if !softwareDim.keys.allSatisfy(ids.contains) { softwareDim = softwareDim.filter { ids.contains($0.key) } }
         if !ddcWriteIgnored.keys.allSatisfy(ids.contains) { ddcWriteIgnored = ddcWriteIgnored.filter { ids.contains($0.key) } }
         if !ddcBindingRefusal.keys.allSatisfy(ids.contains) { ddcBindingRefusal = ddcBindingRefusal.filter { ids.contains($0.key) } }
+        if !ddcPairingStatus.keys.allSatisfy(ids.contains) { ddcPairingStatus = ddcPairingStatus.filter { ids.contains($0.key) } }
         if !ddcWriteFailed.keys.allSatisfy(ids.contains) { ddcWriteFailed = ddcWriteFailed.filter { ids.contains($0.key) } }
         if !ddcAudioMuted.keys.allSatisfy(ids.contains) { ddcAudioMuted = ddcAudioMuted.filter { ids.contains($0.key) } }
         if !colorTemperature.keys.allSatisfy(ids.contains) {
@@ -2130,6 +2469,13 @@ final class AppModel: ObservableObject {
     #endif
 
     func refresh() async {
+        #if !PUBLIC_API_ONLY
+        ddcPairingEpoch &+= 1
+        testedDDCMapping = nil
+        // A paired route must be rechecked against current evidence after every topology refresh.
+        // Revoke old handles too, including work queued behind the transport pacing gap.
+        pruneDDCCaches(to: Set(displays.map(\.recordID)).subtracting(settings.ddcChannelMappings.map(\.displayID)))
+        #endif
         var snapshot = await observer.currentSnapshot()
         // Another display-manager app (e.g. BetterDisplay) holding a reconfiguration can make
         // enumeration transiently empty or error; a Mac running this app always has ≥1 display, so
@@ -2182,6 +2528,7 @@ final class AppModel: ObservableObject {
         if statusText != status { statusText = status }
         phase = displays.isEmpty ? .empty : .ready
         await resolveRecords(snapshot)
+        await applyRememberedDisplayRetention()
         await refreshDiagnostics()
         // A display that arrived (or left) can carry a custom profile; the safeguard covers every
         // connected display, so it is re-judged whenever the set might have changed.
@@ -2724,21 +3071,29 @@ final class AppModel: ObservableObject {
     /// question, so it is neither cached nor used (FB-08 — turning the override off must stick, also
     /// for a power or input command that was already waiting on the build).
     private func ddcController(for observation: DisplayObservation) async -> ExternalDisplayDDC? {
+        guard !ddcPairingTestRunning else { return nil }
         let id = observation.recordID
         if let existing = ddc[id] { return existing }
-        let builder: (task: Task<ExternalDisplayDDC.Binding, Never>, build: DDCBindingTokens.Build)
+        let builder: (task: Task<ExternalDisplayDDC.BindingReport, Never>, build: DDCBindingTokens.Build)
         if let inFlight = ddcBuilders[id] {
             builder = inFlight
         } else {
             guard let cgID = observation.cgDisplayID else { return nil }
             let allowApple = settings.ddcAppleDisplayOverrideIDs.contains(id.rawValue)
+            // A hand-paired channel (TR-06, owner decision #4) is consulted only where identity
+            // refuses; the other connected displays' pairings keep two displays off one channel.
+            let pairing = settings.ddcChannelMappings.first { $0.displayID == id }
+            let present = Set(displays.map(\.recordID))
+            let otherPairings = settings.ddcChannelMappings.filter { $0.displayID != id && present.contains($0.displayID) }
             let task = Task.detached(priority: .utility) {
-                ExternalDisplayDDC.bind(displayID: cgID, allowAppleDisplay: allowApple)
+                ExternalDisplayDDC.bind(displayID: cgID, allowAppleDisplay: allowApple, recordID: id,
+                                        pairing: pairing, otherPairings: otherPairings)
             }
             builder = (task, ddcBindingTokens.begin(id, allowAppleDisplay: allowApple))
             ddcBuilders[id] = builder
         }
-        let binding = await builder.task.value
+        let report = await builder.task.value
+        let binding = report.binding
         // Only this build's own entry: a newer one may have been started after a prune.
         if ddcBuilders[id]?.build == builder.build { ddcBuilders[id] = nil }
         guard ddcBindingTokens.isCurrent(
@@ -2746,6 +3101,12 @@ final class AppModel: ObservableObject {
             allowAppleDisplay: settings.ddcAppleDisplayOverrideIDs.contains(id.rawValue)) else { return nil }
         let refusal = binding.refusal
         if ddcBindingRefusal[id] != refusal { ddcBindingRefusal[id] = refusal }
+        if ddcPairingStatus[id] != report.pairing { ddcPairingStatus[id] = report.pairing }
+        if case .invalid = report.pairing {
+            // A failed evidence check revokes consent; it cannot revive silently on a later replug.
+            settings.ddcChannelMappings.removeAll { $0.displayID == id }
+            persistSettings()
+        }
         // The same controller for every caller of one build; whoever resumes first caches it.
         if let controller = binding.controller { ddc[id] = controller }
         return binding.controller
