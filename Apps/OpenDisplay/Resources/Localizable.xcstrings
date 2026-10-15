@@ -1166,6 +1166,16 @@
         }
       }
     },
+    "A verified persistent display identity is required. Earlier provisional associations remain saved but inactive." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нужна подтверждённая постоянная идентичность дисплея. Прежние временные привязки сохранены, но неактивны."
+          }
+        }
+      }
+    },
     "About" : {
       "localizations" : {
         "ru" : {
@@ -1662,6 +1672,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Все режимы"
+          }
+        }
+      }
+    },
+    "All nonconflicting sources" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Все источники без конфликтов"
           }
         }
       }
@@ -2630,6 +2650,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ошибка команды автоматизации; проверьте её типизированный результат"
+          }
+        }
+      }
+    },
+    "Automation request cancelled before dispatch" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запрос автоматизации отменён до отправки"
           }
         }
       }
@@ -4603,6 +4634,16 @@
         }
       }
     },
+    "Conflicting earlier values stay saved until you choose their source explicitly. Only values copied from the selected source are cleared." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Конфликтующие прежние значения сохраняются, пока вы явно не выберете источник. Удаляются только значения, скопированные из выбранного источника."
+          }
+        }
+      }
+    },
     "Connected" : {
       "localizations" : {
         "ru" : {
@@ -6159,6 +6200,49 @@
         }
       }
     },
+    "Display is unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дисплей недоступен"
+          }
+        }
+      }
+    },
+    "Display list response has no display rows" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В ответе со списком дисплеев отсутствуют записи дисплеев"
+          }
+        }
+      }
+    },
+    "Display list response is missing legacy metadata" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В ответе со списком дисплеев отсутствуют данные прежнего формата"
+          }
+        }
+      }
+    },
+    "Display mirroring changed" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зеркалирование дисплеев изменено"
+          }
+        }
+      }
+    },
     "Display mode" : {
       "localizations" : {
         "ru" : {
@@ -6667,6 +6751,26 @@
         }
       }
     },
+    "Earlier provisional display associations are saved but inactive. Export or inspect their original identifiers before recreating them for a verified display." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Прежние временные привязки дисплеев сохранены, но неактивны. Экспортируйте или проверьте их исходные идентификаторы, прежде чем заново создать привязки для подтверждённого дисплея."
+          }
+        }
+      }
+    },
+    "Earlier TV associations with provisional display IDs are inactive. Their configurations and Keychain credentials remain saved on this Mac." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Прежние привязки телевизоров к временным идентификаторам дисплеев неактивны. Их конфигурации и учётные данные в Связке ключей сохранены на этом Mac."
+          }
+        }
+      }
+    },
     "EDID" : {
       "localizations" : {
         "ru" : {
@@ -6994,6 +7098,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Записей, точно повторяющих размер, буфер и частоту другого режима (показаны один раз): %1."
+          }
+        }
+      }
+    },
+    "env must wrap a supported interpreter with a literal script file" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "env должен запускать поддерживаемый интерпретатор с файлом скрипта, путь к которому задан без подстановок"
+          }
+        }
+      }
+    },
+    "env requires an absolute literal executable and a validated argument array" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для env требуется абсолютный путь к исполняемому файлу без подстановок и проверенный массив аргументов"
           }
         }
       }
@@ -8737,6 +8863,28 @@
         }
       }
     },
+    "Hardware contrast is unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Аппаратная регулировка контрастности недоступна"
+          }
+        }
+      }
+    },
+    "Hardware contrast is unavailable in this build" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В этой сборке аппаратная регулировка контрастности недоступна"
+          }
+        }
+      }
+    },
     "Hardware controls sent over DDC/CI. Availability depends on the monitor." : {
       "localizations" : {
         "ru" : {
@@ -9275,6 +9423,27 @@
         }
       }
     },
+    "HTTP is paused during safe startup" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HTTP приостановлен на время безопасного запуска"
+          }
+        }
+      }
+    },
+    "HTTP paused during safe startup; the saved preference is unchanged" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HTTP приостановлен на время безопасного запуска; сохранённая настройка не изменена"
+          }
+        }
+      }
+    },
     "HTTP port (blank chooses once)" : {
       "localizations" : {
         "ru" : {
@@ -9650,6 +9819,16 @@
         }
       }
     },
+    "Inactive TV associations" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Неактивные привязки телевизоров"
+          }
+        }
+      }
+    },
     "Include %@ in group “%@”" : {
       "localizations" : {
         "ru" : {
@@ -9903,6 +10082,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Команды интеграции требуют одного дисплея и не могут менять его подключение, принимать данные или вызывать пульт ТВ"
+          }
+        }
+      }
+    },
+    "Integration configuration changed or execution was cancelled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Конфигурация интеграции изменилась или выполнение было отменено"
           }
         }
       }
@@ -11228,6 +11418,16 @@
         }
       }
     },
+    "macOS did not confirm the mirroring change. The previous settings were restored." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS не подтвердила изменение зеркалирования. Предыдущие настройки восстановлены."
+          }
+        }
+      }
+    },
     "macOS did not confirm the selected mode. Not every display in the previous settings is connected, so they can’t be confirmed as restored yet; a record of them was saved and is restored at the next launch." : {
       "localizations" : {
         "ru" : {
@@ -12039,6 +12239,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Перенесено с прежних идентификаторов"
+          }
+        }
+      }
+    },
+    "Migration source" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Источник миграции"
           }
         }
       }
@@ -17087,12 +17297,45 @@
         }
       }
     },
+    "Request cancelled before dispatch" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запрос отменён до отправки"
+          }
+        }
+      }
+    },
+    "Request cancelled before readback" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запрос отменён до чтения результата"
+          }
+        }
+      }
+    },
     "Request sent. The TV response and physical effect are unconfirmed." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Запрос отправлен. Ответ телевизора и физическое действие не подтверждены."
+          }
+        }
+      }
+    },
+    "Request superseded before its readback; no result was borrowed from a later request" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запрос вытеснен до чтения результата; результат последующего запроса не использован"
           }
         }
       }
@@ -18253,6 +18496,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сохраняет настройки FreeDisplay, названия дисплеев, избранные разрешения, группы, профили приложений, защищённые расположения, сочетания клавиш, сцены, оформление меню, опорные значения яркости, привязки клавиатуры и звука, запросы запрета сна при простое и настройки индикации громкости в выбранный файл."
+          }
+        }
+      }
+    },
+    "Saving and rollback failed. Restore the retained recovery snapshot before continuing." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось сохранить перенос и выполнить откат. Перед продолжением восстановите настройки из сохранённого снимка."
+          }
+        }
+      }
+    },
+    "Saving the transfer failed. Previous settings were restored." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось сохранить перенос. Предыдущие настройки восстановлены."
           }
         }
       }
@@ -20562,6 +20825,16 @@
         }
       }
     },
+    "The brightness test was cancelled. The original value was sent back if it had been changed." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверка яркости отменена. Если значение менялось, исходное значение отправлено обратно."
+          }
+        }
+      }
+    },
     "The built-in display can’t be forgotten while FreeDisplay has it switched off: this record is how it is turned back on." : {
       "localizations" : {
         "ru" : {
@@ -20811,6 +21084,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Дисплей, на котором произошло изменение"
+          }
+        }
+      }
+    },
+    "The display transport rejected this request" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Транспорт дисплея отклонил этот запрос"
           }
         }
       }
