@@ -48,10 +48,16 @@ final class AppAutomationEnvironment: AutomationEnvironment {
 
     func prepare() async throws(AutomationIssue) {
         await model.prepareForAutomation()
+        model.integrationSession.start(model: model)
     }
 
     func displaySet() async -> AutomationDisplaySet {
         model.automationDisplaySet(pointerDisplayID: Self.pointerDisplayID())
+    }
+
+    func feedIntegration(control: UUID, response: String, display: AutomationDisplayCandidate) async throws(AutomationIssue) -> IntegrationSample {
+        do { return try model.integrationSession.feed(controlID: control, response: response, displayID: display.id) }
+        catch { throw AutomationIssue(.invalidValue, (error as? IntegrationError)?.message ?? error.localizedDescription, subject: control.uuidString) }
     }
 
     // MARK: Brightness
