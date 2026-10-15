@@ -7315,8 +7315,11 @@ final class AppModel: ObservableObject {
         guard case .adjust(let recipients, let feedbackOutputUID) = decision else {
             // A display the output belongs to whose DDC audio isn't confirmed: macOS handles this
             // key, and a background read establishes whether the next one can be taken (TB-02).
-            let match = AudioOutputAssociation.displays(matching: snapshot.currentOutput, candidates: candidates)
-            for id in match.displays { probeAudioControls(for: id) }
+            let targets = DisplayAudioInitialRead.keyPressTargets(action: action, candidates: candidates,
+                currentOutput: snapshot.currentOutput, confirmedVolume: confirmedAudioVolume,
+                captureEnabled: settings.mediaKeyInterceptionEnabled && settings.nativeKeys.volumeKeysEnabled,
+                safeStartup: safeStartup, muteLeftToMacOS: settings.nativeKeys.muteKeyLeftToMacOS)
+            for id in targets { probeAudioControls(for: id) }
             return false
         }
         let delta = action.sign * settings.nativeKeys.stepFraction(for: action, modifierRequestsFine: intent.modifierRequestsFine,
@@ -7499,7 +7502,7 @@ final class AppModel: ObservableObject {
     private func confirmDisplayAudioForKeys() async {
         #if !PUBLIC_API_ONLY
         let candidates = audioKeyCandidates(devices: audioSnapshot.devices)
-        let confirmed = Set(displays.filter { ddcControl(.volume, for: $0) != nil }.map(\.recordID))
+        let confirmed = confirmedAudioVolume
         let targets = DisplayAudioInitialRead.targets(
             candidates: candidates, confirmedVolume: confirmed,
             captureEnabled: settings.mediaKeyInterceptionEnabled && settings.nativeKeys.volumeKeysEnabled,
@@ -7508,12 +7511,24 @@ final class AppModel: ObservableObject {
         #endif
     }
 
+    private var confirmedAudioVolume: Set<DisplayRecordID> {
+        Set(displays.filter { ddcControl(.volume, for: $0) != nil }.map(\.recordID))
+    }
+
+    private func canProbeAudioControls(for id: DisplayRecordID) -> Bool {
+        DisplayAudioInitialRead.targets(candidates: audioKeyCandidates(devices: audioSnapshot.devices),
+            confirmedVolume: confirmedAudioVolume,
+            captureEnabled: settings.mediaKeyInterceptionEnabled && settings.nativeKeys.volumeKeysEnabled,
+            safeStartup: safeStartup).contains(id)
+    }
+
     /// Starts a background read of a display's volume and mute when a key arrived for it before
     /// they were confirmed. Goes through the probe tracker, so a monitor without DDC audio is not
     /// re-read on every key press, and skips displays OpenDisplay refuses to talk DDC to.
     @discardableResult
     private func probeAudioControls(for id: DisplayRecordID) -> Task<Void, Never>? {
         #if !PUBLIC_API_ONLY
+        guard canProbeAudioControls(for: id) else { return nil }
         if let probe = audioProbes[id] { return probe.task }
         guard ddcBindingRefusal[id] == nil,
               ddcProbe[id]?.unsupportedCodes.contains(HardwareControl.volume.vcp) != true,
@@ -7523,9 +7538,14 @@ final class AppModel: ObservableObject {
         let token = UUID()
         let task = Task { [weak self] in
             guard let self else { return }
-            if let controller = await self.ddcController(for: observation) {
+            if !Task.isCancelled, self.canProbeAudioControls(for: id),
+               let controller = await self.ddcController(for: observation),
+               !Task.isCancelled, self.canProbeAudioControls(for: id) {
                 await self.readHardwareControl(.volume, controller: controller, observation: observation)
-                await self.refreshDiscreteMute(controller, observation: observation)
+                if !Task.isCancelled, !self.safeStartup,
+                   !self.settings.keyboardAudioPreferences(for: id).nativeAudioEnabled {
+                    await self.refreshDiscreteMute(controller, observation: observation)
+                }
             }
             if self.audioProbes[id]?.token == token { self.audioProbes[id] = nil }
         }

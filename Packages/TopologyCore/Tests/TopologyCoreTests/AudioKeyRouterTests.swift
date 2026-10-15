@@ -7,6 +7,33 @@ import XCTest
 final class AudioKeyRouterTests: XCTestCase {
     // MARK: Fixtures
 
+    func testPassThroughProbesOnlyUnconfirmedHardwareAndHonorsSafeStartupAndMutePolicy() {
+        let output = AudioOutputDevice(uid: "usb", name: "Speakers", transport: .usb,
+            volume: .settable, mute: .settable, volumeLevel: 0.5, isMuted: false)
+        func candidate(_ id: String, sink: DisplayAudioSink, keyboard: Bool = true) -> AudioKeyCandidate {
+            .init(observation: .init(recordID: .init(rawValue: id), cgDisplayID: 1, isActive: true,
+                displayClass: .external, physicalPresence: .physical, generation: .initial),
+                productName: id, keyboardEnabled: keyboard, sink: sink, matchOverride: .matched(output))
+        }
+        let hardware = candidate("hardware", sink: .hardware(volume: false, mute: false))
+        let native = candidate("native", sink: .native(output))
+        let unresolved = candidate("missing", sink: .unresolvedNative(.unset))
+        let disabled = candidate("disabled", sink: .hardware(volume: false, mute: false), keyboard: false)
+        let known = candidate("known", sink: .hardware(volume: true, mute: false))
+        let candidates = [hardware, native, unresolved, disabled, known]
+        func targets(_ action: MediaKeyAction = .volumeUp, safe: Bool = false, leaveMute: Bool = false,
+                     capture: Bool = true) -> [DisplayRecordID] {
+            DisplayAudioInitialRead.keyPressTargets(action: action, candidates: candidates,
+                currentOutput: output, confirmedVolume: [known.id], captureEnabled: capture,
+                safeStartup: safe, muteLeftToMacOS: leaveMute)
+        }
+        XCTAssertEqual(targets(), [hardware.id])
+        XCTAssertTrue(targets(safe: true).isEmpty)
+        XCTAssertTrue(targets(.muteToggle, leaveMute: true).isEmpty)
+        XCTAssertTrue(targets(capture: false).isEmpty)
+        XCTAssertEqual(targets(.volumeDown, leaveMute: true), [hardware.id])
+    }
+
     private func obs(_ id: String, active: Bool = true, main: Bool = false, builtIn: Bool = false,
                      x: Int = 0, mirrors: String? = nil) -> DisplayObservation {
         DisplayObservation(

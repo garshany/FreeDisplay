@@ -304,6 +304,18 @@ public enum AudioKeyStatus: Hashable, Sendable {
 /// Owner #6: discovery and capture enablement use the same initial-read plan. Only the existing
 /// DDC sink needs a probe; a native binding must never start DDC traffic as a side effect.
 public enum DisplayAudioInitialRead {
+    /// Pass-through is not itself permission to discover hardware: intentional macOS handling
+    /// and native bindings must remain free of DDC side effects.
+    public static func keyPressTargets(action: MediaKeyAction, candidates: [AudioKeyCandidate],
+                                       currentOutput: AudioOutputDevice?, confirmedVolume: Set<DisplayRecordID>,
+                                       captureEnabled: Bool, safeStartup: Bool,
+                                       muteLeftToMacOS: Bool) -> [DisplayRecordID] {
+        guard action.isVolume, !(action == .muteToggle && muteLeftToMacOS) else { return [] }
+        let matching = Set(AudioOutputAssociation.displays(matching: currentOutput, candidates: candidates).displays)
+        return targets(candidates: candidates, confirmedVolume: confirmedVolume,
+                       captureEnabled: captureEnabled, safeStartup: safeStartup).filter { matching.contains($0) }
+    }
+
     public static func targets(candidates: [AudioKeyCandidate], confirmedVolume: Set<DisplayRecordID>,
                                captureEnabled: Bool, safeStartup: Bool) -> [DisplayRecordID] {
         guard captureEnabled, !safeStartup else { return [] }
