@@ -886,7 +886,7 @@ struct DimmingCard: View {
     /// of full black by the composer). The method in force decides — the overlay while the
     /// custom-profile safeguard pauses gamma.
     private var range: ClosedRange<Double> {
-        model.effectiveDimmingMethod == .gamma ? Double(DimmingComposer.gammaFloor)...1 : 0...1
+        model.effectiveDimmingMethod(for: display.recordID) == .gamma ? Double(DimmingComposer.gammaFloor)...1 : 0...1
     }
 
     private var footnote: String {
@@ -926,13 +926,13 @@ struct DimmingCard: View {
                 Text(issue).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             // The safeguard's override, offered only where it matters: a custom profile is assigned
-            // somewhere, or the override is already on and should stay visible to be undone.
-            if !model.customProfileDisplays.isEmpty || model.settings.allowGammaWithCustomProfiles {
+            // on this display, or the override is already on and should stay visible to be undone.
+            if model.customProfileDisplays.contains(display.recordID) || model.settings.allowGammaWithCustomProfiles {
                 Toggle(isOn: Binding(get: { model.settings.allowGammaWithCustomProfiles },
                                      set: { model.setAllowGammaWithCustomProfiles($0) })) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Allow gamma with custom colour profiles")
-                        Text("Applies to all displays. Custom ICC profiles combined with gamma changes can leave a screen black or tinted; if that happens, turn this off or choose a factory profile.")
+                        Text("Allows gamma on displays with custom ICC profiles. Combining a custom profile with gamma changes can leave that display black or tinted; if that happens, turn this off or choose a factory profile.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
