@@ -385,6 +385,7 @@ private struct RememberedDisplayCleanupSheet: View {
         if plan.appleDDCOverride { items.append(String(localized: "Allowing DDC on this Apple display")) }
         if plan.ddcChannelMapping { items.append(String(localized: "Its manually confirmed DDC channel mapping")) }
         if plan.adaptiveOffset { items.append(String(localized: "Adaptive Display’s learned brightness offset")) }
+        if plan.keepsDisplaysAwake { items.append(String(localized: "Keeping the displays awake while it is connected")) }
         if plan.removesTurnedOffRecord {
             items.append(String(localized: "The record that it is switched off, and its card in the menu"))
         }

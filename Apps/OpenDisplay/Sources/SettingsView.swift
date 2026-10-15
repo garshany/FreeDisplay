@@ -30,7 +30,14 @@ struct SettingsView: View {
     var body: some View {
         NavigationSplitView {
             List(SettingsSection.allCases, selection: $section) { item in
-                Label(item.title, systemImage: item.icon).tag(item)
+                HStack {
+                    Label(item.title, systemImage: item.icon)
+                    if item == .about, model.updateStatus.presentation.badge != nil {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .foregroundStyle(ODColor.caution)
+                            .accessibilityLabel("Update available")
+                    }
+                }.tag(item)
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 220)
         } detail: {
@@ -43,6 +50,7 @@ struct SettingsView: View {
                 switch section ?? .displays {
                 case .displays: DisplaysSection()
                 case .menu: MenuSettingsView()
+                case .application: ApplicationPreferencesView()
                 case .arrange: ArrangeSection()
                 case .scenes: ScenesSection()
                 case .capture: CapturePanel().navigationTitle("Screen Capture")
@@ -91,7 +99,7 @@ struct SettingsView: View {
 }
 
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
-    case displays, menu, arrange, scenes, virtual, capture, advanced, keyboard, automation, health, about
+    case displays, application, menu, arrange, scenes, virtual, capture, advanced, keyboard, automation, health, about
     var id: String { rawValue }
 
     /// The section a newly created Settings window starts on: the launch argument when given (the
@@ -106,6 +114,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .displays: return String(localized: "Displays")
+        case .application: return String(localized: "Application")
         case .menu: return String(localized: "Menu")
         case .arrange: return String(localized: "Arrange")
         case .scenes: return String(localized: "Scenes")
@@ -121,6 +130,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     var icon: String {
         switch self {
         case .displays: return "display"
+        case .application: return "app.badge"
         case .menu: return "menubar.rectangle"
         case .arrange: return "rectangle.3.group"
         case .scenes: return "square.stack.3d.up"
@@ -893,6 +903,8 @@ private struct AboutSection: View {
             VStack(alignment: .leading, spacing: ODSpacing.md) {
                 ODCard {
                     AppIdentityRow()
+                    ForkAttributionText().font(.caption).foregroundStyle(.secondary).padding(.horizontal)
+                    CopyrightText().font(.caption).foregroundStyle(.secondary).padding(.horizontal)
                     ODDivider()
                     UpdateCheckRow()
                     ForEach(AboutView.projectLinks) { link in
@@ -945,7 +957,7 @@ private struct LanguageRow: View {
 /// App icon, name, and running version/build — the same bundle-info source `AboutView` reads.
 private struct AppIdentityRow: View {
     var body: some View {
-        ODRow("OpenDisplay", secondary: String(localized: "Version \(AboutView.version) (build \(AboutView.build))")) {
+        ODRow(ProjectIdentity.productName, secondary: String(localized: "Version \(AboutView.version) (build \(AboutView.build)) · \(BuildMetadata.current.channelTitle)")) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable().frame(width: 28, height: 28)
                 .accessibilityHidden(true)

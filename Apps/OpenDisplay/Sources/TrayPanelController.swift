@@ -522,6 +522,10 @@ enum TrayQuickMenu {
         menu.addItem(ActionMenuItem(String(localized: "About OpenDisplay")) {
             NotificationCenter.default.post(name: .openDisplayShowAbout, object: nil)
         })
+        // T27: restart goes through the same quit cleanup as Quit, then opens the app again.
+        menu.addItem(ActionMenuItem(String(localized: "Restart FreeDisplay")) {
+            AppLanguage.relaunch(reopeningSettings: false)
+        })
         menu.addItem(ActionMenuItem(String(localized: "Quit OpenDisplay"), key: "q") { NSApp.terminate(nil) })
         return menu
     }

@@ -235,6 +235,8 @@ public enum RememberedDisplayCleanup {
         /// A DDC channel the user paired with this display by hand (`DDCChannelMappingPolicy`).
         public var ddcChannelMapping: Bool
         public var adaptiveOffset: Bool
+        /// This display's own "keep displays awake while connected" (AM-42).
+        public var keepsDisplaysAwake: Bool = false
         /// `forget` of a display OpenDisplay switched off: its recovery record goes with it.
         public var removesTurnedOffRecord: Bool
         public var keptRestores: [PendingRestore]
@@ -248,7 +250,7 @@ public enum RememberedDisplayCleanup {
         public var removesOnlyRecord: Bool {
             alias == nil && tagCount == 0 && favoriteModeCount == 0 && groupNames.isEmpty
                 && protectedLayoutKeys.isEmpty && !hasMenuPreferences && !softwareBrightness
-                && !appleDDCOverride && !ddcChannelMapping && !adaptiveOffset && !removesTurnedOffRecord
+                && !appleDDCOverride && !ddcChannelMapping && !adaptiveOffset && !keepsDisplaysAwake && !removesTurnedOffRecord
         }
     }
 
@@ -275,7 +277,7 @@ public enum RememberedDisplayCleanup {
         if !raw.isDisjoint(with: settings.faceLightPriorStateByDisplay.keys) { kept.append(.faceLight) }
         if !raw.isDisjoint(with: settings.appPresetPriorStateByDisplay.keys) { kept.append(.appPreset) }
         if !raw.isDisjoint(with: settings.adaptiveDayPresetByDisplay.keys) { kept.append(.eveningColorPreset) }
-        return Plan(
+        var plan = Plan(
             mode: mode,
             observationIDs: ids,
             registryRecordID: record?.id,
@@ -296,6 +298,8 @@ public enum RememberedDisplayCleanup {
                 guard case .display(let target) = preset.target, raw.contains(target) else { return nil }
                 return preset.applicationName
             }.sorted())
+        plan.keepsDisplaysAwake = !raw.isDisjoint(with: settings.preventDisplaySleepDisplayIDs)
+        return plan
     }
 
     /// The settings without this display's preferences and associations. Restore ledgers stay.
@@ -311,6 +315,7 @@ public enum RememberedDisplayCleanup {
         updated.softwareBrightnessDisplayIDs.subtract(raw)
         updated.ddcAppleDisplayOverrideIDs.subtract(raw)
         updated.ddcChannelMappings.removeAll { plan.observationIDs.contains($0.displayID) }
+        updated.preventDisplaySleepDisplayIDs.subtract(raw)
         for key in raw { updated.adaptiveBrightnessOffsetByDisplay[key] = nil }
         return updated
     }

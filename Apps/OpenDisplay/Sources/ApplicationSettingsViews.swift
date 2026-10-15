@@ -236,6 +236,7 @@ struct BuildMetadata {
         var rows: [(String, String)] = [
             (String(localized: "Version"), "\(version) (\(build))"),
             (String(localized: "Build"), localizedBuildDescription),
+            (String(localized: "Channel"), channelTitle),
         ]
         if let builtAt { rows.append((String(localized: "Built"), builtAt.formatted(date: .abbreviated, time: .shortened))) }
         rows.append((String(localized: "macOS"), operatingSystem))
@@ -244,35 +245,22 @@ struct BuildMetadata {
         return rows
     }
 
-    /// The build line of the copied report (English, see `reportText`).
-    private var buildDescription: String {
-        ([configuration, apiSurface] + (isLocalBuild ? ["local build"] : [])).joined(separator: " · ")
+    var channelTitle: String {
+        isLocalBuild ? String(localized: "Source build") : String(localized: "Release")
     }
 
-    /// The same line for the rows, in the interface language.
     private var localizedBuildDescription: String {
-        ([configurationTitle, apiSurfaceTitle] + (isLocalBuild ? [String(localized: "local build")] : []))
-            .joined(separator: " · ")
+        [configurationTitle, apiSurfaceTitle].joined(separator: " · ")
     }
 
-    /// What the copy button puts on the pasteboard. English and fixed-format on purpose: it is
-    /// meant for bug reports, which are read by people who may not share the interface language.
     var reportText: String {
-        var lines = [
-            "OpenDisplay \(version) (build \(build))",
-            "Build: \(buildDescription)",
-        ]
-        if let builtAt {
-            let formatter = ISO8601DateFormatter()
-            lines.append("Built: \(formatter.string(from: builtAt))")
-        }
-        lines += [
-            "macOS: \(operatingSystem)",
-            "Architecture: \(architecture)",
-            "Bundle: \(bundleIdentifier)",
-        ]
-        return lines.joined(separator: "\n")
+        BuildReport(version: version, build: build,
+                    configuration: configuration == "Debug" ? .debug : .release,
+                    apiSurface: apiSurface == "full" ? .full : .publicOnly,
+                    isLocalBuild: isLocalBuild, bundleIdentifier: bundleIdentifier,
+                    operatingSystem: operatingSystem, architecture: architecture, builtAt: builtAt).reportText
     }
+
 }
 
 /// Selectable build rows and a Copy button — shared by Settings › About and the About window.

@@ -292,6 +292,9 @@ extension OpenDisplaySettings {
         if luminanceAnchorsByDisplay.values.contains(where: { $0.unusableAnchor != nil }) {
             return "luminanceAnchorsByDisplay"
         }
+        // Delays and durations are scheduled in nanoseconds: negative, non-finite or overflowing
+        // seconds can't be. Names the invalid key on import; application falls back to automatic.
+        if let field = applicationTiming.unusableFieldKey { return "applicationTiming.\(field)" }
         return nil
     }
 

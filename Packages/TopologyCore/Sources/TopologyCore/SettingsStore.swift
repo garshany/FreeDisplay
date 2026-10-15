@@ -194,6 +194,13 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// basis, for labelling and estimating nits. Keyed like the other per-display preferences; a
     /// display with nothing entered has no entry. They describe, they never drive the display.
     public var luminanceAnchorsByDisplay: [String: LuminanceAnchorSettings]
+    /// Displays (by `DisplayRecordID.rawValue`) that keep the displays awake while they are
+    /// connected and lit (AM-42) — the per-display counterpart of `preventDisplaySleepWithExternal`.
+    /// Empty by default. `DisplaySleepPrevention` decides who holds the assertion.
+    public var preventDisplaySleepDisplayIDs: Set<String>
+    /// Configuration and wake delays and the menu's animation duration (SO-10). Every field is
+    /// blank (automatic) by default, which is the app's behaviour from before they existed.
+    public var applicationTiming: ApplicationTimingPreferences
 
     public init(
         persistencePolicy: PersistencePolicy = .reconnectOnQuit,
@@ -253,7 +260,9 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         rememberedDisplayRetentionDays: Int? = nil,
         ddcChannelMappings: [DDCChannelMapping] = [],
         newDisplayIdentityStrategy: DisplayIdentityStrategy = .automatic,
-        luminanceAnchorsByDisplay: [String: LuminanceAnchorSettings] = [:]
+        luminanceAnchorsByDisplay: [String: LuminanceAnchorSettings] = [:],
+        preventDisplaySleepDisplayIDs: Set<String> = [],
+        applicationTiming: ApplicationTimingPreferences = .default
     ) {
         self.persistencePolicy = persistencePolicy
         self.confirmationCountdownSeconds = confirmationCountdownSeconds
@@ -313,6 +322,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.ddcChannelMappings = ddcChannelMappings
         self.newDisplayIdentityStrategy = newDisplayIdentityStrategy
         self.luminanceAnchorsByDisplay = luminanceAnchorsByDisplay
+        self.preventDisplaySleepDisplayIDs = preventDisplaySleepDisplayIDs
+        self.applicationTiming = applicationTiming
     }
 
     public static let `default` = OpenDisplaySettings()
@@ -374,6 +385,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case rememberedDisplayRetentionDays
         case ddcChannelMappings
         case luminanceAnchorsByDisplay
+        case preventDisplaySleepDisplayIDs
+        case applicationTiming
     }
 
     /// Tolerant decoder: every missing OR undecodable key falls back to its default and unknown
@@ -510,6 +523,10 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         luminanceAnchorsByDisplay = container.lenient([String: LuminanceAnchorSettings].self,
                                                       forKey: .luminanceAnchorsByDisplay)
             ?? defaults.luminanceAnchorsByDisplay
+        preventDisplaySleepDisplayIDs = container.lenient(Set<String>.self, forKey: .preventDisplaySleepDisplayIDs)
+            ?? defaults.preventDisplaySleepDisplayIDs
+        applicationTiming = container.lenient(ApplicationTimingPreferences.self, forKey: .applicationTiming)
+            ?? defaults.applicationTiming
     }
 }
 

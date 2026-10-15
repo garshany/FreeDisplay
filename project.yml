@@ -47,6 +47,8 @@ settings:
     CURRENT_PROJECT_VERSION: "24"
     CODE_SIGN_STYLE: Automatic
     ENABLE_HARDENED_RUNTIME: YES
+    FREEDISPLAY_UPDATE_FEED_URL: "https://github.com/garshany/FreeDisplay/releases/latest/download/appcast.xml"
+    FREEDISPLAY_UPDATE_PUBLIC_ED_KEY: ""
 
 targets:
   # --- Shared core (dynamic frameworks compiled from the cross-platform SPM sources) ---

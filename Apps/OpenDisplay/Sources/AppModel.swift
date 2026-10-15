@@ -392,6 +392,8 @@ final class AppModel: ObservableObject {
     /// Holds the "prevent display idle-sleep" power assertion while the toggle is on and an external
     /// display is present (Issue 3). Decision logic is the platform-independent `DisplaySleepGuard`.
     private let sleepGuard: DisplaySleepGuard
+    /// Who keeps the displays awake right now, and what macOS granted (FB-12/AM-42) — for Settings.
+    @Published private(set) var displaySleepPrevention = DisplaySleepPrevention.Snapshot()
     /// Black click-through overlay windows for the overlay/combined dimming methods. Process-bound —
     /// every overlay disappears with the app, so quit teardown only has the gamma half to restore.
     private let dimOverlay = DimOverlayController()
@@ -412,9 +414,15 @@ final class AppModel: ObservableObject {
     /// Sparkle-backed one-click updater (check → download → verify → install → relaunch). Held for the
     /// lifetime of the app because Sparkle references its delegates weakly.
     private let softwareUpdater: SoftwareUpdater
-    /// What the update affordances (menu row, About window) should currently say. Mirrored from the
-    /// updater so the views observe one published property instead of two objects.
-    @Published private(set) var updatePhase: SoftwareUpdatePhase = .idle
+    /// What the update affordances (menu rows, About surfaces, Settings sidebar) should currently
+    /// say. Mirrored from the updater so the views observe one published property instead of two
+    /// objects.
+    @Published private(set) var updateStatus = SoftwareUpdateStatus()
+    /// The phase alone, for the surfaces that only need that.
+    var updatePhase: SoftwareUpdatePhase { updateStatus.phase }
+    /// Why this build's updater is off, or nil when it runs (`UpdateDistribution`): a source build,
+    /// or a build without FreeDisplay's own feed and signing key.
+    var updateDistributionRefusal: UpdateDistribution.Refusal? { softwareUpdater.distributionRefusal }
 
     /// Live "Keep these settings?" prompt for an arrangement-altering change (Issue 6), or nil when no
     /// revert window is open. Drives the countdown banner; the UI calls `confirmArrangementChange()` /
@@ -504,6 +512,12 @@ final class AppModel: ObservableObject {
     private let activeSurfaceRecheck = RecheckTimer()
     /// The same, for putting a relit display back off once a real screen is available to cover it.
     private let offlineIntentRecheck = RecheckTimer()
+    /// The one timer behind the configuration and wake delays (SO-10, `ConfiguredReactionSchedule`):
+    /// every display event re-arms it, so the user's rules run once, after the last event.
+    private let configuredReactionTimer = RecheckTimer()
+    /// The trigger the pending run reports. A wake outranks the changes that follow it.
+    private var pendingReactionTrigger: ConfiguredReactionSchedule.Trigger?
+    private var appManagementIsQuitting = false
 
     /// Safe startup (FA-09): Shift was held at launch, or the app was started with `--safe-mode`.
     /// For this whole session OpenDisplay changes nothing on its own (`SafeStartup`); explicit
@@ -547,7 +561,8 @@ final class AppModel: ObservableObject {
         // begins on the next runloop pass, so applying them later would let one check slip through
         // against the wrong settings.
         self.softwareUpdater = SoftwareUpdater(behavior: AppModel.automaticUpdateBehavior(for: settings))
-        softwareUpdater.onPhaseChange = { [weak self] phase in self?.updatePhase = phase }
+        updateStatus = softwareUpdater.status
+        softwareUpdater.onStatusChange = { [weak self] status in self?.updateStatus = status }
         softwareUpdater.onAutomaticDownloadPreferenceChange = { [weak self] enabled in
             self?.setAutomaticUpdateDownloadEnabled(enabled)
         }
@@ -568,6 +583,7 @@ final class AppModel: ObservableObject {
             self?.answerOSDHandshake(incoming) ?? .init(result: .disabled)
         }
         NotificationDelivery.style = settings.notificationStyle  // SO-12: where notices go
+        TrayMotion.animationDuration = settings.applicationTiming.animationDuration  // SO-10
         if settings.displayNotificationsEnabled, settings.notificationStyle == .notificationCenter {
             NotificationDelivery.requestAuthorization()  // Batch-2 #5
         }
@@ -663,6 +679,7 @@ final class AppModel: ObservableObject {
                 self?.layoutProtectionRecheck.cancel()
                 self?.activeSurfaceRecheck.cancel()
                 self?.offlineIntentRecheck.cancel()
+                self?.configuredReactionTimer.cancel()
                 self?.stopObservingSleepAndWake()
                 #if !PUBLIC_API_ONLY
                 self?.groupBrightnessLoop?.cancel()
@@ -2522,6 +2539,7 @@ final class AppModel: ObservableObject {
             attempts += 1
         }
         displays = snapshot.observations.sorted { $0.recordID.rawValue < $1.recordID.rawValue }
+        reconcileDisplaySleepGuard()
         refreshRevertRecord()
         pruneControlCaches(to: Set(displays.map(\.recordID)))
         #if !PUBLIC_API_ONLY
@@ -5405,6 +5423,12 @@ final class AppModel: ObservableObject {
             reconcileAppPresetObserver()  // and start/stop the frontmost-app observer to match
             evaluateAppPresets()  // govern a newly-arrived external (or release a departed one)
             #endif
+            // SO-10: the user's own rules below wait out the configuration and wake delays; with
+            // both blank (the default) nothing is deferred and they run now, as they always have.
+            if deferConfiguredReactions(.topologyChange) {
+                postDisplayNotifications(prior: prior, builtInAutoDisconnected: false)  // Batch-2 #5
+                continue
+            }
             let autoDisconnected = await applyAutoDisconnectBuiltInIfNeeded()  // external arrived → built-in off
             postDisplayNotifications(prior: prior, builtInAutoDisconnected: autoDisconnected)  // Batch-2 #5
             // The externals coming back is the event the wake re-assert has been waiting for: only
@@ -5463,8 +5487,9 @@ final class AppModel: ObservableObject {
         persistSettings()
     }
 
-    /// Keep-awake includes DisplayLink and wireless endpoints, while excluding macOS's virtual
-    /// placeholder. Automatic disconnect uses stricter shared PhysicalPresence evidence instead.
+    /// True when an external display other than macOS's virtual placeholder is present. Automatic
+    /// disconnect uses the stricter shared PhysicalPresence evidence instead, and the keep-awake
+    /// assertion has its own reading (`DisplaySleepPrevention`).
     var hasExternalDisplay: Bool {
         displays.contains { $0.displayClass != .builtIn && $0.displayClass != .virtual }
     }
@@ -5509,6 +5534,36 @@ final class AppModel: ObservableObject {
         reconcileDisplaySleepGuard()
     }
 
+    /// Whether `display` itself keeps the displays awake while it is connected and lit (AM-42).
+    func preventsDisplaySleep(_ display: DisplayRecordID) -> Bool {
+        settings.preventDisplaySleepDisplayIDs.contains(display.rawValue)
+    }
+
+    /// This display's own "keep the displays awake while connected" (AM-42). Turning it off affects
+    /// only this display: another display, or the "any external" setting, may still hold the
+    /// assertion — `displaySleepPrevention` says which.
+    func setPreventsDisplaySleep(_ enabled: Bool, for display: DisplayRecordID) {
+        guard preventsDisplaySleep(display) != enabled else { return }
+        if enabled {
+            guard let live = displays.first(where: { $0.recordID == display }),
+                  DisplaySleepPrevention.ineligibility(of: .init(live)) == nil else { return }
+            settings.preventDisplaySleepDisplayIDs.insert(display.rawValue)
+        } else {
+            settings.preventDisplaySleepDisplayIDs.remove(display.rawValue)
+        }
+        persistSettings()
+        reconcileDisplaySleepGuard()
+    }
+
+    /// Configuration and wake delays and the menu's animation duration (SO-10). The delays are read
+    /// at each display event; the animation duration takes effect at the next transition.
+    func setApplicationTiming(_ timing: ApplicationTimingPreferences) {
+        guard timing.unusableFieldKey == nil, settings.applicationTiming != timing else { return }
+        settings.applicationTiming = timing
+        persistSettings()
+        TrayMotion.animationDuration = timing.animationDuration
+    }
+
     /// Toggle for "check for updates automatically". Also re-applies the pair to Sparkle, which
     /// re-schedules its own cycle shortly afterwards.
     func setUpdateCheckEnabled(_ enabled: Bool) {
@@ -5533,6 +5588,26 @@ final class AppModel: ObservableObject {
         softwareUpdater.checkForUpdates()
     }
 
+    /// What a click on an update affordance does (`SoftwareUpdatePresentation.Action`): check or
+    /// retry, cancel what is in flight, or bring the waiting offer forward.
+    func performUpdateAction(_ action: SoftwareUpdatePresentation.Action) {
+        softwareUpdater.perform(action)
+    }
+
+    /// A surface showing the update state again: a check result older than the configured threshold
+    /// is cleared, an offer no longer newer than this build is dropped. The threshold is the
+    /// `FreeDisplayUpdateResultStaleSeconds` default; unset, results stay until the next check.
+    func updateSurfaceAppeared() {
+        softwareUpdater.clearStaleResult(staleAfter: Self.updateResultStaleAfter)
+    }
+
+    /// The owner-configurable threshold behind `updateSurfaceAppeared` (none by default).
+    private static var updateResultStaleAfter: TimeInterval? {
+        guard let seconds = (UserDefaults.standard.object(forKey: "FreeDisplayUpdateResultStaleSeconds") as? NSNumber)?
+            .doubleValue, seconds.isFinite, seconds >= 0 else { return nil }
+        return seconds
+    }
+
     private func reconcileAutomaticUpdates() {
         softwareUpdater.apply(Self.automaticUpdateBehavior(for: settings))
     }
@@ -5547,13 +5622,20 @@ final class AppModel: ObservableObject {
             downloadEnabled: settings.automaticUpdateDownloadEnabled)
     }
 
-    /// Acquire or release the keep-awake assertion for the current (toggle, external-presence) state.
-    /// Idempotent — safe to call on every topology change and every settings change.
+    /// Acquire or release the keep-awake assertion for the current settings and displays, per
+    /// `DisplaySleepPrevention`: only lit, non-virtual displays own it, so a display that was
+    /// switched off or unplugged stops holding it at the next topology change. Idempotent — safe to
+    /// call on every topology change and every settings change.
     private func reconcileDisplaySleepGuard() {
-        sleepGuard.update(
-            enabled: settings.preventDisplaySleepWithExternal && !safeStartup,
-            externalPresent: hasExternalDisplay
-        )
+        guard !appManagementIsQuitting else { return }
+        let decision = DisplaySleepPrevention.decide(
+            // Shift safe startup (FA-09) holds no keep-awake assertion.
+            anyExternal: settings.preventDisplaySleepWithExternal && !safeStartup,
+            perDisplay: safeStartup ? [] : settings.preventDisplaySleepDisplayIDs,
+            candidates: displays.map(DisplaySleepPrevention.Candidate.init))
+        sleepGuard.apply(decision)
+        let snapshot = DisplaySleepPrevention.Snapshot(decision: decision, status: sleepGuard.status)
+        if displaySleepPrevention != snapshot { displaySleepPrevention = snapshot }
     }
 
     /// Persists `settings` to the on-disk store (best-effort; a write failure leaves the in-memory
@@ -5732,6 +5814,8 @@ final class AppModel: ObservableObject {
             center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil,
                                queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
+                    self?.configuredReactionTimer.cancel()
+                    self?.pendingReactionTrigger = nil
                     self?.isBetweenSleepAndWake = true
                     self?.logDisplayEvent("sleep")
                 }
@@ -5773,8 +5857,43 @@ final class AppModel: ObservableObject {
         displaysDarkSince = nil
         await refresh()
         await enforceActiveSurfaceInvariant()
+        // SO-10: the wake delay holds back the user's rules — never the safety net above.
+        if deferConfiguredReactions(.wake) { return }
         await reassertManagedOfflineIntent()
         await evaluateLayoutProtection(trigger: .wake)
+    }
+
+    /// Defers the user's rules (built-in off on arrival, owed "off"s, Protected Layout) when the
+    /// configuration or wake delay asks for a wait, or a deferred run is already pending — every
+    /// event re-arms the one timer, so the rules run once, after the last event. Returns false when
+    /// they should run now, which is always the case with both delays blank.
+    private func deferConfiguredReactions(_ trigger: ConfiguredReactionSchedule.Trigger) -> Bool {
+        guard !appManagementIsQuitting, !isBetweenSleepAndWake else { return false }
+        let delay = ConfiguredReactionSchedule.delay(
+            for: trigger, now: Date(), lastWakeAt: lastWakeAt, timing: settings.applicationTiming)
+        guard delay > 0 || configuredReactionTimer.isArmed else { return false }
+        layoutProtectionRecheck.cancel()
+        offlineIntentRecheck.cancel()
+        pendingReactionTrigger = ConfiguredReactionSchedule.merged(pendingReactionTrigger, with: trigger)
+        configuredReactionTimer.arm(after: delay) { [weak self] in
+            await self?.runDeferredReactions()
+        }
+        return true
+    }
+
+    /// The deferred run: the same rules, in the same order, against the topology as it is now.
+    private func runDeferredReactions() async {
+        guard !appManagementIsQuitting, !isBetweenSleepAndWake else { return }
+        let trigger = pendingReactionTrigger ?? .topologyChange
+        pendingReactionTrigger = nil
+        await refresh()
+        guard !appManagementIsQuitting, !isBetweenSleepAndWake else { return }
+        let before = displays
+        if await applyAutoDisconnectBuiltInIfNeeded() {
+            postDisplayNotifications(prior: before, builtInAutoDisconnected: true)  // Batch-2 #5
+        }
+        await reassertManagedOfflineIntent()
+        await evaluateLayoutProtection(trigger: trigger == .wake ? .wake : .topologyChange)
     }
 
     /// Puts back off every display the ledger owns that woke up with the machine.
@@ -6132,6 +6251,12 @@ final class AppModel: ObservableObject {
     /// delegate's `applicationShouldTerminate` defers termination until this completes so the
     /// reconnect actually lands before the process exits.
     func teardownForQuit() async {
+        appManagementIsQuitting = true
+        configuredReactionTimer.cancel()
+        pendingReactionTrigger = nil
+        sleepGuard.releaseAll()
+        displaySleepPrevention = .init()
+
         // Black Out goes first: the reconnects below can leave a blacked-out screen as the only lit
         // one, and the overlay would otherwise stay up for as long as teardown takes.
         liftBlackOuts(blackedOut)

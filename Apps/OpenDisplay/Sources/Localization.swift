@@ -52,12 +52,20 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The launch argument that asks the new instance to open Settings (SD-08). Passed only by
+    /// `relaunch`; the app never writes it to its defaults.
+    static let reopenSettingsArgument = "OpenDisplayReopenSettingsAfterRelaunch"
+
     /// Relaunches the app so the new language is read. A second instance would hand off to this one
-    /// and exit, so the new launch waits for this process to finish terminating first.
-    @MainActor static func relaunch() {
+    /// and exit, so the new launch waits for this process to finish terminating first. Quitting runs
+    /// the full quit cleanup, as every quit does. `reopeningSettings`: the new instance opens
+    /// Settings again — for relaunches asked for from Settings, so a language change, an import or
+    /// a reset lands back where the user was.
+    @MainActor static func relaunch(reopeningSettings: Bool = true) {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/sh")
-        task.arguments = ["-c", "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.2; done; /usr/bin/open \"$0\"",
+        let arguments = reopeningSettings ? " --args -\(reopenSettingsArgument) YES" : ""
+        task.arguments = ["-c", "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.2; done; /usr/bin/open \"$0\"\(arguments)",
                           Bundle.main.bundlePath]
         try? task.run()
         NSApp.terminate(nil)

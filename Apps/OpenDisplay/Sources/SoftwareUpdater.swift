@@ -5,8 +5,20 @@ import TopologyCore
 
 /// One-click updates, backed by Sparkle 2: check → download → verify (EdDSA signature + Developer ID
 /// code signature) → install → relaunch, all inside Sparkle's own windows. This file is the I/O shell
-/// only — every decision it makes (how a phase advances, whether a release may be installed, what the
-/// updater may do unattended) lives in `SoftwareUpdatePolicy`, which `make test` exercises.
+/// only — every decision it makes (whether the updater may run at all, how a phase advances, how an
+/// error reads, whether a release may be installed, what the updater may do unattended) lives in
+/// `UpdateDistribution`, `SoftwareUpdatePolicy` and `SoftwareUpdateErrorClassifier`, which `make test`
+/// exercises.
+///
+/// **The updater only runs for a validated FreeDisplay release.** `UpdateDistribution` keeps it off
+/// for a source build (`OpenDisplayLocalBuild`), and for any build without the fork's own feed and
+/// EdDSA key — or with upstream OpenDisplay's — so a fork build can never fetch or install an
+/// upstream release in place of itself.
+///
+/// Sparkle's standard windows are reused through `ObservingUserDriver`, which forwards every call to
+/// `SPUStandardUserDriver` and reports what happened, so the menu rows and About surfaces can show
+/// the whole lifecycle (failures, OS compatibility, download progress, prepared and install-on-quit
+/// updates) and cancel a check or a download from the app's own controls.
 ///
 /// Two Sparkle behaviours are deliberately overridden for a menu-bar app:
 ///
@@ -22,9 +34,9 @@ import TopologyCore
 /// for the lifetime of the app.
 @MainActor
 final class SoftwareUpdater: NSObject {
-    /// Called on the main actor whenever `phase` changes. `AppModel` mirrors it into a published
+    /// Called on the main actor whenever the status changes. `AppModel` mirrors it into a published
     /// property; nothing in this file knows about SwiftUI.
-    var onPhaseChange: ((SoftwareUpdatePhase) -> Void)?
+    var onStatusChange: ((SoftwareUpdateStatus) -> Void)?
 
     /// Called when the user changes the automatic-download preference from inside Sparkle's own
     /// update window ("Automatically download and install updates in the future"), so that choice is
@@ -32,18 +44,20 @@ final class SoftwareUpdater: NSObject {
     var onAutomaticDownloadPreferenceChange: ((Bool) -> Void)?
 
     /// What the UI should currently say about updates.
-    private(set) var phase: SoftwareUpdatePhase = .idle {
+    private(set) var status = SoftwareUpdateStatus() {
         didSet {
-            guard phase != oldValue else { return }
-            onPhaseChange?(phase)
+            guard status != oldValue else { return }
+            onStatusChange?(status)
         }
     }
 
-    /// Sparkle's updater plus its standard UI. Lazy because both delegates are `self`, which doesn't
-    /// exist until `super.init()` has run; `init` touches it immediately, so this is an
-    /// initialisation-order detail rather than deferred work.
-    private lazy var updaterController = SPUStandardUpdaterController(
-        startingUpdater: false, updaterDelegate: self, userDriverDelegate: self)
+    /// Why this build's updater stays off, or nil when it runs (`UpdateDistribution`).
+    let distributionRefusal: UpdateDistribution.Refusal?
+
+    /// Sparkle's updater and the user driver that wraps its standard windows. Nil whenever
+    /// `distributionRefusal` is set: nothing Sparkle-related is created for such a build.
+    private var updater: SPUUpdater?
+    private var userDriver: ObservingUserDriver?
 
     /// Watches Sparkle's automatic-download flag so its in-window checkbox reaches the settings file.
     private var automaticDownloadObservation: NSKeyValueObservation?
@@ -51,50 +65,122 @@ final class SoftwareUpdater: NSObject {
     /// Starts the updater with the user's preferences already applied, so Sparkle's first scheduled
     /// cycle (which begins on the next runloop pass) sees the settings the user actually chose.
     init(behavior: AutomaticUpdateBehavior) {
+        let info = Bundle.main.infoDictionary ?? [:]
+        distributionRefusal = UpdateDistribution.refusal(
+            isLocalBuild: Self.isLocalBuild,
+            feedURL: info["SUFeedURL"] as? String,
+            publicEDKey: info["SUPublicEDKey"] as? String)
         super.init()
-        // Local forks must not be replaced with an upstream binary that lacks their changes.
-        guard !isLocalBuild else { return }
+        guard distributionRefusal == nil else { return }
+        let standard = SPUStandardUserDriver(hostBundle: .main, delegate: self)
+        let driver = ObservingUserDriver(standard: standard) { [weak self] report in
+            self?.receive(report)
+        }
+        let updater = SPUUpdater(hostBundle: .main, applicationBundle: .main, userDriver: driver, delegate: self)
+        userDriver = driver
+        self.updater = updater
         apply(behavior)
         observeAutomaticDownloadPreference()
-        updaterController.startUpdater()
+        do {
+            try updater.start()
+        } catch {
+            // A start failure is a configuration problem in this build; say so where the update row
+            // is rather than in a modal alert at launch.
+            record(.failed(.misconfigured))
+            self.updater = nil
+        }
+    }
+
+    /// Whether this is a source build (`OpenDisplayLocalBuild`), which updates from source only.
+    static var isLocalBuild: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "OpenDisplayLocalBuild") as? Bool != false
     }
 
     /// Pushes the user's two update settings into Sparkle.
     ///
     /// Sparkle persists both flags in the app's user defaults and advises against keeping a second
-    /// copy. OpenDisplay keeps one anyway — `settings.json` is the single place every other toggle in
-    /// the app lives, and a user who copies that file to a new Mac expects their update preference to
+    /// copy. The app keeps one anyway — `settings.json` is the single place every other toggle in the
+    /// app lives, and a user who copies that file to a new Mac expects their update preference to
     /// come with it. The duplication is one-way: this app's settings are authoritative and are written
     /// into Sparkle at launch and on every change, so Sparkle's defaults are a mirror rather than a
     /// second source of truth. The single path back is the checkbox in Sparkle's own update window —
     /// see `observeAutomaticDownloadPreference`. Sparkle re-schedules its cycle after either flag
     /// changes, so no explicit reset is needed here.
     func apply(_ behavior: AutomaticUpdateBehavior) {
-        guard !isLocalBuild else { return }
-        updaterController.updater.automaticallyChecksForUpdates = behavior.checksForUpdates
-        updaterController.updater.automaticallyDownloadsUpdates = behavior.downloadsAndInstalls
+        guard let updater else { return }
+        updater.automaticallyChecksForUpdates = behavior.checksForUpdates
+        updater.automaticallyDownloadsUpdates = behavior.downloadsAndInstalls
+    }
+
+    /// Does what the update affordance's presentation says a click does.
+    func perform(_ action: SoftwareUpdatePresentation.Action) {
+        switch action {
+        case .check, .showOffer: checkForUpdates()
+        case .cancel: userDriver?.cancelInFlight()
+        case .none: break
+        }
     }
 
     /// The user asked about updates — from the menu, the About window, or Settings. Sparkle takes it
     /// from here: the progress, the release notes, the download, and the relaunch prompt are all its
-    /// windows. Asking again while an update is already on screen simply brings that window forward.
+    /// windows. Asking again while an update is already on screen brings that window forward instead
+    /// of starting a second check.
     ///
     /// The guard matters. In the one state where Sparkle won't accept a check — a background download
     /// of its own is mid-flight — it drops the request silently, and a phase moved to `checking` would
     /// sit on a spinner no callback ever clears.
     func checkForUpdates() {
-        if isLocalBuild {
-            let alert = NSAlert()
-            alert.messageText = String(localized: "Local Open-Source Build")
-            alert.informativeText = String(localized: "Update this build from the project’s sources. Installing the upstream release automatically is turned off so your changes are kept.")
-            alert.runModal()
+        guard let updater else {
+            showWhyUpdatesAreOff()
             return
         }
-        guard updaterController.updater.canCheckForUpdates else { return }
+        guard updater.canCheckForUpdates else { return }
         NotificationCenter.default.post(name: .openDisplayDismissMenu, object: nil)
         activateForUpdaterWindow()
-        record(.checkStarted)
-        updaterController.updater.checkForUpdates()
+        if !status.phase.isSessionInProgress { record(.checkStarted) }
+        updater.checkForUpdates()
+    }
+
+    /// Clears a check result that went stale, when a surface shows it again (`staleAfter` nil: never).
+    func clearStaleResult(staleAfter: TimeInterval?) {
+        var updated = status
+        updated.clearIfStale(now: Date(), staleAfter: staleAfter)
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        updated.dropOffer(ifNotNewerThanBuild: build) {
+            SUStandardVersionComparator.default.compareVersion($0, toVersion: $1)
+        }
+        status = updated
+    }
+
+    /// A source build, or a build without a FreeDisplay feed and key: explain instead of checking.
+    private func showWhyUpdatesAreOff() {
+        let alert = NSAlert()
+        if distributionRefusal == .localBuild {
+            alert.messageText = String(localized: "Local Open-Source Build")
+            alert.informativeText = String(localized: "Update this build from the project’s sources. Installing the upstream release automatically is turned off so your changes are kept.")
+        } else {
+            alert.messageText = String(localized: "Updates aren’t available in this build")
+            alert.informativeText = Self.refusalExplanation(distributionRefusal)
+        }
+        alert.runModal()
+    }
+
+    /// Why updates are off, in words — shared with the About surfaces.
+    static func refusalExplanation(_ refusal: UpdateDistribution.Refusal?) -> String {
+        switch refusal {
+        case .none:
+            return ""
+        case .localBuild:
+            return String(localized: "This build is updated from source: pull the project’s changes, build the app, and replace the installed copy. Automatic release downloads aren’t available here.")
+        case .noFeed, .insecureOrInvalidFeed:
+            return String(localized: "This build has no FreeDisplay update feed, so it never checks for updates.")
+        case .upstreamFeed:
+            return String(localized: "This build points at the upstream OpenDisplay feed. FreeDisplay never installs upstream releases, so updates are turned off.")
+        case .noPublicKey, .invalidPublicKey:
+            return String(localized: "This build has no valid update signing key, so it can’t verify an update and never checks for one.")
+        case .upstreamPublicKey:
+            return String(localized: "This build carries the upstream OpenDisplay signing key. FreeDisplay never trusts upstream-signed updates, so updates are turned off.")
+        }
     }
 
     /// Mirrors Sparkle's automatic-download flag back into the app's settings, which is what makes the
@@ -105,12 +191,12 @@ final class SoftwareUpdater: NSObject {
     /// about what the user wants downloaded — mirroring that one back would erase their preference
     /// the moment they paused update checks.
     private func observeAutomaticDownloadPreference() {
-        automaticDownloadObservation = updaterController.updater.observe(
+        automaticDownloadObservation = updater?.observe(
             \.automaticallyDownloadsUpdates, options: [.new]
         ) { [weak self] _, change in
             guard let downloadsAutomatically = change.newValue else { return }
             Task { @MainActor [weak self] in
-                guard let self, self.updaterController.updater.automaticallyChecksForUpdates else { return }
+                guard let self, self.updater?.automaticallyChecksForUpdates == true else { return }
                 self.onAutomaticDownloadPreferenceChange?(downloadsAutomatically)
             }
         }
@@ -121,29 +207,84 @@ final class SoftwareUpdater: NSObject {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
     }
 
-    private var isLocalBuild: Bool {
-        Bundle.main.object(forInfoDictionaryKey: "OpenDisplayLocalBuild") as? Bool == true
+    private func record(_ event: SoftwareUpdateEvent) {
+        var updated = status
+        updated.record(event, at: Date())
+        updated.canCancel = userDriver?.canCancel ?? false
+        status = updated
     }
 
-    private func record(_ event: SoftwareUpdateEvent) {
-        phase = SoftwareUpdatePolicy.phase(after: event, from: phase)
+    /// What the user driver saw.
+    private func receive(_ report: ObservingUserDriver.Report) {
+        switch report {
+        case .event(let event):
+            record(event)
+        case .error(let error):
+            record(error: error)
+        case .releaseNotesFailed:
+            var updated = status
+            updated.recordReleaseNotesFailure()
+            status = updated
+        case .cancellationChanged:
+            var updated = status
+            updated.canCancel = userDriver?.canCancel ?? false
+            status = updated
+        }
+    }
+
+    /// Records what an updater error stands for (`SoftwareUpdateErrorClassifier`). `noUpdate`:
+    /// whether a "no update" error is recorded here — false where `updaterDidNotFindUpdate` has
+    /// already reported it with its reason.
+    private func record(error: Error, includingNoUpdate noUpdate: Bool = true) {
+        let nsError = error as NSError
+        var underlying: [SoftwareUpdateErrorClassifier.ErrorCode] = []
+        var next = nsError.userInfo[NSUnderlyingErrorKey] as? NSError
+        var visited = Set<ObjectIdentifier>([ObjectIdentifier(nsError)])
+        while let current = next, visited.insert(ObjectIdentifier(current)).inserted {
+            underlying.append(.init(domain: current.domain, code: current.code))
+            next = current.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        switch SoftwareUpdateErrorClassifier.classify(.init(domain: nsError.domain, code: nsError.code),
+                                                      underlying: underlying) {
+        case .noUpdate:
+            if noUpdate { record(Self.noUpdateEvent(for: nsError)) }
+        case .releaseNotes:
+            // Only the notes failed; the update itself is unaffected.
+            var updated = status
+            updated.recordReleaseNotesFailure()
+            status = updated
+        case .failure(let failure):
+            record(.failed(failure))
+        }
+    }
+
+    /// "No update" with Sparkle's reason and, for an OS mismatch, the newest item's OS bounds.
+    private static func noUpdateEvent(for error: NSError) -> SoftwareUpdateEvent {
+        let reason = (error.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue
+        let latest = error.userInfo[SPULatestAppcastItemFoundKey] as? SUAppcastItem
+        return .noUpdate(SoftwareUpdateErrorClassifier.noUpdateReason(
+            rawValue: reason, minimum: latest?.minimumSystemVersion, maximum: latest?.maximumSystemVersion))
     }
 
     /// Brings the app forward so a window Sparkle is about to show lands in front. A menu-bar
     /// (`LSUIElement`) app has no Dock icon to bounce and isn't activated for it automatically.
-    private func activateForUpdaterWindow() {
+    fileprivate func activateForUpdaterWindow() {
         NSApp.activate(ignoringOtherApps: true)
     }
 }
 
 /// Why the downgrade guard turned an update away. Sparkle surfaces `errorDescription` verbatim, so it
-/// is written for the person reading the alert rather than for a log.
-private struct DowngradeRefused: LocalizedError {
+/// is written for the person reading the alert rather than for a log. Its domain and code are the
+/// ones `SoftwareUpdateErrorClassifier` reads as `.downgradeRefused`.
+private struct DowngradeRefused: LocalizedError, CustomNSError {
     let advertised: String
     let running: String
 
+    static var errorDomain: String { SoftwareUpdateErrorClassifier.appDomain }
+    var errorCode: Int { SoftwareUpdateErrorClassifier.downgradeRefusedCode }
+
     var errorDescription: String? {
-        String(localized: "The update feed offers OpenDisplay \(advertised), which is older than the \(running) you are running. Nothing was installed.")
+        String(localized: "The update feed offers FreeDisplay \(advertised), which is older than the \(running) you are running. Nothing was installed.")
     }
 }
 
@@ -170,11 +311,13 @@ extension SoftwareUpdater: SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        record(.updateFound(version: item.displayVersionString))
+        record(.updateFound(version: item.displayVersionString, build: item.versionString))
     }
 
-    func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
-        record(.noUpdateFound)
+    /// Carries Sparkle's reason, so "up to date" and "needs a newer macOS" read differently. This
+    /// arrives for scheduled checks too, which show no window of their own.
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
+        record(Self.noUpdateEvent(for: error as NSError))
     }
 
     /// "Skip This Version" means don't remind me — so the badge goes away with it. A plain dismissal
@@ -183,19 +326,41 @@ extension SoftwareUpdater: SPUUpdaterDelegate {
         _ updater: SPUUpdater, userDidMake choice: SPUUserUpdateChoice,
         forUpdate updateItem: SUAppcastItem, state: SPUUserUpdateState
     ) {
-        guard choice == .skip else { return }
-        record(.updateSkipped)
+        switch choice {
+        case .skip: record(.updateSkipped)
+        case .dismiss: record(.offerDismissed)
+        default: break
+        }
     }
 
     func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
         record(.installationStarted)
     }
 
+    /// An automatic download prepared an update that installs when the app quits. Sparkle keeps
+    /// ownership of that install (returning false lets its scheduler carry on); the app only says
+    /// so, and its own quit cleanup runs first as on every quit.
+    func updater(
+        _ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
+        immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
+    ) -> Bool {
+        record(.installOnQuitScheduled(version: item.displayVersionString))
+        return false
+    }
+
+    /// Errors of scheduled checks reach only this delegate (the user driver isn't told), so the
+    /// row can still say the check failed rather than staying silent.
+    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        record(error: error)
+    }
+
     /// Fires at the end of every cycle, with or without an error — the one hook that reliably clears a
-    /// check which produced no verdict (offline, rate-limited, cancelled).
+    /// check which produced no verdict.
     func updater(
         _ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?
     ) {
+        // "No update" was already reported with its reason by `updaterDidNotFindUpdate`.
+        if let error { record(error: error, includingNoUpdate: false) }
         record(.checkFinished)
     }
 }
@@ -232,6 +397,181 @@ extension SoftwareUpdater: SPUStandardUserDriverDelegate {
             NotificationCenter.default.post(name: .openDisplayDismissMenu, object: nil)
             activateForUpdaterWindow()
         }
+    }
+}
+
+// MARK: - Observing user driver
+
+/// Sparkle's standard windows, observed. Every `SPUUserDriver` call is forwarded unchanged to
+/// `SPUStandardUserDriver` — which keeps owning every window, button and reply — and reported to
+/// the updater shell first, so the app's own rows can follow the session. The cancellation blocks
+/// Sparkle hands over (a check the user started, a download) are kept so the app's rows can cancel
+/// too; each is wrapped so it runs at most once, whichever control is used.
+@MainActor
+private final class ObservingUserDriver: NSObject, SPUUserDriver {
+    enum Report {
+        case event(SoftwareUpdateEvent)
+        case error(Error)
+        case releaseNotesFailed
+        case cancellationChanged
+    }
+
+    /// A cancellation Sparkle handed over: the block, the event it means, and a token that tells
+    /// this cancellation apart from a later one.
+    private struct Cancellation {
+        let token: UUID
+        let block: () -> Void
+        let event: SoftwareUpdateEvent
+    }
+
+    private let standard: SPUStandardUserDriver
+    private let report: @MainActor (Report) -> Void
+    private var cancellation: Cancellation?
+    private var inlineCheck = false
+
+    init(standard: SPUStandardUserDriver, report: @escaping @MainActor (Report) -> Void) {
+        self.standard = standard
+        self.report = report
+    }
+
+    var canCancel: Bool { cancellation != nil }
+
+    /// Cancels the check or download in flight, from the app's own controls.
+    func cancelInFlight() {
+        guard let token = cancellation?.token else { return }
+        fireCancellation(token)
+    }
+
+    /// Keeps `block` as the way to cancel, and returns the wrapper Sparkle's own window calls. The
+    /// app's rows and that window share it, and it runs at most once, whichever is used first.
+    private func holdCancellation(_ block: @escaping () -> Void, reporting event: SoftwareUpdateEvent) -> () -> Void {
+        let token = UUID()
+        cancellation = Cancellation(token: token, block: block, event: event)
+        report(.cancellationChanged)
+        return { @Sendable [weak self] in
+            MainActor.assumeIsolated { self?.fireCancellation(token) }
+        }
+    }
+
+    private func fireCancellation(_ token: UUID) {
+        guard let held = cancellation, held.token == token else { return }
+        cancellation = nil
+        report(.cancellationChanged)
+        report(.event(held.event))
+        held.block()
+    }
+
+    /// Sparkle moved past the point where the held cancellation applies.
+    private func dropCancellation() {
+        guard cancellation != nil else { return }
+        cancellation = nil
+        report(.cancellationChanged)
+    }
+
+    func show(_ request: SPUUpdatePermissionRequest,
+                                     reply: @escaping (SUUpdatePermissionResponse) -> Void) {
+        standard.show(request, reply: reply)
+    }
+
+    func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
+        inlineCheck = true
+        report(.event(.checkStarted))
+        _ = holdCancellation(cancellation, reporting: .checkCancelled)
+    }
+
+    func showUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState,
+                         reply: @escaping (SPUUserUpdateChoice) -> Void) {
+        inlineCheck = false
+        dropCancellation()
+        report(.event(.updateFound(version: appcastItem.displayVersionString, build: appcastItem.versionString)))
+        if state.stage == .installing {
+            report(.event(.installOnQuitScheduled(version: appcastItem.displayVersionString)))
+        }
+        standard.showUpdateFound(with: appcastItem, state: state, reply: reply)
+    }
+
+    func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
+        standard.showUpdateReleaseNotes(with: downloadData)
+    }
+
+    func showUpdateReleaseNotesFailedToDownloadWithError(_ error: Error) {
+        report(.releaseNotesFailed)
+        standard.showUpdateReleaseNotesFailedToDownloadWithError(error)
+    }
+
+    func showUpdateNotFoundWithError(_ error: Error, acknowledgement: @escaping () -> Void) {
+        dropCancellation()
+        report(.error(error))
+        if inlineCheck {
+            inlineCheck = false
+            acknowledgement()
+        } else {
+            standard.showUpdateNotFoundWithError(error, acknowledgement: acknowledgement)
+        }
+    }
+
+    func showUpdaterError(_ error: Error, acknowledgement: @escaping () -> Void) {
+        dropCancellation()
+        report(.error(error))
+        if inlineCheck {
+            inlineCheck = false
+            acknowledgement()
+        } else {
+            standard.showUpdaterError(error, acknowledgement: acknowledgement)
+        }
+    }
+
+    func showDownloadInitiated(cancellation: @escaping () -> Void) {
+        report(.event(.downloadStarted))
+        standard.showDownloadInitiated(cancellation: holdCancellation(cancellation, reporting: .downloadCancelled))
+    }
+
+    func showDownloadDidReceiveExpectedContentLength(_ expectedContentLength: UInt64) {
+        report(.event(.downloadExpectedLength(expectedContentLength)))
+        standard.showDownloadDidReceiveExpectedContentLength(expectedContentLength)
+    }
+
+    func showDownloadDidReceiveData(ofLength length: UInt64) {
+        report(.event(.downloadReceived(length)))
+        standard.showDownloadDidReceiveData(ofLength: length)
+    }
+
+    /// From here on Sparkle no longer accepts a cancel.
+    func showDownloadDidStartExtractingUpdate() {
+        dropCancellation()
+        report(.event(.extractionStarted))
+        standard.showDownloadDidStartExtractingUpdate()
+    }
+
+    func showExtractionReceivedProgress(_ progress: Double) {
+        standard.showExtractionReceivedProgress(progress)
+    }
+
+    func showReady(toInstallAndRelaunch reply: @escaping (SPUUserUpdateChoice) -> Void) {
+        report(.event(.readyToInstall))
+        standard.showReady(toInstallAndRelaunch: reply)
+    }
+
+    func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool,
+                              retryTerminatingApplication: @escaping () -> Void) {
+        report(.event(.installationStarted))
+        standard.showInstallingUpdate(withApplicationTerminated: applicationTerminated,
+                                      retryTerminatingApplication: retryTerminatingApplication)
+    }
+
+    func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
+        report(.event(.installationCompleted(relaunched: relaunched)))
+        standard.showUpdateInstalledAndRelaunched(relaunched, acknowledgement: acknowledgement)
+    }
+
+    func showUpdateInFocus() {
+        standard.showUpdateInFocus()
+    }
+
+    func dismissUpdateInstallation() {
+        inlineCheck = false
+        dropCancellation()
+        standard.dismissUpdateInstallation()
     }
 }
 #endif
