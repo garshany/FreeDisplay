@@ -477,4 +477,67 @@ final class EDIDDecoderTests: XCTestCase {
         XCTAssertTrue(array.hasSuffix("\n};"))
         XCTAssertEqual(array.components(separatedBy: "0x").count - 1, 256)
     }
+
+    func testPastedBase64RoundTripsExactlyAndRefusesAnythingElse() throws {
+        let bytes = base(extensions: 1) + richCTA
+        let rendered = EDIDByteFormat.base64.render(bytes)
+        XCTAssertEqual(try EDIDByteFormat.decodeBase64(rendered), bytes)
+        // Line breaks and spaces anywhere, as a mail client or editor may add them, are ignored.
+        let wrapped = stride(from: 0, to: rendered.count, by: 60).map { offset -> String in
+            let start = rendered.index(rendered.startIndex, offsetBy: offset)
+            return String(rendered[start..<rendered.index(start, offsetBy: min(60, rendered.count - offset))])
+        }.joined(separator: "\r\n  ")
+        XCTAssertEqual(try EDIDByteFormat.decodeBase64("  " + wrapped + "\n"), bytes)
+        XCTAssertThrowsError(try EDIDByteFormat.decodeBase64(" \n\t")) { XCTAssertEqual($0 as? EDIDByteFormat.Base64Error, .empty) }
+        XCTAssertThrowsError(try EDIDByteFormat.decodeBase64("AAA*")) { XCTAssertEqual($0 as? EDIDByteFormat.Base64Error, .invalid) }
+        XCTAssertThrowsError(try EDIDByteFormat.decodeBase64("AA")) { XCTAssertEqual($0 as? EDIDByteFormat.Base64Error, .invalid) }
+        // "AB==" decodes to the byte 0x00 with stray bits; the canonical form of that byte is "AA==".
+        XCTAssertThrowsError(try EDIDByteFormat.decodeBase64("AB==")) { XCTAssertEqual($0 as? EDIDByteFormat.Base64Error, .nonCanonical) }
+        XCTAssertEqual(try EDIDByteFormat.decodeBase64("AA=="), [0x00])
+    }
+
+    // MARK: DisplayID luminance
+
+    func testHalfPrecisionValuesDecode() {
+        XCTAssertEqual(EDIDDecoder.halfFloat(0x3C00), 1)
+        XCTAssertEqual(EDIDDecoder.halfFloat(0x3800), 0.5)
+        XCTAssertEqual(EDIDDecoder.halfFloat(0x63D0), 1000)
+        XCTAssertEqual(EDIDDecoder.halfFloat(0x5E40), 400)
+        XCTAssertEqual(EDIDDecoder.halfFloat(0x0001), pow(2, -24), "smallest subnormal")
+        XCTAssertEqual(EDIDDecoder.halfFloat(0xC000), -2)
+        XCTAssertEqual(EDIDDecoder.halfFloat(0x7C00), .infinity)
+        XCTAssertTrue(EDIDDecoder.halfFloat(0x7E00).isNaN)
+    }
+
+    /// DisplayID 2.0 Display Parameters with the luminance fields: 400 cd/m² full screen, 1000 cd/m²
+    /// in a 10% window, 0.5 cd/m² minimum.
+    private let luminanceParameters: [UInt8] = [0x21, 0x00, 29,
+                                                0x3A, 0x1B, 0x50, 0x0F, 0x00, 0x0F, 0x70, 0x08, 0x00]
+        + [UInt8](repeating: 0, count: 12) + [0x40, 0x5E, 0xD0, 0x63, 0x00, 0x38, 0x00, 0x00]
+
+    func testDisplayID20ParametersCarryNativeLuminance() throws {
+        let decoded = EDIDDecoder.decode(base(extensions: 1) + displayID(version: 0x20, blocks: [luminanceParameters]))
+        XCTAssertTrue(decoded.isStructurallyValid, "\(decoded.issues)")
+        guard case .displayID(let id)? = decoded.extensions.first?.content else { return XCTFail("not DisplayID") }
+        let parameters = try XCTUnwrap(id.parameters)
+        XCTAssertEqual(parameters.maxLuminanceFullCoverage, 400)
+        XCTAssertEqual(parameters.maxLuminanceTenPercent, 1000)
+        XCTAssertEqual(parameters.minLuminance, 0.5)
+        XCTAssertEqual(parameters.nativeWidth, 3840)
+        let rows = EDIDReportFormatter.sections(decoded).flatMap(\.rows)
+        XCTAssertTrue(rows.contains(.init("Native maximum luminance, full screen", "400 cd/m²")))
+        XCTAssertTrue(rows.contains(.init("Native maximum luminance, 10% window", "1000 cd/m²")))
+        XCTAssertTrue(rows.contains(.init("Native minimum luminance", "0.5 cd/m²")))
+    }
+
+    func testShortParametersAndDisplayID13StateNoLuminance() throws {
+        let short: [UInt8] = [0x21, 0x00, 8, 0x3A, 0x1B, 0x50, 0x0F, 0x00, 0x0F, 0x70, 0x08]
+        let decoded = EDIDDecoder.decode(base(extensions: 1) + displayID(version: 0x20, blocks: [short]))
+        guard case .displayID(let id)? = decoded.extensions.first?.content else { return XCTFail("not DisplayID") }
+        XCTAssertNil(id.parameters?.maxLuminanceFullCoverage)
+        XCTAssertNil(id.parameters?.minLuminance)
+        // The DisplayID section names what DisplayID is, apart from macOS's display IDs.
+        let section = try XCTUnwrap(EDIDReportFormatter.sections(decoded).first { $0.title.contains("DisplayID") })
+        XCTAssertTrue(section.notes.contains { $0.contains("unrelated to the display ID macOS assigns") })
+    }
 }

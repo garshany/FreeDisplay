@@ -167,6 +167,7 @@ public enum EDIDReportFormatter {
             section.rows = [.init(l("Checksum"), validText(ext.checksumValid, l)),
                             .init(l("Section checksum"), validText(id.sectionChecksumValid, l))]
                 + displayIDRows(id, l)
+            section.notes = [l("DisplayID here is the VESA data structure inside the EDID. It is unrelated to the display ID macOS assigns to a connected display.")]
             return section
         case .undecoded:
             return InfoReport.Section(
@@ -270,6 +271,15 @@ public enum EDIDReportFormatter {
             }
             if let width = parameters.nativeWidth, let height = parameters.nativeHeight {
                 rows.append(.init(l("Native resolution"), l.fill("%1 × %2 pixels", "\(width)", "\(height)")))
+            }
+            if let value = parameters.maxLuminanceFullCoverage {
+                rows.append(.init(l("Native maximum luminance, full screen"), l.fill("%1 cd/m²", l.decimal(value, 1))))
+            }
+            if let value = parameters.maxLuminanceTenPercent {
+                rows.append(.init(l("Native maximum luminance, 10% window"), l.fill("%1 cd/m²", l.decimal(value, 1))))
+            }
+            if let value = parameters.minLuminance {
+                rows.append(.init(l("Native minimum luminance"), l.fill("%1 cd/m²", l.decimal(value, 4))))
             }
         }
         if !id.timings.isEmpty {
@@ -394,5 +404,26 @@ public enum EDIDByteFormat: String, CaseIterable, Sendable, Identifiable {
             }.joined(separator: ",\n")
             return "const unsigned char edid[\(bytes.count)] = {\n\(body)\n};"
         }
+    }
+
+    public enum Base64Error: Error, Hashable, Sendable {
+        /// Nothing but whitespace.
+        case empty
+        /// Characters outside the Base64 alphabet, or a length/padding no encoder writes.
+        case invalid
+        /// It decodes, but isn't how the bytes encode (stray bits in the last character, say):
+        /// refused so that pasted text and the bytes it stands for are always the same thing.
+        case nonCanonical
+    }
+
+    /// The bytes of pasted Base64 (SD-15): whitespace and line breaks anywhere are ignored,
+    /// anything else must be canonical standard Base64 — the inverse of `.base64.render`, so a
+    /// copied EDID pastes back byte for byte. Says nothing about whether the bytes are an EDID.
+    public static func decodeBase64(_ text: String) throws(Base64Error) -> [UInt8] {
+        let compact = String(text.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) })
+        guard !compact.isEmpty else { throw .empty }
+        guard let data = Data(base64Encoded: compact) else { throw .invalid }
+        guard data.base64EncodedString() == compact else { throw .nonCanonical }
+        return Array(data)
     }
 }

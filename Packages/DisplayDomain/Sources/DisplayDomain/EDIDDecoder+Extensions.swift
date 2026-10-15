@@ -259,8 +259,12 @@ extension EDIDDecoder {
             case 0x01, 0x21:
                 // DisplayID 2.x states the unit in the block revision byte: bit 7 = 1 mm, else 0.1 mm.
                 let unit = tag == 0x21 && blockRevision & 0x80 != 0 ? 1.0 : 0.1
-                if let parameters = displayIDParameters(payload, unitMM: unit) { section.parameters = parameters }
-                else { malformed(tag) }
+                if var parameters = displayIDParameters(payload, unitMM: unit) {
+                    if tag == 0x21 { displayIDLuminance(payload, into: &parameters) }
+                    section.parameters = parameters
+                } else {
+                    malformed(tag)
+                }
             case 0x03, 0x22:
                 // Type I timings count the pixel clock in 10 kHz, Type VII in 1 kHz. A Type VII
                 // block's revision bits 6–4 add bytes to each 20-byte descriptor (DisplayID 2.1);
@@ -311,6 +315,33 @@ extension EDIDDecoder {
             imageWidthMM: width > 0 ? Double(width) * unitMM : nil,
             imageHeightMM: height > 0 ? Double(height) * unitMM : nil,
             nativeWidth: pixelsH > 0 ? pixelsH : nil, nativeHeight: pixelsV > 0 ? pixelsV : nil)
+    }
+
+    /// DisplayID 2.x Display Parameters carry the native luminance as IEEE 754 half-precision
+    /// cd/m² values after the size, pixel count, feature flags and chromaticity: full-coverage
+    /// maximum at payload bytes 21–22, 10%-window maximum at 23–24, minimum at 25–26.
+    static func displayIDLuminance(_ p: [UInt8], into parameters: inout EDIDDecoded.DisplayID.Parameters) {
+        guard p.count >= 27 else { return }
+        func value(_ index: Int) -> Double? {
+            let decoded = halfFloat(UInt16(p[index]) | (UInt16(p[index + 1]) << 8))
+            return decoded.isFinite && decoded >= 0 ? decoded : nil
+        }
+        parameters.maxLuminanceFullCoverage = value(21).flatMap { $0 > 0 ? $0 : nil }
+        parameters.maxLuminanceTenPercent = value(23).flatMap { $0 > 0 ? $0 : nil }
+        parameters.minLuminance = value(25)
+    }
+
+    /// An IEEE 754 binary16 value, decoded by hand so the package doesn't depend on `Float16`
+    /// (absent on some platforms the core builds for).
+    static func halfFloat(_ bits: UInt16) -> Double {
+        let sign: Double = bits & 0x8000 != 0 ? -1 : 1
+        let exponent = Int((bits >> 10) & 0x1F)
+        let fraction = Double(bits & 0x03FF)
+        switch exponent {
+        case 0: return sign * fraction * pow(2, -24)                  // zero and subnormals
+        case 0x1F: return fraction == 0 ? sign * .infinity : .nan
+        default: return sign * (1 + fraction / 1024) * pow(2, Double(exponent - 15))
+        }
     }
 
     /// Type I / Type VII detailed timing descriptor: every field is stored minus one.
