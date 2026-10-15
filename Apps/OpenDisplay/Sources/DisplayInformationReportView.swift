@@ -151,6 +151,15 @@ struct DisplayInformationReportSheet: View {
     @State private var report: InfoReport?
     @State private var loading = false
     @State private var status: String?
+    /// SD-14's redaction choice: show, copy and export the report without serial numbers, UUIDs,
+    /// registry paths and EDID bytes. Off by default — the full report is what explains a problem.
+    @State private var hidingIdentifiers = false
+
+    /// The report as shown, copied and exported: full, or with identifiers hidden.
+    private var shownReport: InfoReport? {
+        guard let report else { return nil }
+        return hidingIdentifiers ? DisplayInformationReport.hidingIdentifiers(report, .app) : report
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -161,8 +170,10 @@ struct DisplayInformationReportSheet: View {
             }
             Text("The report can include serial numbers, UUIDs and registry paths that identify your hardware. Review it before sharing.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Toggle("Hide serial numbers, UUIDs, registry paths and EDID bytes", isOn: $hidingIdentifiers)
+                .font(.caption)
             ScrollView {
-                if let report { reportBody(report) }
+                if let report = shownReport { reportBody(report) }
             }
             .frame(minHeight: 320)
             .background(ODColor.fillQuaternary, in: RoundedRectangle(cornerRadius: 8))
@@ -173,14 +184,14 @@ struct DisplayInformationReportSheet: View {
                 Button("Refresh Report") { Task { await load() } }.disabled(loading)
                 Spacer()
                 Button("Copy") {
-                    guard let report else { return }
+                    guard let report = shownReport else { return }
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(report.plainText(), forType: .string)
                     status = String(localized: "Report copied.")
                 }
                 .disabled(report == nil)
                 Button("Export…") {
-                    guard let report else { return }
+                    guard let report = shownReport else { return }
                     let name = DisplayInformationReport.suggestedFileName(displayName: model.displayName(for: display))
                     if let outcome = ReportExport.saveText(report.plainText(), suggestedName: name) { status = outcome }
                 }

@@ -285,6 +285,12 @@ final class EDIDDecoderTests: XCTestCase {
         XCTAssertEqual(tiled.tileWidth, 2560); XCTAssertEqual(tiled.tileHeight, 2880)
         XCTAssertTrue(tiled.singleEnclosure)
         XCTAssertEqual(tiled.vendor, "DEL"); XCTAssertEqual(tiled.productCode, 0x1234); XCTAssertEqual(tiled.serialNumber, 1)
+        // The topology ID carries a serial number, so it is its own, identifying row.
+        let rows = EDIDReportFormatter.sections(decoded).flatMap(\.rows)
+        let topology = try XCTUnwrap(rows.first { $0.label == "Tile topology ID" })
+        XCTAssertEqual(topology.value, "vendor DEL, product 4660, serial 1")
+        XCTAssertTrue(topology.identifying)
+        XCTAssertFalse(rows.first { $0.label == "Tiled display" }?.value.contains("serial") ?? true)
     }
 
     func testDecodesDisplayID20TypeVIIAndParameters() throws {

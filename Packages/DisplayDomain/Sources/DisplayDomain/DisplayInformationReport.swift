@@ -182,6 +182,14 @@ public enum DisplayInformationReport {
             footer: [l("This report can include serial numbers, UUIDs and registry paths that identify your hardware. Review it before sharing.")])
     }
 
+    /// The report without identifying values (SD-14's redaction choice): serial numbers, UUIDs, the
+    /// app record, registry paths and the EDID bytes are replaced, the rest is unchanged.
+    public static func hidingIdentifiers(_ report: InfoReport, _ l: ReportLocalizer = .english) -> InfoReport {
+        report.hidingIdentifiers(placeholder: l("Hidden"), footer: [
+            l("Serial numbers, UUIDs, registry paths and the EDID bytes are hidden in this copy of the report."),
+        ])
+    }
+
     /// `<name>_report.txt`, with characters a file name can't carry replaced.
     public static func suggestedFileName(displayName: String) -> String {
         let forbidden = CharacterSet(charactersIn: "/:\\?%*|\"<>").union(.controlCharacters).union(.newlines)
@@ -226,10 +234,11 @@ public enum DisplayInformationReport {
         // Core Graphics returns 0 both for an unprogrammed serial and when it can't tell.
         rows.append(.init(l("Serial number"), f.serialNumber.map { serial in
             serial == 0 ? l("Not reported") : serial == 0xFFFF_FFFF ? l("Unknown") : "\(serial)"
-        } ?? l("Unknown")))
-        rows.append(.init("UUID", f.uuid ?? l("Unknown")))
+        } ?? l("Unknown"), identifying: f.serialNumber.map { $0 != 0 && $0 != 0xFFFF_FFFF } ?? false))
+        rows.append(.init("UUID", f.uuid ?? l("Unknown"), identifying: f.uuid != nil))
         rows.append(.init(l("Display ID (this session)"), f.cgDisplayID.map { "\($0)" } ?? l("Not connected")))
-        rows.append(.init(l("App record"), f.recordID))
+        // Observation records are named after the macOS UUID.
+        rows.append(.init(l("App record"), f.recordID, identifying: true))
         if let seen = f.lastSeen { rows.append(.init(l("Last seen"), seen)) }
         return InfoReport.Section(title: l("Identity"), rows: rows)
     }
@@ -438,7 +447,7 @@ public enum DisplayInformationReport {
         case .unknown: transport = l("Not reported")
         }
         section.rows.append(.init(l("Connection type"), transport))
-        if let path = f.ioServicePath { section.rows.append(.init(l("Registry path"), path)) }
+        if let path = f.ioServicePath { section.rows.append(.init(l("Registry path"), path, identifying: true)) }
         section.notes = [l("Link rate, lane count, DSC and HDCP aren’t read by this version.")]
         return section
     }
@@ -460,7 +469,7 @@ public enum DisplayInformationReport {
             return [section]
         case .matched(let bytes):
             section.rows = [.init(l("Source"), l("Read from the macOS registry, matched by vendor, product code and serial")),
-                            .init("Base64", EDIDByteFormat.base64.render(bytes))]
+                            .init("Base64", EDIDByteFormat.base64.render(bytes), identifying: true)]
             section.notes = [l("Decoded values are what the EDID states — advertised capability and receiver maxima, not measured values or the current link.")]
             let decoded = EDIDDecoder.decode(bytes)
             let decodedSections = EDIDReportFormatter.sections(decoded, l).map { sub in

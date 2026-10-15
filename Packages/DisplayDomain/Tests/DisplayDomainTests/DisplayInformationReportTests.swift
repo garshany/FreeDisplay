@@ -292,4 +292,36 @@ final class DisplayInformationReportTests: XCTestCase {
         let edid = DisplayInformationReport.build(facts).sections.first { $0.title == "EDID" }
         XCTAssertTrue(edid?.notes.first?.contains("not measured values or the current link") ?? false)
     }
+
+    // MARK: Redaction
+
+    func testHidingIdentifiersReplacesOnlyIdentifyingValues() throws {
+        var bytes = [UInt8](repeating: 0, count: 128)
+        bytes.replaceSubrange(0..<8, with: [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00])
+        bytes[8] = 0x10; bytes[9] = 0xAC; bytes[12] = 0x39; bytes[13] = 0x30; bytes[18] = 1; bytes[19] = 4
+        bytes[127] = UInt8((256 - bytes.reduce(0) { $0 + Int($1) } % 256) % 256)
+        var facts = connectedFacts()
+        facts.serialNumber = 12345
+        facts.ioServicePath = "IOService:/AppleARMPE/dispext0"
+        facts.edid = .matched(bytes)
+        let full = DisplayInformationReport.build(facts)
+        let hidden = DisplayInformationReport.hidingIdentifiers(full)
+        let text = hidden.plainText()
+        for secret in ["12345", "ABCD-1234", "cg:ABCD", "IOService:/AppleARMPE", Data(bytes).base64EncodedString()] {
+            XCTAssertTrue(full.plainText().contains(secret), secret)
+            XCTAssertFalse(text.contains(secret), secret)
+        }
+        XCTAssertTrue(text.contains("Serial number: Hidden"))
+        XCTAssertTrue(text.contains("UUID: Hidden"))
+        XCTAssertTrue(text.contains("Model number: 4660 (0x1234)"), "a model number identifies a model, not a device")
+        XCTAssertEqual(hidden.footer, ["Serial numbers, UUIDs, registry paths and the EDID bytes are hidden in this copy of the report."])
+        XCTAssertEqual(hidden.sections.map(\.title), full.sections.map(\.title), "every section stays")
+        XCTAssertEqual(hidden.sections.flatMap(\.rows).count, full.sections.flatMap(\.rows).count)
+    }
+
+    func testAnUnsetSerialIsNotTreatedAsAnIdentifier() {
+        let rows = DisplayInformationReport.build(connectedFacts()).sections.flatMap(\.rows)
+        XCTAssertEqual(rows.first { $0.label == "Serial number" }?.identifying, false)
+        XCTAssertEqual(rows.first { $0.label == "UUID" }?.identifying, true)
+    }
 }

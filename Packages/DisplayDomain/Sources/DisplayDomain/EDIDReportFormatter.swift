@@ -96,9 +96,10 @@ public enum EDIDReportFormatter {
         var rows: [InfoReport.Row] = [
             .init(l("Manufacturer"), "\(base.manufacturerID) (\(hexWord(base.manufacturerCode)))"),
             .init(l("Product code"), "\(base.productCode) (\(hexWord(base.productCode)))"),
-            .init(l("Serial number"), base.serialNumber == 0 ? l("Not set") : "\(base.serialNumber)"),
+            .init(l("Serial number"), base.serialNumber == 0 ? l("Not set") : "\(base.serialNumber)",
+                  identifying: base.serialNumber != 0),
         ]
-        if let text = base.serialText { rows.append(.init(l("Serial number (text)"), text)) }
+        if let text = base.serialText { rows.append(.init(l("Serial number (text)"), text, identifying: true)) }
         if let name = base.monitorName { rows.append(.init(l("Monitor name"), name)) }
         if !base.otherText.isEmpty { rows.append(.init(l("Text"), base.otherText.joined(separator: "\n"))) }
         rows.append(.init(l("Manufactured"), manufactureText(base.manufacture, l)))
@@ -261,7 +262,8 @@ public enum EDIDReportFormatter {
         if let product = id.product {
             rows.append(.init(l("Vendor"), product.vendor))
             rows.append(.init(l("Product code"), "\(product.productCode) (\(hexWord(product.productCode)))"))
-            rows.append(.init(l("Serial number"), product.serialNumber == 0 ? l("Not set") : "\(product.serialNumber)"))
+            rows.append(.init(l("Serial number"), product.serialNumber == 0 ? l("Not set") : "\(product.serialNumber)",
+                              identifying: product.serialNumber != 0))
             rows.append(.init(l("Manufactured"), manufactureText(product.manufacture, l)))
             if let name = product.name, !name.isEmpty { rows.append(.init(l("Product name"), name)) }
         }
@@ -288,14 +290,16 @@ public enum EDIDReportFormatter {
             }.joined(separator: "\n")))
         }
         for tile in id.tiles {
-            var lines = [l.fill("%1 × %2 tiles; this tile is column %3, row %4",
+            let lines = [l.fill("%1 × %2 tiles; this tile is column %3, row %4",
                                 "\(tile.horizontalTiles)", "\(tile.verticalTiles)", "\(tile.column + 1)", "\(tile.row + 1)"),
                          l.fill("Tile size %1 × %2 pixels", "\(tile.tileWidth)", "\(tile.tileHeight)"),
                          tile.singleEnclosure ? l("All tiles in one enclosure") : l("Tiles in separate enclosures")]
-            if let vendor = tile.vendor, let product = tile.productCode, let serial = tile.serialNumber {
-                lines.append(l.fill("Topology ID: vendor %1, product %2, serial %3", vendor, "\(product)", "\(serial)"))
-            }
             rows.append(.init(l("Tiled display"), lines.joined(separator: "\n")))
+            // Its own row: the topology ID carries the tile group's serial number.
+            if let vendor = tile.vendor, let product = tile.productCode, let serial = tile.serialNumber {
+                rows.append(.init(l("Tile topology ID"), l.fill("vendor %1, product %2, serial %3", vendor, "\(product)", "\(serial)"),
+                                  identifying: serial != 0))
+            }
         }
         if !id.otherBlockTags.isEmpty {
             rows.append(.init(l("Other data blocks"), id.otherBlockTags.map { "\(EDIDDecoder.displayIDBlockName($0, l)) (\(hexByte($0)))" }

@@ -9,10 +9,14 @@ public struct InfoReport: Hashable, Sendable {
     public struct Row: Hashable, Sendable {
         public var label: String
         public var value: String
+        /// The value identifies this particular device or Mac (a serial number, a UUID, a registry
+        /// path, bytes that contain them) — what `hidingIdentifiers` replaces.
+        public var identifying: Bool
 
-        public init(_ label: String, _ value: String) {
+        public init(_ label: String, _ value: String, identifying: Bool = false) {
             self.label = label
             self.value = value
+            self.identifying = identifying
         }
     }
 
@@ -45,6 +49,21 @@ public struct InfoReport: Hashable, Sendable {
         self.header = header
         self.sections = sections
         self.footer = footer
+    }
+
+    /// The same report with every identifying value replaced by `placeholder` and the footer
+    /// replaced by `footer` — the redacted copy a user can choose to share. Nothing else changes.
+    public func hidingIdentifiers(placeholder: String, footer: [String]) -> InfoReport {
+        var copy = self
+        copy.sections = sections.map { section in
+            var section = section
+            section.rows = section.rows.map { row in
+                row.identifying ? Row(row.label, placeholder, identifying: true) : row
+            }
+            return section
+        }
+        copy.footer = footer
+        return copy
     }
 
     /// The report as UTF-8-safe plain text: title, header, one block per non-empty section with
