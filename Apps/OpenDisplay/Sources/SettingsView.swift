@@ -817,6 +817,9 @@ private struct HealthSection: View {
                 #endif
 
                 Divider()
+                ClockDisplayRecipesCard()
+
+                Divider()
 
                 Text("Labs").font(.title3)
                 #if !PUBLIC_API_ONLY
@@ -1044,7 +1047,12 @@ private struct ClockModeCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: ODSpacing.sm) {
-            Text("Clock Mode").font(.title3)
+            Text("Legacy shared Clock Mode").font(.title3)
+            if model.settings.clockMode != nil {
+                Text("Per-display recipes replace the legacy shared schedule. Remove the per-display configuration to use the shared schedule again.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Use Legacy Shared Schedule") { model.updateClockMode(nil) }
+            }
             Toggle(isOn: Binding(
                 get: { model.settings.clockScheduleEnabled },
                 set: { model.setClockScheduleEnabled($0) }
@@ -1055,7 +1063,8 @@ private struct ClockModeCard: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            if model.settings.clockScheduleEnabled {
+            .disabled(model.settings.clockMode != nil)
+            if model.settings.clockScheduleEnabled && model.settings.clockMode == nil {
                 ClockScheduleList()
                 ClockLocationRow()
             }
