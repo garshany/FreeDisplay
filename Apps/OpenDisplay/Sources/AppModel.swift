@@ -192,8 +192,8 @@ final class AppModel: ObservableObject {
     /// shows a different profile); cleared by the next change that does.
     @Published private(set) var colorProfileError: [DisplayRecordID: String] = [:]
     /// Connected displays with a user/shared custom ICC profile assigned — or whose assignment
-    /// ColorSync has never reported, which may be one (`ColorProfileGuard`). While non-empty,
-    /// OpenDisplay's gamma writes are blocked on every display unless the user overrode the safeguard.
+    /// ColorSync has never reported, which may be one (`ColorProfileGuard`). Only those displays
+    /// block gamma unless the user overrode the safeguard; every other display keeps its controls.
     @Published private(set) var customProfileDisplays: Set<DisplayRecordID> = []
     /// The part of `customProfileDisplays` that is there because its assignment couldn't be read,
     /// not because it is custom — so the message can say which.
@@ -207,7 +207,7 @@ final class AppModel: ObservableObject {
     /// Displays whose gamma table currently holds OpenDisplay's formula/table rather than
     /// ColorSync's. Only these ever need handing back, so a display nothing has dimmed or warmed
     /// gets no colour-table call at all.
-    private var gammaOwned: Set<DisplayRecordID> = []
+    private var gammaOwned = GammaWriteTracker()
     /// Sequence number of the newest custom-profile safeguard read (`refreshCustomProfileGuard`).
     private var customProfileGuardRead = 0
 
@@ -614,8 +614,8 @@ final class AppModel: ObservableObject {
         // we quit rather than at process teardown.
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            CoreGraphicsProvider.restoreGamma()
             MainActor.assumeIsolated {
+                self?.releaseAllGamma()
                 // A group offset learned or dragged in the last second is still only in memory —
                 // write it before the process goes away (see `persistDisplayGroupsSoon`).
                 self?.flushPendingGroupPersist()
@@ -984,24 +984,29 @@ final class AppModel: ObservableObject {
         applyDim(level: level, id: observation.recordID, cgID: cgID)
     }
 
-    /// Whether the custom-profile safeguard is blocking gamma writes right now: a user/shared
-    /// custom ICC profile is assigned to a connected display (or a connected display's assignment
-    /// couldn't be verified) and the user hasn't overridden it.
-    var gammaBlockedByCustomProfile: Bool {
-        !customProfileDisplays.isEmpty && !settings.allowGammaWithCustomProfiles
+    /// Unknown includes the pending first read: fail closed for this display only. The explicit
+    /// override still permits gamma on custom-profile displays.
+    func gammaBlockedByCustomProfile(for id: DisplayRecordID) -> Bool {
+        ColorProfileGuard.blocksGamma(for: id, knowledge: colorProfileKnowledge,
+                                      allowGammaWithCustomProfiles: settings.allowGammaWithCustomProfiles)
     }
 
-    /// The dimming method in force: the configured one, or the overlay while the safeguard blocks
-    /// gamma — the dim keeps working, and the UI says why (`gammaIssueText`).
-    var effectiveDimmingMethod: DimmingMethod {
-        GammaSlotPolicy.effectiveMethod(settings.dimmingMethod, gammaBlocked: gammaBlockedByCustomProfile)
+    private var gammaBlockedDisplays: Set<DisplayRecordID> {
+        // Include pending entries even before refreshCustomProfileGuard seeds its first read.
+        Set(displays.filter { $0.cgDisplayID != nil && gammaBlockedByCustomProfile(for: $0.recordID) }
+            .map(\.recordID))
+    }
+
+    /// Dimming falls back to the overlay only on the protected display.
+    func effectiveDimmingMethod(for id: DisplayRecordID) -> DimmingMethod {
+        GammaSlotPolicy.effectiveMethod(settings.dimmingMethod, gammaBlocked: gammaBlockedByCustomProfile(for: id))
     }
 
     /// Expresses one dim level through the effective method's gamma/overlay split. Returns whether
     /// the gamma half is on screen as requested (true when there was nothing to write).
     @discardableResult
     private func applyDim(level: Float, id: DisplayRecordID, cgID: CGDirectDisplayID) -> Bool {
-        guard let split = DimmingComposer.application(method: effectiveDimmingMethod,
+        guard let split = DimmingComposer.application(method: effectiveDimmingMethod(for: id),
             desiredLevel: level, blackedOut: blackedOut.contains(id)) else { return true }
         let landed = writeGamma(level: split.gammaLevel, id: id, cgID: cgID)
         dimOverlay.setAlpha(split.overlayAlpha, for: cgID)
@@ -1010,7 +1015,7 @@ final class AppModel: ObservableObject {
 
     /// The gamma half of a display's current software dim under the effective method.
     private func dimGammaLevel(for id: DisplayRecordID) -> Float {
-        DimmingComposer.split(method: effectiveDimmingMethod, level: softwareDim[id] ?? 1).gammaLevel
+        DimmingComposer.split(method: effectiveDimmingMethod(for: id), level: softwareDim[id] ?? 1).gammaLevel
     }
 
     /// Per-display software colour temperature in kelvin; absent = neutral (calibration untouched).
@@ -1090,18 +1095,17 @@ final class AppModel: ObservableObject {
             suspended: softwareAdjustmentsSuspended.contains(id))
         let needsGamma = transfer.needsGamma
         switch GammaSlotPolicy.action(needsGamma: needsGamma, owned: gammaOwned.contains(id),
-                                      blocked: gammaBlockedByCustomProfile) {
+                                      blocked: gammaBlockedByCustomProfile(for: id)) {
         case .none:
             noteGammaWrite(.success, id: id)
             return true
         case .release:
-            releaseGamma(id)
-            return !needsGamma
+            return releaseGamma(id) && !needsGamma
         case .blocked:
             return false
         case .write:
             let result = observer.setGammaAdjustment(transfer, for: cgID)
-            if result == .success { gammaOwned.insert(id) }
+            gammaOwned.recordWrite(for: id, displayID: cgID, succeeded: result == .success)
             noteGammaWrite(result, id: id)
             return result == .success
         }
@@ -1111,12 +1115,12 @@ final class AppModel: ObservableObject {
     /// visible. Not written (no colour-table call) when dimming is overlay-only or gamma is blocked;
     /// the opaque overlay does the blacking out either way.
     private func writeBlackOutGamma(id: DisplayRecordID, cgID: CGDirectDisplayID) {
-        guard effectiveDimmingMethod != .overlay else {
+        guard effectiveDimmingMethod(for: id) != .overlay else {
             if gammaOwned.contains(id) { releaseGamma(id) }
             return
         }
         let result = observer.setGammaDim(0.0, for: cgID)
-        if result == .success { gammaOwned.insert(id) }
+        gammaOwned.recordWrite(for: id, displayID: cgID, succeeded: result == .success)
         noteGammaWrite(result, id: id)
     }
 
@@ -1130,14 +1134,25 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Hands `id`'s gamma slot back to ColorSync — the recovery that restores the profile's own
-    /// calibration without touching the user's ICC selection. Core Graphics can only restore every
-    /// display at once, so the displays still holding an OpenDisplay table are re-expressed after.
-    private func releaseGamma(_ id: DisplayRecordID) {
-        gammaOwned.remove(id)
-        if gammaWriteFailures[id] != nil { gammaWriteFailures[id] = nil }
-        CoreGraphicsProvider.restoreGamma()
-        for other in gammaOwned { reexpressSoftwareImage(other) }
+    /// Clear only a table this process wrote. The global ColorSync restore also resets f.lux,
+    /// Lunar and every untouched display. An identity transfer releases our adjustment on this
+    /// display without changing its ICC assignment; it does not reapply a profile's calibration.
+    /// Normally custom-profile displays have no owned table (the guard prevented the first write).
+    /// Cleanup is still needed if the profile changed after a write or the override was enabled.
+    @discardableResult
+    private func releaseGamma(_ id: DisplayRecordID) -> Bool {
+        let current = displays.first(where: { $0.recordID == id })?.cgDisplayID
+        guard let cgID = gammaOwned.displayToRestore(for: id, currentDisplayID: current) else { return true }
+        let result = CoreGraphicsProvider.restoreGamma(for: cgID)
+        gammaOwned.recordRestore(for: id, succeeded: result == .success)
+        noteGammaWrite(result, id: id)
+        return result == .success
+    }
+
+    /// Safe startup owns no gamma slots. Quit and explicit recovery use the same selection and
+    /// never infer ownership from connected displays, saved settings or a prior process.
+    private func releaseAllGamma() {
+        for display in displays { releaseGamma(display.recordID) }
     }
 
     /// Re-expresses a display's whole software image state — dim (gamma + overlay), warmth,
@@ -1146,7 +1161,6 @@ final class AppModel: ObservableObject {
     /// zero-alpha dim write would remove.
     private func reexpressSoftwareImage(_ id: DisplayRecordID) {
         guard let cgID = displays.first(where: { $0.recordID == id })?.cgDisplayID else {
-            gammaOwned.remove(id)
             return
         }
         if blackedOut.contains(id) {
@@ -1158,8 +1172,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Re-expresses every display — after the dimming method or the custom-profile safeguard
-    /// changed. A display with no software state gets no colour-table call.
+    /// Re-expresses every display after the dimming method changed. Guard changes use only their
+    /// affected displays instead. A display with no software state gets no colour-table call.
     private func reexpressAllSoftwareImages() {
         for display in displays where display.cgDisplayID != nil {
             reexpressSoftwareImage(display.recordID)
@@ -1180,27 +1194,26 @@ final class AppModel: ObservableObject {
     /// The custom-profile safeguard override (Settings › Displays › Dimming). Off by default.
     func setAllowGammaWithCustomProfiles(_ allowed: Bool) {
         guard settings.allowGammaWithCustomProfiles != allowed else { return }
-        let wasBlocked = gammaBlockedByCustomProfile
+        let wasBlocked = gammaBlockedDisplays
         settings.allowGammaWithCustomProfiles = allowed
         persistSettings()
-        if wasBlocked != gammaBlockedByCustomProfile { gammaBlockChanged() }
+        gammaBlockChanged(wasBlocked.symmetricDifference(gammaBlockedDisplays))
     }
 
-    /// The safeguard just engaged or lifted. An XDR boost is a gamma table, so an engaged guard
-    /// drops it the way the Labs switch does rather than leave its toggle lit over nothing; then
-    /// every display is re-expressed under the new rule.
-    private func gammaBlockChanged() {
-        if gammaBlockedByCustomProfile {
-            for display in displays where (xdrBoostFraction[display.recordID] ?? 0) > 0 {
+    /// Only displays whose verdict changed are re-expressed. In particular, a second custom
+    /// profile must engage its own guard even while another display is already blocked, and must
+    /// never stop an unaffected XDR boost or rewrite another app's table on an unaffected display.
+    private func gammaBlockChanged(_ changed: Set<DisplayRecordID>) {
+        for display in displays where changed.contains(display.recordID) {
+            if gammaBlockedByCustomProfile(for: display.recordID), (xdrBoostFraction[display.recordID] ?? 0) > 0 {
                 setXDRBoost(0, for: display)
             }
+            reexpressSoftwareImage(display.recordID)
         }
-        reexpressAllSoftwareImages()
     }
 
-    /// Re-reads every connected display's ColorSync assignment (off-main) and, when the safeguard's
-    /// verdict changes, re-expresses every display under the new rule: engaging it hands gamma back
-    /// to ColorSync and moves dims to the overlay; lifting it puts gamma back where it was wanted.
+    /// Re-read each assignment off-main. Pending/failed first reads protect only their display;
+    /// lifting its guard puts gamma back where wanted without disturbing other displays.
     func refreshCustomProfileGuard() async {
         // Refresh, profile changes and ColorSync notifications can overlap; only the newest read
         // may decide, or a slower stale one could land last and undo a newer verdict.
@@ -1225,8 +1238,8 @@ final class AppModel: ObservableObject {
             case .noDevice:
                 // ColorSync registers no device for the display, so no profile can be assigned to
                 // it: unless an earlier read verified something (a gap must not lift a known
-                // block), it holds none. Counting it as unknown paused gamma on EVERY display for
-                // as long as one display (a virtual screen, some adapters) had no ColorSync device.
+                // block), it holds none. An absent ColorSync device is different from an unreadable
+                // assignment, which remains unverified for this display only.
                 if case .verified? = colorProfileKnowledge[id] {} else { classified[id] = .factory }
                 continue
             case .unreadable:
@@ -1243,16 +1256,15 @@ final class AppModel: ObservableObject {
                                                                previous: colorProfileKnowledge))
     }
 
-    /// Installs what the safeguard knows and, when its verdict changes, re-expresses every display.
+    /// Installs both the pending first-read seed and completed reads through the same per-display policy.
     private func applyColorProfileKnowledge(_ knowledge: [DisplayRecordID: ColorProfileGuard.Knowledge]) {
+        let wasBlocked = gammaBlockedDisplays
         colorProfileKnowledge = knowledge
         let unverified = ColorProfileGuard.unverifiedDisplays(knowledge)
         if unverifiedProfileDisplays != unverified { unverifiedProfileDisplays = unverified }
         let blocking = ColorProfileGuard.blockingDisplays(knowledge)
-        guard blocking != customProfileDisplays else { return }
-        let wasBlocked = gammaBlockedByCustomProfile
-        customProfileDisplays = blocking
-        if wasBlocked != gammaBlockedByCustomProfile { gammaBlockChanged() }
+        if blocking != customProfileDisplays { customProfileDisplays = blocking }
+        gammaBlockChanged(wasBlocked.symmetricDifference(gammaBlockedDisplays))
     }
 
     /// Why a display's software image (gamma dim, colour temperature, contrast, XDR boost) isn't on
@@ -1262,19 +1274,12 @@ final class AppModel: ObservableObject {
         if let code = gammaWriteFailures[observation.recordID] {
             return String(localized: "macOS rejected the gamma change (error \(code)), so it isn’t on screen.")
         }
-        guard gammaBlockedByCustomProfile else { return nil }
-        func names(_ ids: Set<DisplayRecordID>) -> String {
-            displays.filter { ids.contains($0.recordID) }.map { displayName(for: $0) }.sorted()
-                .joined(separator: ", ")
+        guard gammaBlockedByCustomProfile(for: observation.recordID) else { return nil }
+        let name = displayName(for: observation)
+        if colorProfileKnowledge[observation.recordID] == nil || unverifiedProfileDisplays.contains(observation.recordID) {
+            return String(localized: "Gamma is paused on \(name) because macOS couldn’t report its colour profile, and a custom profile can turn a screen black or tinted. Dimming on this display uses the overlay; colour temperature, contrast and XDR boost are off. Gamma resumes once macOS reports the profile, or allow gamma with custom profiles in Settings › Displays › Dimming.")
         }
-        let custom = names(customProfileDisplays.subtracting(unverifiedProfileDisplays))
-        let unread = names(unverifiedProfileDisplays)
-        guard !custom.isEmpty else {
-            return String(localized: "Gamma is paused because macOS couldn’t report the colour profile of \(unread), and a custom profile can turn a screen black or tinted. Dimming uses the overlay instead; colour temperature, contrast and XDR boost are off. Gamma resumes once macOS reports the profile, or allow gamma with custom profiles in Settings › Displays › Dimming.")
-        }
-        let reason = String(localized: "Gamma is paused because \(custom) uses a custom colour profile, which can turn a screen black or tinted. Dimming uses the overlay instead; colour temperature, contrast and XDR boost are off. Choose a factory profile, or allow gamma with custom profiles in Settings › Displays › Dimming.")
-        guard !unread.isEmpty else { return reason }
-        return reason + " " + String(localized: "The colour profile of \(unread) couldn’t be read either.")
+        return String(localized: "Gamma is paused on \(name) because it uses a custom colour profile, which can turn a screen black or tinted. Dimming on this display uses the overlay; colour temperature, contrast and XDR boost are off. Choose a factory profile, or allow gamma with custom profiles in Settings › Displays › Dimming.")
     }
 
     // MARK: - XDR Brightness (Labs, Issue #35)
@@ -1372,7 +1377,7 @@ final class AppModel: ObservableObject {
         // The boost IS a gamma table: with gamma blocked by the custom-profile safeguard, engaging
         // the EDR trigger would only raise the backlight for content WindowServer then attenuates.
         // Lands as zero, which `setXDRBoost` records; `gammaIssueText` says why.
-        guard !gammaBlockedByCustomProfile else { return }
+        guard !gammaBlockedByCustomProfile(for: id) else { return }
         xdrBoostFraction[id] = fraction
         xdrRampTask?.cancel()
         xdrRampTask = nil
@@ -2088,7 +2093,9 @@ final class AppModel: ObservableObject {
         if !colorProfileAssignment.keys.allSatisfy(ids.contains) { colorProfileAssignment = colorProfileAssignment.filter { ids.contains($0.key) } }
         if !colorProfileError.keys.allSatisfy(ids.contains) { colorProfileError = colorProfileError.filter { ids.contains($0.key) } }
         if !gammaWriteFailures.keys.allSatisfy(ids.contains) { gammaWriteFailures = gammaWriteFailures.filter { ids.contains($0.key) } }
-        gammaOwned.formIntersection(ids)  // a departed display's table went with it
+        gammaOwned.retainConnected(Dictionary(uniqueKeysWithValues: displays.compactMap { display in
+            display.cgDisplayID.map { (display.recordID, $0) }
+        }))  // a departed or renumbered surface must not authorize a later reset
         if !blackedOut.allSatisfy(ids.contains) { blackedOut = blackedOut.filter(ids.contains) }
         #if !PUBLIC_API_ONLY
         pruneDDCCaches(to: ids)
@@ -2306,7 +2313,7 @@ final class AppModel: ObservableObject {
             return brightnessMethod[id]?.caption
         }
         var parts: [String]
-        switch effectiveDimmingMethod {
+        switch effectiveDimmingMethod(for: id) {
         case .gamma: parts = [String(localized: "Software · gamma")]
         case .overlay: parts = [String(localized: "Software · overlay")]
         case .combined: parts = [String(localized: "Software · combined")]
@@ -2319,8 +2326,8 @@ final class AppModel: ObservableObject {
         }
         if gammaWriteFailures[id] != nil {
             parts.append(String(localized: "gamma change rejected"))
-        } else if gammaBlockedByCustomProfile && settings.dimmingMethod != .overlay {
-            parts.append(customProfileDisplays == unverifiedProfileDisplays
+        } else if gammaBlockedByCustomProfile(for: id) && settings.dimmingMethod != .overlay {
+            parts.append(unverifiedProfileDisplays.contains(id)
                 ? String(localized: "gamma paused: colour profile unread")
                 : String(localized: "gamma paused: custom colour profile"))
         }
@@ -2388,7 +2395,7 @@ final class AppModel: ObservableObject {
             let landed = applyDim(level: level, id: id, cgID: cgID)
             // With gamma as the only carrier a rejected write changed nothing on screen, so no HUD
             // may confirm it; the caption reports the failure instead.
-            onScreen = landed || effectiveDimmingMethod != .gamma
+            onScreen = landed || effectiveDimmingMethod(for: id) != .gamma
         }
         // Batch-3 #4: the HUD confirms key presses; a slider already shows its own value. The event
         // goes out for every change regardless (IN-04) — a slider, HTTP or restore draws no HUD,
@@ -3274,8 +3281,8 @@ final class AppModel: ObservableObject {
         colorProfileError[id] = landed ? nil : failure
     }
 
-    /// A profile change can engage or lift the custom-profile safeguard (which re-expresses every
-    /// display itself), and ColorSync reinstalling the display's table wipes an OpenDisplay one.
+    /// A profile change can engage or lift this display's guard (which re-expresses only changed
+    /// displays), and ColorSync reinstalling its table wipes an OpenDisplay one.
     private func afterProfileChange(_ observation: DisplayObservation) async {
         await refreshCustomProfileGuard()
         reapplySoftwareDim(for: observation)
@@ -5678,8 +5685,7 @@ final class AppModel: ObservableObject {
                                                                             at: Date())
             persistManagedOffline()
         }
-        CoreGraphicsProvider.restoreGamma()
-        gammaOwned.removeAll()  // every table is ColorSync's again
+        releaseAllGamma()
         softwareDim.removeAll()
         dimOverlay.removeAll()
         xdrRampTask?.cancel()
@@ -6688,7 +6694,7 @@ extension AppModel {
             #endif
         case .software?:
             // With gamma as the only carrier, a rejected table write changed nothing on screen.
-            if gammaWriteFailures[id] != nil && effectiveDimmingMethod == .gamma { return .none }
+            if gammaWriteFailures[id] != nil && effectiveDimmingMethod(for: id) == .gamma { return .none }
             return brightness[id].map(AutomationBrightness.Readback.level) ?? .none
         case nil:
             return .none
