@@ -140,6 +140,15 @@ public struct FavoriteResolutions: Hashable, Sendable, Codable {
         byDisplay[display.rawValue] = nil
     }
 
+    /// Stores exactly these keys (newest first, duplicates dropped) as the display's favourites — a
+    /// confirmed settings transfer moving another id's list over verbatim, legacy keys included, so
+    /// nothing is re-derived from modes the display may not offer right now. Empty clears.
+    public mutating func setKeys(_ keys: [String], for display: DisplayRecordID) {
+        var unique: [String] = []
+        for key in keys where !unique.contains(key) { unique.append(key) }
+        byDisplay[display.rawValue] = unique.isEmpty ? nil : unique
+    }
+
     /// Removes every stored key naming this logical size, density and refresh rate (within the
     /// usual tolerance) whatever its framebuffer — for a caller that knows only those, like the CLI
     /// un-setting a favourite the display no longer offers. Legacy keys go when their rounded form

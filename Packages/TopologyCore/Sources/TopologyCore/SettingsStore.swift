@@ -177,6 +177,14 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
     /// How far one brightness/volume step moves, for the native keys and the custom shortcuts alike
     /// (SO-29). Defaults to macOS's 1/16 and 1/64 steps.
     public var adjustmentSteps: AdjustmentSteps
+    /// Forget a remembered display automatically once it has gone this many days unseen (SD-09,
+    /// FB-13; `RememberedDisplayRetention`). Nil — the default — keeps every record until the user
+    /// forgets it: FreeDisplay picks no retention period of its own.
+    public var rememberedDisplayRetentionDays: Int?
+    /// DDC channels the user paired by hand with identical monitors identity can't tell apart (TR-06;
+    /// `DDCChannelMappingPolicy`). One per display at most, keyed by stable id. Empty by default:
+    /// such monitors get no DDC until the user tests and confirms a channel.
+    public var ddcChannelMappings: [DDCChannelMapping]
 
     public init(
         persistencePolicy: PersistencePolicy = .reconnectOnQuit,
@@ -231,7 +239,9 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         notificationStyle: NotificationStyle = .notificationCenter,
         routineProtectionNoticesEnabled: Bool = true,
         dockIconPolicy: DockIconPolicy = .whileSettingsOpen,
-        adjustmentSteps: AdjustmentSteps = .default
+        adjustmentSteps: AdjustmentSteps = .default,
+        rememberedDisplayRetentionDays: Int? = nil,
+        ddcChannelMappings: [DDCChannelMapping] = []
     ) {
         self.persistencePolicy = persistencePolicy
         self.confirmationCountdownSeconds = confirmationCountdownSeconds
@@ -286,6 +296,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         self.routineProtectionNoticesEnabled = routineProtectionNoticesEnabled
         self.dockIconPolicy = dockIconPolicy
         self.adjustmentSteps = adjustmentSteps
+        self.rememberedDisplayRetentionDays = RememberedDisplayRetention.normalizedDays(rememberedDisplayRetentionDays)
+        self.ddcChannelMappings = ddcChannelMappings
     }
 
     public static let `default` = OpenDisplaySettings()
@@ -342,6 +354,8 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
         case routineProtectionNoticesEnabled
         case dockIconPolicy
         case adjustmentSteps
+        case rememberedDisplayRetentionDays
+        case ddcChannelMappings
     }
 
     /// Tolerant decoder: every missing OR undecodable key falls back to its default and unknown
@@ -466,6 +480,11 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
             ?? defaults.dockIconPolicy
         adjustmentSteps = container.lenient(AdjustmentSteps.self, forKey: .adjustmentSteps)
             ?? defaults.adjustmentSteps
+        // A hand-edited zero or negative period reads as off, never as "forget at once".
+        rememberedDisplayRetentionDays = RememberedDisplayRetention.normalizedDays(
+            container.lenient(Int.self, forKey: .rememberedDisplayRetentionDays))
+        ddcChannelMappings = container.lenient([DDCChannelMapping].self, forKey: .ddcChannelMappings)
+            ?? defaults.ddcChannelMappings
     }
 }
 

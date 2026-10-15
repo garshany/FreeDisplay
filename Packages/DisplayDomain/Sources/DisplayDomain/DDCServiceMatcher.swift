@@ -14,7 +14,7 @@ public enum DDCServiceMatcher {
     /// The identity attributes an IORegistry display-service candidate advertises
     /// (`DisplayAttributes` → `ProductAttributes` on the AppleCLCD2 node). All optional: real-world
     /// registries omit any of these, and a candidate with none simply scores zero.
-    public struct Candidate: Hashable, Sendable {
+    public struct Candidate: Hashable, Sendable, Codable {
         /// Numeric EDID vendor id (`LegacyManufacturerID`), e.g. Samsung = 0x4C2D.
         public var legacyManufacturerID: Int?
         /// Three-letter PnP id (`ManufacturerID`), e.g. "SAM" — converted for scoring when the
@@ -36,7 +36,7 @@ public enum DDCServiceMatcher {
 
     /// The CG-side identity of the display we want a service for (`CGDisplayVendorNumber` /
     /// `CGDisplayModelNumber` / `CGDisplaySerialNumber`). Zeros are treated as "unknown".
-    public struct Target: Hashable, Sendable {
+    public struct Target: Hashable, Sendable, Codable {
         public var vendorNumber: Int
         public var productNumber: Int
         public var serialNumber: Int

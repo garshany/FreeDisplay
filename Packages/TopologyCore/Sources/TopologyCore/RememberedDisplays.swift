@@ -183,7 +183,8 @@ public enum RememberedDisplayInventory {
 ///
 /// Both modes remove OpenDisplay's own per-display data: the name and tags, favourite modes, tray
 /// presentation and order, group memberships, protected layouts whose display set includes it, the
-/// software-brightness and Apple-DDC choices and Adaptive Display's learned offset.
+/// software-brightness and Apple-DDC choices, a hand-paired DDC channel and Adaptive Display's
+/// learned offset.
 ///
 /// - `forget` (not detected): the registry record goes too, and so does the managed-offline ledger
 ///   entry of a display OpenDisplay switched off — that entry is its recovery record, which the
@@ -231,6 +232,8 @@ public enum RememberedDisplayCleanup {
         public var hasMenuPreferences: Bool
         public var softwareBrightness: Bool
         public var appleDDCOverride: Bool
+        /// A DDC channel the user paired with this display by hand (`DDCChannelMappingPolicy`).
+        public var ddcChannelMapping: Bool
         public var adaptiveOffset: Bool
         /// `forget` of a display OpenDisplay switched off: its recovery record goes with it.
         public var removesTurnedOffRecord: Bool
@@ -245,7 +248,7 @@ public enum RememberedDisplayCleanup {
         public var removesOnlyRecord: Bool {
             alias == nil && tagCount == 0 && favoriteModeCount == 0 && groupNames.isEmpty
                 && protectedLayoutKeys.isEmpty && !hasMenuPreferences && !softwareBrightness
-                && !appleDDCOverride && !adaptiveOffset && !removesTurnedOffRecord
+                && !appleDDCOverride && !ddcChannelMapping && !adaptiveOffset && !removesTurnedOffRecord
         }
     }
 
@@ -284,6 +287,7 @@ public enum RememberedDisplayCleanup {
             hasMenuPreferences: menuLayout.remembers(ids),
             softwareBrightness: !raw.isDisjoint(with: settings.softwareBrightnessDisplayIDs),
             appleDDCOverride: !raw.isDisjoint(with: settings.ddcAppleDisplayOverrideIDs),
+            ddcChannelMapping: settings.ddcChannelMappings.contains { ids.contains($0.displayID) },
             adaptiveOffset: !raw.isDisjoint(with: settings.adaptiveBrightnessOffsetByDisplay.keys),
             removesTurnedOffRecord: mode == .forget && ledger.contains { ids.contains($0.recordID) },
             keptRestores: kept,
@@ -306,6 +310,7 @@ public enum RememberedDisplayCleanup {
         for key in plan.protectedLayoutKeys { updated.protectedLayouts[key] = nil }
         updated.softwareBrightnessDisplayIDs.subtract(raw)
         updated.ddcAppleDisplayOverrideIDs.subtract(raw)
+        updated.ddcChannelMappings.removeAll { plan.observationIDs.contains($0.displayID) }
         for key in raw { updated.adaptiveBrightnessOffsetByDisplay[key] = nil }
         return updated
     }
