@@ -280,8 +280,12 @@ final class AppModel: ObservableObject {
     private let brightnessControl = DisplayServicesBrightnessProvider()
     private var ddc: [DisplayRecordID: ExternalDisplayDDC] = [:]
     /// In-flight DDC-controller constructions, so concurrent first-uses of one display await the same
-    /// build instead of each spinning up (and binding) a duplicate IOAVService.
-    private var ddcBuilders: [DisplayRecordID: Task<ExternalDisplayDDC.Binding, Never>] = [:]
+    /// build instead of each spinning up (and binding) a duplicate IOAVService. Each carries the
+    /// token every caller awaiting it re-checks on resumption (`ddcBindingTokens`).
+    private var ddcBuilders: [DisplayRecordID: (task: Task<ExternalDisplayDDC.Binding, Never>,
+                                                build: DDCBindingTokens.Build)] = [:]
+    /// Which build each display's binding answers to; pruning a display forgets it (FB-08).
+    private var ddcBindingTokens = DDCBindingTokens()
     private var brightnessMax: [DisplayRecordID: Int] = [:]
     private var ddcTarget: [DisplayRecordID: Int] = [:]
     private var ddcWriters: [DisplayRecordID: Task<Void, Never>] = [:]
@@ -1948,7 +1952,10 @@ final class AppModel: ObservableObject {
         for (key, task) in ddcControlWriter where !ids.contains(key.id) { task.cancel(); ddcControlWriter[key] = nil }
         for (id, task) in muteWriter where !ids.contains(id) { task.cancel(); muteWriter[id] = nil }
         muteTarget = muteTarget.filter { ids.contains($0.key) }
-        for (id, task) in ddcBuilders where !ids.contains(id) { task.cancel(); ddcBuilders[id] = nil }
+        // The bind itself can't be interrupted: forgetting its token is what keeps its result — and
+        // every caller still awaiting it — from being used (see `ddcController`).
+        for (id, builder) in ddcBuilders where !ids.contains(id) { builder.task.cancel(); ddcBuilders[id] = nil }
+        ddcBindingTokens.retain(only: ids)
         ddc = ddc.filter { ids.contains($0.key) }
         brightnessMax = brightnessMax.filter { ids.contains($0.key) }
         ddcTarget = ddcTarget.filter { ids.contains($0.key) }
@@ -2549,25 +2556,47 @@ final class AppModel: ObservableObject {
     /// A refused binding (Apple display without the override, or a service identity can't single
     /// out — TR-06/FB-08) yields nil like a missing channel, so every DDC path sends nothing; the
     /// reason is published in `ddcBindingRefusal` for the UI.
+    ///
+    /// Every caller re-validates after the await — the one that started the build and each one that
+    /// joined it: a display pruned meanwhile (it left, or its Apple-display override changed) or an
+    /// override that no longer matches the one the build ran under means the result answers an old
+    /// question, so it is neither cached nor used (FB-08 — turning the override off must stick, also
+    /// for a power or input command that was already waiting on the build).
     private func ddcController(for observation: DisplayObservation) async -> ExternalDisplayDDC? {
         let id = observation.recordID
         if let existing = ddc[id] { return existing }
-        if let building = ddcBuilders[id] { return await building.value.controller }
-        guard let cgID = observation.cgDisplayID else { return nil }
-        let allowApple = settings.ddcAppleDisplayOverrideIDs.contains(id.rawValue)
-        let builder = Task.detached(priority: .utility) {
-            ExternalDisplayDDC.bind(displayID: cgID, allowAppleDisplay: allowApple)
+        let builder: (task: Task<ExternalDisplayDDC.Binding, Never>, build: DDCBindingTokens.Build)
+        if let inFlight = ddcBuilders[id] {
+            builder = inFlight
+        } else {
+            guard let cgID = observation.cgDisplayID else { return nil }
+            let allowApple = settings.ddcAppleDisplayOverrideIDs.contains(id.rawValue)
+            let task = Task.detached(priority: .utility) {
+                ExternalDisplayDDC.bind(displayID: cgID, allowAppleDisplay: allowApple)
+            }
+            builder = (task, ddcBindingTokens.begin(id, allowAppleDisplay: allowApple))
+            ddcBuilders[id] = builder
         }
-        ddcBuilders[id] = builder
-        let binding = await builder.value
-        ddcBuilders[id] = nil
-        // Built under an Apple-display override the user has since flipped: the result answers the
-        // old question, so neither cache nor use it (FB-08 — turning the override off must stick).
-        guard settings.ddcAppleDisplayOverrideIDs.contains(id.rawValue) == allowApple else { return nil }
+        let binding = await builder.task.value
+        // Only this build's own entry: a newer one may have been started after a prune.
+        if ddcBuilders[id]?.build == builder.build { ddcBuilders[id] = nil }
+        guard ddcBindingTokens.isCurrent(
+            builder.build, for: id,
+            allowAppleDisplay: settings.ddcAppleDisplayOverrideIDs.contains(id.rawValue)) else { return nil }
         let refusal = binding.refusal
         if ddcBindingRefusal[id] != refusal { ddcBindingRefusal[id] = refusal }
+        // The same controller for every caller of one build; whoever resumes first caches it.
         if let controller = binding.controller { ddc[id] = controller }
         return binding.controller
+    }
+
+    /// Whether `controller` is still the binding held for `id`. Pruning drops it (the display left,
+    /// or its Apple-display override changed), so a coalesced writer or a multi-step read that
+    /// fetched the controller earlier checks this before each further transaction and stops —
+    /// leaving the display's state alone, which the prune already reset — instead of sending through
+    /// a binding the user has withdrawn (FB-08).
+    private func ddcBindingIsCurrent(_ controller: ExternalDisplayDDC, for id: DisplayRecordID) -> Bool {
+        ddc[id] === controller
     }
 
     private func drainDDCWrites(_ id: DisplayRecordID, _ observation: DisplayObservation) async {
@@ -2576,6 +2605,7 @@ final class AppModel: ObservableObject {
         while !Task.isCancelled && !settings.softwareBrightnessDisplayIDs.contains(id.rawValue) {
             var lastTarget: Int?
             while !Task.isCancelled, !settings.softwareBrightnessDisplayIDs.contains(id.rawValue), let target = ddcTarget[id] {
+                guard ddcBindingIsCurrent(controller, for: id) else { return }
                 ddcTarget[id] = nil
                 lastTarget = target
                 await controller.write(.brightness, target)
@@ -2758,7 +2788,8 @@ final class AppModel: ObservableObject {
                                      observation: DisplayObservation) async {
         let id = observation.recordID
         let vcp = control.vcp
-        guard ddcSupports(vcp, for: observation),
+        // One read of a sequence over a controller fetched earlier: not after the binding was dropped.
+        guard ddcBindingIsCurrent(controller, for: id), ddcSupports(vcp, for: observation),
               ddcProbe[id, default: DDCProbeTracker()].admitProbe(vcp) else { return }
         if let reading = await controller.read(vcp: vcp), reading.max > 0 {
             ddcProbe[id, default: DDCProbeTracker()].recordSuccess(vcp)
@@ -2777,7 +2808,8 @@ final class AppModel: ObservableObject {
     private func refreshDiscreteMute(_ controller: ExternalDisplayDDC, observation: DisplayObservation) async {
         let id = observation.recordID
         let vcp = Self.ddcAudioMuteVCP
-        guard ddcControlLevel[id]?[HardwareControl.volume.vcp] != nil, muteWriter[id] == nil,
+        guard ddcBindingIsCurrent(controller, for: id),
+              ddcControlLevel[id]?[HardwareControl.volume.vcp] != nil, muteWriter[id] == nil,
               ddcProbe[id, default: DDCProbeTracker()].admitProbe(vcp) else { return }
         guard let reading = await controller.read(vcp: vcp) else {
             ddcProbe[id, default: DDCProbeTracker()].recordFailure(vcp)
@@ -2827,6 +2859,7 @@ final class AppModel: ObservableObject {
             var lastTarget: Int?
             var lastSent = true
             while let target = ddcControlTarget[key] {
+                guard ddcBindingIsCurrent(controller, for: key.id) else { return }
                 ddcControlTarget[key] = nil
                 lastTarget = target
                 lastSent = await controller.write(vcp: key.vcp, target)
@@ -2904,6 +2937,7 @@ final class AppModel: ObservableObject {
             return
         }
         while let target = inputSourceTarget[id] {
+            guard ddcBindingIsCurrent(controller, for: id) else { return }
             inputSourceTarget[id] = nil
             let outcome = DDCCommandOutcome(transportAccepted: await controller.write(.inputSource, target))
             if Task.isCancelled { return }  // pruned: the display is gone, don't touch its state
@@ -3305,6 +3339,7 @@ final class AppModel: ObservableObject {
         while true {
             var lastTarget: Int?
             while let target = colorPresetTarget[id] {
+                guard ddcBindingIsCurrent(controller, for: id) else { return }
                 colorPresetTarget[id] = nil
                 lastTarget = target
                 await controller.write(.colorPreset, target)
@@ -5911,6 +5946,7 @@ final class AppModel: ObservableObject {
             var lastTarget: Bool?
             var lastSent = true
             while let target = muteTarget[id] {
+                guard ddcBindingIsCurrent(controller, for: id) else { return }
                 muteTarget[id] = nil
                 lastTarget = target
                 lastSent = await controller.write(vcp: vcp, DDCAudioPolicy.discreteMuteValue(mute: target))
