@@ -89,11 +89,35 @@ enum ColorProfileService {
             }
     }
 
+    /// What the custom-profile guard can learn about a display from ColorSync.
+    enum GuardReading {
+        /// ColorSync's device info for the display.
+        case assignment(ICCAssignment)
+        /// The display has a UUID but ColorSync registers no device for it, so no profile can be
+        /// assigned to it (a virtual screen, some adapters; or a device not registered yet — the
+        /// registration's own ColorSync notification triggers the next read).
+        case noDevice
+        /// Core Graphics gave no UUID, so ColorSync couldn't even be asked: genuinely unknown.
+        case unreadable
+    }
+
+    /// `assignment(for:)` that keeps "can't ask" apart from "ColorSync has no device for it".
+    static func guardReading(for displayID: CGDirectDisplayID) -> GuardReading {
+        guard let uuid = deviceUUID(for: displayID) else { return .unreadable }
+        guard let info = ColorSyncDeviceCopyDeviceInfo(displayClass, uuid)?.takeRetainedValue() as NSDictionary?
+        else { return .noDevice }
+        return .assignment(assignment(from: info))
+    }
+
     /// The display's assignment, or nil when ColorSync has no readable device info for it.
     static func assignment(for displayID: CGDirectDisplayID) -> ICCAssignment? {
         guard let uuid = deviceUUID(for: displayID),
               let info = ColorSyncDeviceCopyDeviceInfo(displayClass, uuid)?.takeRetainedValue() as NSDictionary?
         else { return nil }
+        return assignment(from: info)
+    }
+
+    private static func assignment(from info: NSDictionary) -> ICCAssignment {
         let custom = (info["CustomProfiles"] as? NSDictionary).flatMap { profileURLs(in: $0).first }
         let factory = (info["FactoryProfiles"] as? NSDictionary).map(profileURLs(in:)) ?? []
         return ICCAssignment(customURL: custom, factoryURLs: factory)

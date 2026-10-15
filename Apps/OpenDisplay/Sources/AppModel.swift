@@ -1198,20 +1198,24 @@ final class AppModel: ObservableObject {
         let read = customProfileGuardRead
         let targets = displays.compactMap { display in display.cgDisplayID.map { (display.recordID, $0) } }
         let readings = await Task.detached(priority: .utility) {
-            targets.map { id, cgID in (id, ColorProfileService.assignment(for: cgID)) }
+            targets.map { id, cgID in (id, ColorProfileService.guardReading(for: cgID)) }
         }.value
         guard read == customProfileGuardRead else { return }
         var classified: [DisplayRecordID: ColorProfileGuard.Assignment] = [:]
-        for (id, assignment) in readings {
-            guard let assignment else {
-                // No ColorSync device info — the API doesn't tell "no device" from a failed read.
-                // A display ColorSync has no device for can't carry a custom profile, so unless an
-                // earlier read verified something (a gap must not lift a known block), it holds
-                // none. Counting it as unverified paused gamma on EVERY display for as long as one
-                // display (a virtual screen, some adapters) had no ColorSync device; a hot-plug
-                // race closes on the next ColorSync notification, which re-reads.
+        for (id, reading) in readings {
+            let assignment: ICCAssignment
+            switch reading {
+            case .assignment(let read):
+                assignment = read
+            case .noDevice:
+                // ColorSync registers no device for the display, so no profile can be assigned to
+                // it: unless an earlier read verified something (a gap must not lift a known
+                // block), it holds none. Counting it as unknown paused gamma on EVERY display for
+                // as long as one display (a virtual screen, some adapters) had no ColorSync device.
                 if case .verified? = colorProfileKnowledge[id] {} else { classified[id] = .factory }
                 continue
+            case .unreadable:
+                continue  // no UUID to ask with: the guard keeps what it verified, else unknown
             }
             if colorProfileAssignment[id] != assignment { colorProfileAssignment[id] = assignment }
             classified[id] = ColorProfileGuard.classify(assignedPath: assignment.customURL?.path,
