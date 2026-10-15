@@ -401,6 +401,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var settings: OpenDisplaySettings
     /// On-disk settings store (Application Support); nil only if that directory can't be resolved.
     private let settingsStore: SettingsStore?
+    private var settingsTransferInProgress = false
     /// Holds the "prevent display idle-sleep" power assertion while the toggle is on and an external
     /// display is present (Issue 3). Decision logic is the platform-independent `DisplaySleepGuard`.
     private let sleepGuard: DisplaySleepGuard
@@ -2143,10 +2144,16 @@ final class AppModel: ObservableObject {
     }
 
     /// Settings a connected entry has under an earlier identifier that its live one lacks, if any.
-    func settingsMigrationPlan(for entry: RememberedDisplay) -> DisplaySettingsTransfer.Plan? {
+    func settingsMigrationPlan(for entry: RememberedDisplay, sourceID: DisplayRecordID? = nil) -> DisplaySettingsTransfer.Plan? {
         guard entry.isRegistered, let live = liveObservationID(of: entry) else { return nil }
         return try? DisplaySettingsTransfer.migrationPlan(for: entry, liveID: live, settings: settings,
-                                                          favorites: favorites, menuLayout: menuLayout)
+                                                          favorites: favorites, menuLayout: menuLayout, sourceID: sourceID)
+    }
+
+    func selectingMigrationSource(_ sourceID: DisplayRecordID?, in plan: DisplaySettingsTransfer.Plan)
+        -> DisplaySettingsTransfer.Plan? {
+        guard let entry = rememberedDisplays.first(where: { $0.id == plan.destinationEntryID }) else { return nil }
+        return settingsMigrationPlan(for: entry, sourceID: sourceID)
     }
 
     enum SettingsTransferOutcome: Equatable {
@@ -2157,18 +2164,23 @@ final class AppModel: ObservableObject {
         case refused(DisplaySettingsTransfer.Refusal)
         /// Two different displays and the user didn't confirm it is a replacement; nothing changed.
         case notAcknowledged
+        case persistenceFailed(recoveryPath: String?, restored: Bool)
     }
 
     /// Carries out a previewed transfer or migration — only if the plan worked out afresh from the
-    /// current state is exactly the one the user confirmed, so what was shown is what happens. Every
-    /// store changes before the first suspension after that check. Cached driving routes are
+    /// current state is exactly the one the user confirmed, so what was shown is what happens.
+    /// A durable recovery snapshot precedes store writes, and registry removal is last. Cached driving routes are
     /// revoked, so subsequent control uses the selected preference and fresh identity evidence.
     /// Nothing is written to a monitor or to macOS's display configuration.
     @discardableResult
     func performSettingsTransfer(_ confirmed: DisplaySettingsTransfer.Plan,
                                  selection: Set<DisplaySettingsTransfer.Category>,
                                  acknowledgedDifferentDisplays: Bool) async -> SettingsTransferOutcome {
+        guard !settingsTransferInProgress else { return .stateChanged }
         await refresh()
+        guard !settingsTransferInProgress else { return .stateChanged }
+        settingsTransferInProgress = true
+        defer { settingsTransferInProgress = false }
         let entries = rememberedDisplays
         let current: DisplaySettingsTransfer.Plan
         switch confirmed.kind {
@@ -2186,7 +2198,7 @@ final class AppModel: ObservableObject {
             do {
                 current = try DisplaySettingsTransfer.migrationPlan(
                     for: entry, liveID: confirmed.destinationLiveID, settings: settings, favorites: favorites,
-                    menuLayout: menuLayout)
+                    menuLayout: menuLayout, sourceID: confirmed.migrationSourceID)
             } catch {
                 return .refused(error)
             }
@@ -2204,58 +2216,79 @@ final class AppModel: ObservableObject {
         #endif
         brightnessMethod[live] = nil
 
+        guard let settingsStore, let favoritesStore, let menuLayoutStore, let managedOfflineStore,
+              let registry else { return .persistenceFailed(recoveryPath: nil, restored: true) }
+        let checkedSettings = settings, checkedFavorites = favorites, checkedLayout = menuLayout
+        let checkedLedger = managedOffline
+        let previousRegistry = await registry.currentState()
+        guard settings == checkedSettings, favorites == checkedFavorites, menuLayout == checkedLayout,
+              managedOffline == checkedLedger else { return .stateChanged }
+        let previous = DisplaySettingsRecoverySnapshot(settings: checkedSettings, favorites: checkedFavorites,
+            menuLayout: checkedLayout, managedOffline: checkedLedger, registry: previousRegistry)
         let updatedSettings = DisplaySettingsTransfer.applying(current, selection: selection, to: settings)
-        if updatedSettings != settings {
-            if updatedSettings.displayGroups != settings.displayGroups
-                || updatedSettings.defaultDisplayGroup != settings.defaultDisplayGroup { groupSyncStates.removeAll() }
-            let clockChanged = updatedSettings.clockMode != settings.clockMode
-            settings = updatedSettings
-            if clockChanged {
-                for id in current.sourceIDs {
-                    clockModeLastRequests[id] = nil
-                    clockModeHolds[id] = nil
-                    clockModeResults[id] = nil
-                }
-            }
-            persistSettings()
-            #if !PUBLIC_API_ONLY
-            if clockChanged { reconcileAdaptiveLoop() }
-            #endif
-        }
         let updatedFavorites = DisplaySettingsTransfer.applying(current, selection: selection, to: favorites)
-        if updatedFavorites != favorites {
-            favorites = updatedFavorites
-            try? favoritesStore?.save(favorites)
-        }
         let updatedLayout = DisplaySettingsTransfer.applying(current, selection: selection, to: menuLayout)
-        if updatedLayout != menuLayout {
-            menuLayout = updatedLayout
-            persistMenuLayout()
-        }
         let updatedLedger = DisplaySettingsTransfer.applying(current, to: managedOffline)
-        if updatedLedger != managedOffline {
-            managedOffline = updatedLedger
-            persistManagedOffline()
-        }
         let provenance = DisplayRecordProvenance(
             kind: current.kind == .transfer ? .transferredFrom : .migratedFrom, date: Date(),
             sourceName: sourceName, sourceRecordID: current.sourceRecordID,
             sourceObservationIDs: current.sourceIDs, categories: chosen.map(\.rawValue).sorted())
-        if let registry {
-            let change = DisplaySettingsTransfer.registryChange(current, selection: selection)
-            switch current.kind {
-            case .transfer:
-                if let destination = change.destinationRecordID {
-                    await registry.transferUserData(from: change.sourceRecordID, to: destination,
-                                                    alias: change.alias, tags: change.tags, provenance: provenance)
-                } else if let source = change.sourceRecordID {
-                    await registry.forget(source)
-                }
-            case .migrate:
-                if let destination = current.destinationRecordID {
-                    await registry.appendProvenance(provenance, to: destination)
-                }
+        do {
+            let recoveryURL = try SettingsBackupStore.defaultDirectory()
+                .appendingPathComponent("display-transfer-\(UUID().uuidString).json")
+            try await DisplaySettingsTransaction.run(snapshot: previous, recoveryURL: recoveryURL,
+                write: { step in
+                    switch step {
+                    case .settings: try settingsStore.save(updatedSettings)
+                    case .favorites: try favoritesStore.save(updatedFavorites)
+                    case .menuLayout: try menuLayoutStore.save(updatedLayout)
+                    case .managedOffline: try managedOfflineStore.save(updatedLedger)
+                    case .registry:
+                        let change = DisplaySettingsTransfer.registryChange(current, selection: selection)
+                        if current.kind == .transfer {
+                            if let destination = change.destinationRecordID {
+                                guard try await registry.transferUserDataPersisting(from: change.sourceRecordID,
+                                    to: destination, alias: change.alias, tags: change.tags, provenance: provenance) != nil
+                                else { throw CocoaError(.fileWriteUnknown) }
+                            } else if let source = change.sourceRecordID {
+                                var state = previousRegistry
+                                state.records.removeAll { $0.id == source }
+                                state.cgUUIDIndex = state.cgUUIDIndex.filter { $0.value != source }
+                                try await registry.replaceState(state)
+                            }
+                        } else if let destination = current.destinationRecordID {
+                            try await registry.appendProvenancePersisting(provenance, to: destination)
+                        }
+                    }
+                }, restore: { step in
+                    switch step {
+                    case .settings: try settingsStore.save(previous.settings)
+                    case .favorites: try favoritesStore.save(previous.favorites)
+                    case .menuLayout: try menuLayoutStore.save(previous.menuLayout)
+                    case .managedOffline: try managedOfflineStore.save(previous.managedOffline)
+                    case .registry: try await registry.replaceState(previous.registry)
+                    }
+                })
+        } catch let failure as DisplaySettingsTransaction.Failure {
+            return .persistenceFailed(recoveryPath: failure.recoveryURL.path, restored: failure.restored)
+        } catch {
+            return .persistenceFailed(recoveryPath: nil, restored: true)
+        }
+        let clockChanged = updatedSettings.clockMode != settings.clockMode
+        settings = updatedSettings
+        favorites = updatedFavorites
+        menuLayout = updatedLayout
+        managedOffline = updatedLedger
+        groupSyncStates.removeAll()
+        if clockChanged {
+            for id in current.sourceIDs {
+                clockModeLastRequests[id] = nil
+                clockModeHolds[id] = nil
+                clockModeResults[id] = nil
             }
+            #if !PUBLIC_API_ONLY
+            reconcileAdaptiveLoop()
+            #endif
         }
         if current.kind == .transfer {
             NotificationCenter.default.post(name: .openDisplayForgetTrayState, object: current.sourceIDs.map(\.rawValue))
@@ -2266,6 +2299,7 @@ final class AppModel: ObservableObject {
             transactionId: "txn_\(current.kind.rawValue)_\(UUID().uuidString.prefix(8))", status: "committed",
             targets: (current.sourceIDs + [live]).map(\.rawValue)))
         logDisplayEvent("\(current.kind.rawValue) settings \(sourceName) → \(live.rawValue)")
+        settingsTransferInProgress = false
         await refresh()
         return .done
     }
@@ -2593,6 +2627,7 @@ final class AppModel: ObservableObject {
     #endif
 
     func refresh() async {
+        guard !settingsTransferInProgress else { return }
         #if !PUBLIC_API_ONLY
         ddcPairingEpoch &+= 1
         testedDDCMapping = nil

@@ -97,6 +97,12 @@ public enum DisplaySettingsTransfer {
         /// Authored route/restore recipes retain their target; the source Forget removes them.
         public var clockRecipes: [ClockDisplaySchedule]
 
+        private var audioBinding: DisplayKeyboardAudioPreferences? {
+            guard var value = keyboardAudio else { return nil }
+            value.showsVolumeOSD = true
+            return value.isDefault ? nil : value
+        }
+
         /// Whether a category holds anything but its default.
         public func has(_ category: Category) -> Bool {
             switch category {
@@ -109,7 +115,7 @@ public enum DisplaySettingsTransfer {
             case .adaptiveOffset: return adaptiveOffset != nil
             case .defaultGroupOffset: return defaultGroupOffset != nil
             case .luminanceAnchors: return luminanceAnchors != nil
-            case .keyboardAudio: return keyboardAudio != nil
+            case .keyboardAudio: return audioBinding != nil
             case .keepAwake: return keepAwake
             case .volumeFeedback: return volumeFeedback
             }
@@ -141,7 +147,7 @@ public enum DisplaySettingsTransfer {
             case .adaptiveOffset: return AnyHashable(adaptiveOffset)
             case .defaultGroupOffset: return AnyHashable(defaultGroupOffset)
             case .luminanceAnchors: return AnyHashable(luminanceAnchors)
-            case .keyboardAudio: return AnyHashable(keyboardAudio)
+            case .keyboardAudio: return AnyHashable(audioBinding)
             case .keepAwake: return AnyHashable(keepAwake)
             case .volumeFeedback: return AnyHashable(volumeFeedback)
             }
@@ -177,6 +183,7 @@ public enum DisplaySettingsTransfer {
         case sourceMayBeConnected
         /// Settings move onto a connected display only.
         case destinationNotConnected
+        case provisionalDestination
         /// Migration: no earlier identifier holds anything this display lacks.
         case nothingToMove
     }
@@ -186,6 +193,7 @@ public enum DisplaySettingsTransfer {
         /// `RememberedDisplay.id` of each side, to find them again before applying.
         public var sourceEntryID: String
         public var destinationEntryID: String
+        public var migrationSourceID: DisplayRecordID? = nil
         public var sourceIDs: [DisplayRecordID]
         public var destinationIDs: [DisplayRecordID]
         /// The id the destination is connected under: where moved settings are written.
@@ -271,7 +279,7 @@ public enum DisplaySettingsTransfer {
             luminanceAnchors: raw.lazy.compactMap { settings.luminanceAnchorsByDisplay[$0] }.first,
             keyboardAudio: raw.lazy.compactMap { settings.keyboardAudioByDisplay[$0] }.first,
             keepAwake: raw.contains(where: settings.preventDisplaySleepDisplayIDs.contains),
-            volumeFeedback: raw.contains(where: settings.osdFeedback.volumeHiddenDisplayIDs.contains),
+            volumeFeedback: ids.contains { !settings.showsVolumeFeedback(for: $0) },
             appleDDCOverride: raw.contains(where: settings.ddcAppleDisplayOverrideIDs.contains),
             ddcChannelMapping: settings.ddcChannelMappings.contains { idSet.contains($0.displayID) },
             pendingRestores: restores,
@@ -307,6 +315,7 @@ public enum DisplaySettingsTransfer {
         menuLayout: MenuLayoutSettings,
         ledger: [ManagedOfflineDisplay]
     ) throws(Refusal) -> Plan {
+        guard PersistentDisplayIdentity.isPersistent(destinationLiveID) else { throw .provisionalDestination }
         guard destination.observationIDs.contains(destinationLiveID) else { throw .destinationNotConnected }
         try validate(source: source, destination: destination)
         let cleanup: RememberedDisplayCleanup.Plan
@@ -353,12 +362,16 @@ public enum DisplaySettingsTransfer {
         liveID: DisplayRecordID,
         settings: OpenDisplaySettings,
         favorites: FavoriteResolutions,
-        menuLayout: MenuLayoutSettings
+        menuLayout: MenuLayoutSettings,
+        sourceID: DisplayRecordID? = nil
     ) throws(Refusal) -> Plan {
+        guard PersistentDisplayIdentity.isPersistent(liveID) else { throw .provisionalDestination }
         guard entry.isConnected, entry.observationIDs.contains(liveID) else { throw .destinationNotConnected }
         let earlier = entry.observationIDs.filter { $0 != liveID }
         guard !earlier.isEmpty else { throw .nothingToMove }
-        let from = saved(under: earlier, record: nil, settings: settings, favorites: favorites, menuLayout: menuLayout)
+        guard sourceID == nil || earlier.contains(sourceID!) else { throw .nothingToMove }
+        let selectedIDs = sourceID.map { [$0] } ?? earlier
+        let from = saved(under: selectedIDs, record: nil, settings: settings, favorites: favorites, menuLayout: menuLayout)
         let to = saved(under: [liveID], record: nil, settings: settings, favorites: favorites, menuLayout: menuLayout)
         var changes: [Change] = []
         if from.favoriteKeys.contains(where: { !to.favoriteKeys.contains($0) }) {
@@ -388,10 +401,21 @@ public enum DisplaySettingsTransfer {
                 changes.append(Change(category: category, effect: .conflict))
             }
         }
+        let sourceSnapshots = snapshots(earlier, settings: settings, favorites: favorites, menuLayout: menuLayout)
+        if sourceID == nil {
+            // Missing values are not alternatives. Distinct saved values require an explicit source.
+            for category in Category.allCases where category != .favoriteModes {
+                let values = Set(sourceSnapshots.values.filter { $0.has(category) }.map { $0.value(of: category) })
+                if values.count > 1 {
+                    changes.removeAll { $0.category == category }
+                    changes.append(Change(category: category, effect: .conflict))
+                }
+            }
+        }
         guard !changes.isEmpty else { throw .nothingToMove }
         return Plan(
             kind: .migrate, sourceEntryID: entry.id, destinationEntryID: entry.id,
-            sourceIDs: earlier, destinationIDs: [liveID], destinationLiveID: liveID,
+            migrationSourceID: sourceID, sourceIDs: earlier, destinationIDs: [liveID], destinationLiveID: liveID,
             sourceRecordID: nil, destinationRecordID: entry.isRegistered ? entry.record?.id : nil,
             source: from, destination: to,
             sourceByID: snapshots(earlier, settings: settings, favorites: favorites, menuLayout: menuLayout),
@@ -447,26 +471,42 @@ public enum DisplaySettingsTransfer {
         var updated = settings
         // Selected transfer categories replace every destination alias; migration fills only absent
         // values (conflicts are not selectable). The original ID is cleared only when a value moves.
-        let replacedIDs = (plan.kind == .transfer ? plan.destinationIDs : plan.sourceIDs).map(\.rawValue)
+        func replacedIDs(for category: Category) -> [String] {
+            if plan.kind == .transfer { return plan.destinationIDs.map(\.rawValue) }
+            return plan.sourceIDs.filter { id in
+                if let selected = plan.migrationSourceID, id != selected { return false }
+                guard let saved = plan.sourceByID[id], saved.has(category) else { return false }
+                return saved.value(of: category) == plan.source.value(of: category)
+            }.map(\.rawValue)
+        }
         if chosen.contains(.defaultGroupOffset) {
-            for id in replacedIDs { updated.defaultDisplayGroup.offsetByMember[id] = nil }
+            for id in replacedIDs(for: .defaultGroupOffset) { updated.defaultDisplayGroup.offsetByMember[id] = nil }
             updated.defaultDisplayGroup.offsetByMember[live.rawValue] = plan.source.defaultGroupOffset
         }
         if chosen.contains(.luminanceAnchors) {
-            for id in replacedIDs { updated.luminanceAnchorsByDisplay[id] = nil }
+            for id in replacedIDs(for: .luminanceAnchors) { updated.luminanceAnchorsByDisplay[id] = nil }
             updated.luminanceAnchorsByDisplay[live.rawValue] = plan.source.luminanceAnchors
         }
         if chosen.contains(.keyboardAudio) {
-            for id in replacedIDs { updated.keyboardAudioByDisplay[id] = nil }
+            for id in replacedIDs(for: .keyboardAudio) {
+                let displayID = DisplayRecordID(rawValue: id)
+                let feedback = updated.showsVolumeFeedback(for: displayID)
+                updated.setKeyboardAudioPreferences(.default, for: displayID)
+                updated.setShowsVolumeFeedback(feedback, for: displayID)
+            }
             updated.keyboardAudioByDisplay[live.rawValue] = plan.source.keyboardAudio
         }
         if chosen.contains(.keepAwake) {
-            updated.preventDisplaySleepDisplayIDs.subtract(replacedIDs)
+            updated.preventDisplaySleepDisplayIDs.subtract(replacedIDs(for: .keepAwake))
             if plan.source.keepAwake { updated.preventDisplaySleepDisplayIDs.insert(live.rawValue) }
         }
         if chosen.contains(.volumeFeedback) {
-            updated.osdFeedback.volumeHiddenDisplayIDs.subtract(replacedIDs)
-            if plan.source.volumeFeedback { updated.osdFeedback.volumeHiddenDisplayIDs.insert(live.rawValue) }
+            for raw in replacedIDs(for: .volumeFeedback) {
+                updated.setShowsVolumeFeedback(true, for: DisplayRecordID(rawValue: raw))
+            }
+            updated.setShowsVolumeFeedback(!plan.source.volumeFeedback, for: live)
+        } else if chosen.contains(.keyboardAudio) {
+            updated.setShowsVolumeFeedback(!plan.destination.volumeFeedback, for: live)
         }
         switch plan.kind {
         case .transfer:
@@ -494,12 +534,12 @@ public enum DisplaySettingsTransfer {
                 updated.displayGroups = replacing(membership, with: live, in: updated.displayGroups)
             }
             if chosen.contains(.softwareBrightness), plan.source.softwareBrightness {
-                updated.softwareBrightnessDisplayIDs.subtract(plan.sourceIDs.map(\.rawValue))
+                updated.softwareBrightnessDisplayIDs.subtract(replacedIDs(for: .softwareBrightness))
                 updated.softwareBrightnessDisplayIDs.insert(live.rawValue)
             }
             if chosen.contains(.adaptiveOffset), let offset = plan.source.adaptiveOffset,
                plan.destination.adaptiveOffset == nil {
-                for id in plan.sourceIDs { updated.adaptiveBrightnessOffsetByDisplay[id.rawValue] = nil }
+                for id in replacedIDs(for: .adaptiveOffset) { updated.adaptiveBrightnessOffsetByDisplay[id] = nil }
                 updated.adaptiveBrightnessOffsetByDisplay[live.rawValue] = offset
             }
         }
@@ -520,7 +560,9 @@ public enum DisplaySettingsTransfer {
         case .migrate:
             if chosen.contains(.favoriteModes) {
                 updated.setKeys(plan.destination.favoriteKeys + plan.source.favoriteKeys, for: plan.destinationLiveID)
-                for id in plan.sourceIDs { updated.removeAll(for: id) }
+                for id in plan.sourceIDs where plan.migrationSourceID == nil || plan.migrationSourceID == id {
+                    updated.removeAll(for: id)
+                }
             }
         }
         return updated

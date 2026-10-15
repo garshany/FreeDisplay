@@ -389,6 +389,15 @@ public actor DisplayRegistry {
     public func transferUserData(from source: DisplayRecordID?, to destination: DisplayRecordID,
                                  alias: Bool, tags: Bool,
                                  provenance: DisplayRecordProvenance) async -> DisplayRecordID? {
+        try? await transferUserDataPersisting(from: source, to: destination, alias: alias, tags: tags, provenance: provenance)
+    }
+
+    @discardableResult
+    public func transferUserDataPersisting(from source: DisplayRecordID?, to destination: DisplayRecordID,
+                                           alias: Bool, tags: Bool,
+                                           provenance: DisplayRecordProvenance) async throws -> DisplayRecordID? {
+        let previous = state
+        let previousProvisional = provisional
         guard source != destination else { return nil }
         let sourceRecord = source.flatMap { id in state.records.first { $0.id == id } }
         guard let index = state.records.firstIndex(where: { $0.id == destination }) ?? materializeLocked(destination)
@@ -401,7 +410,12 @@ public actor DisplayRegistry {
             state.records.removeAll { $0.id == source }
             state.cgUUIDIndex = state.cgUUIDIndex.filter { $0.value != source }
         }
-        await persist()
+        do { try await store.save(state) }
+        catch {
+            state = previous
+            provisional = previousProvisional
+            throw error
+        }
         return destinationID
     }
 
@@ -410,6 +424,14 @@ public actor DisplayRegistry {
     public func appendProvenance(_ provenance: DisplayRecordProvenance, to id: DisplayRecordID) async {
         guard state.records.contains(where: { $0.id == id }) else { return }
         try? await mutate(id) { $0.provenance = ($0.provenance ?? []) + [provenance] }
+    }
+
+    public func appendProvenancePersisting(_ provenance: DisplayRecordProvenance, to id: DisplayRecordID) async throws {
+        let previous = state
+        guard let index = state.records.firstIndex(where: { $0.id == id }) else { throw RegistryError.unknownRecord }
+        state.records[index].provenance = (state.records[index].provenance ?? []) + [provenance]
+        do { try await store.save(state) }
+        catch { state = previous; throw error }
     }
 
     // MARK: - Private

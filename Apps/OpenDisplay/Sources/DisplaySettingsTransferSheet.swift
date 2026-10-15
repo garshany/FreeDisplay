@@ -5,7 +5,7 @@ import TopologyCore
 
 struct DisplaySettingsTransferSheet: View {
     @EnvironmentObject private var model: AppModel
-    let plan: DisplaySettingsTransfer.Plan
+    @State private var plan: DisplaySettingsTransfer.Plan
     let onFinish: (String?) -> Void
     @State private var selection: Set<DisplaySettingsTransfer.Category>
     @State private var acknowledged = false
@@ -13,7 +13,7 @@ struct DisplaySettingsTransferSheet: View {
     @State private var error: String?
 
     init(plan: DisplaySettingsTransfer.Plan, onFinish: @escaping (String?) -> Void) {
-        self.plan = plan
+        _plan = State(initialValue: plan)
         self.onFinish = onFinish
         _selection = State(initialValue: plan.defaultSelection)
     }
@@ -31,6 +31,23 @@ struct DisplaySettingsTransferSheet: View {
                         Text("The source record will be forgotten, including unselected saved preferences. Selected destination values are replaced, including replacement with an empty value. The destination keeps its physical identity. This cannot be undone here.")
                     } else {
                         Text("Selected values move to the current identifier. Existing destination values win conflicts. Favourite modes are combined without duplicates. The record keeps its identity.")
+                    }
+                    if plan.kind == .migrate, plan.sourceIDs.count > 1 {
+                        Picker("Migration source", selection: Binding(
+                            get: { plan.migrationSourceID?.rawValue ?? "" },
+                            set: { raw in
+                                let id = raw.isEmpty ? nil : DisplayRecordID(rawValue: raw)
+                                if let updated = model.selectingMigrationSource(id, in: plan) {
+                                    plan = updated
+                                    selection = updated.defaultSelection
+                                }
+                            })) {
+                            Text("All nonconflicting sources").tag("")
+                            ForEach(plan.sourceIDs, id: \.self) { id in
+                                Text(verbatim: id.rawValue).tag(id.rawValue)
+                            }
+                        }
+                        Text("Conflicting earlier values stay saved until you choose their source explicitly. Only values copied from the selected source are cleared.")
                     }
                     ForEach(plan.changes, id: \.category) { change in
                         VStack(alignment: .leading, spacing: 4) {
@@ -84,6 +101,12 @@ struct DisplaySettingsTransferSheet: View {
                             acknowledgedDifferentDisplays: acknowledged)
                         working = false
                         if result == .done { onFinish(String(localized: "The selected settings were moved.")) }
+                        else if case .persistenceFailed(let path, let restored) = result {
+                            let message = restored
+                                ? String(localized: "Saving the transfer failed. Previous settings were restored.")
+                                : String(localized: "Saving and rollback failed. Restore the retained recovery snapshot before continuing.")
+                            error = path.map { message + "\n" + $0 } ?? message
+                        }
                         else { error = String(localized: "Nothing was transferred. The preview or identity changed; close this sheet and review a new preview.") }
                     }
                 }.disabled(working || model.busy || selection.isEmpty || (plan.needsDifferentDisplayAcknowledgement && !acknowledged))
