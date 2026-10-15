@@ -40,13 +40,14 @@ public enum ReconnectVerification {
         return escalated ? .failed : .escalate
     }
 
-    /// Whether the turned-off display is a real, lit surface again. Matched on the record id and,
-    /// failing that, the raw display id — a display can come back under a re-minted record.
+    /// Whether the turned-off display is a real, lit surface again — the display the entry recorded
+    /// (`ReconnectIdentity.isSameDisplay`), not whatever now goes by its old display number. A lit
+    /// display matching only by number used to count, and that is how another monitor that had
+    /// been handed the number deleted the dark display's only record.
     public static func isLit(_ offline: ManagedOfflineDisplay,
                              in observations: [DisplayObservation]) -> Bool {
         WakeConvergencePolicy.visibleSurfaces(in: observations).contains {
-            $0.recordID == offline.recordID
-                || (offline.cgID != 0 && $0.cgDisplayID == offline.cgID)
+            ReconnectIdentity.isSameDisplay($0, as: offline)
         }
     }
 

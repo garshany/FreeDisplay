@@ -4709,7 +4709,12 @@ final class AppModel: ObservableObject {
         defer { busy = false }
         if forgettingIntent { stampReconnectFailure(nil, for: offline) }  // a fresh attempt
         do {
-            try await lifecycle.reconnect(offline.reconnectID, deadline: Date().addingTimeInterval(10))
+            // By raw number only while it still names this display (`ReconnectIdentity`): the
+            // number may have been handed to another monitor since the entry was written.
+            try await ManagedOfflineRecovery.requestReconnect(
+                offline, lifecycle: lifecycle, observations: await observer.currentSnapshot().observations,
+                ledger: managedOffline, uuidForDisplayNumber: { CoreGraphicsProvider.persistentUUID(for: $0) },
+                deadline: Date().addingTimeInterval(10))
         } catch {
             // Keep the ledger entry: it is the ONLY record that this display exists and is owed a
             // reconnect. Forgetting it on a failed attempt orphans the display permanently — the
@@ -4718,8 +4723,11 @@ final class AppModel: ObservableObject {
             Self.err("reconnect failed for \(offline.name): \(error) — keeping it owed")
             #endif
             await refresh()
-            logDisplayEvent("reconnect:rejected \(offline.name)")
-            if forgettingIntent { await noteReconnectFailure(of: offline) }
+            // Our own refusal is not macOS's: nothing was sent, and the timeline says why.
+            let refusal = error as? ReconnectIdentity.Conflict
+            logDisplayEvent(refusal.map { "reconnect:refused \(offline.name): \($0)" }
+                            ?? "reconnect:rejected \(offline.name)")
+            if forgettingIntent { await noteReconnectFailure(of: offline, refusedBecause: refusal) }
             return false
         }
         guard forgettingIntent else {
@@ -4766,11 +4774,16 @@ final class AppModel: ObservableObject {
 
     /// Records a reconnect that produced no display: stamps the ledger entry (which is what the
     /// off card reads), writes the audit entry, and notifies if the user has notifications on.
-    private func noteReconnectFailure(of offline: OfflineDisplay) async {
+    /// `refusedBecause`: the request was never sent, because the display number now names another
+    /// display (`ReconnectIdentity`) — said as such, not as macOS failing to bring it back.
+    private func noteReconnectFailure(of offline: OfflineDisplay,
+                                      refusedBecause refusal: ReconnectIdentity.Conflict? = nil) async {
         stampReconnectFailure(Date(), for: offline)
         await appendAudit(ReconnectVerification.failureAudit(of: offline, actor: .ui, at: Date()))
         if settings.displayNotificationsEnabled {
-            NotificationDelivery.post(NotificationDelivery.reconnectFailureNotification(for: offline, method: logicalOffMethod))
+            NotificationDelivery.post(refusal == nil
+                ? NotificationDelivery.reconnectFailureNotification(for: offline, method: logicalOffMethod)
+                : NotificationDelivery.reconnectRefusedNotification(for: offline))
         }
     }
 
@@ -5598,7 +5611,11 @@ final class AppModel: ObservableObject {
         // display that stayed dark, and the next launch's off card and safety net work from it.
         if !managedOffline.isEmpty {
             for offline in managedOffline {
-                try? await lifecycle.reconnect(offline.reconnectID, deadline: Date().addingTimeInterval(10))
+                // Refused when the number now names another display — that entry is kept below.
+                try? await ManagedOfflineRecovery.requestReconnect(
+                    offline, lifecycle: lifecycle, observations: await observer.currentSnapshot().observations,
+                    ledger: managedOffline, uuidForDisplayNumber: { CoreGraphicsProvider.persistentUUID(for: $0) },
+                    deadline: Date().addingTimeInterval(10))
             }
             // One look, straight after the requests: quit doesn't wait out a slow link. A display still
             // training its link is therefore kept too — and dropped by the next launch, which forgets

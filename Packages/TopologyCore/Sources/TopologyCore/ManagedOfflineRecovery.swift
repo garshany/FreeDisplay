@@ -60,16 +60,40 @@ public enum ManagedOfflineRecovery {
         return results
     }
 
-    /// One reconnect, verified the way the app's own is: ask the lifecycle provider, then watch the
+    /// Asks `lifecycle` to reconnect `offline` — at the number its recorded identity has now when
+    /// it is online, else at its recorded number only while that is still its display's
+    /// (`ReconnectIdentity.reconnectTarget`). When it isn't, nothing is sent and the
+    /// `ReconnectIdentity.Conflict` is thrown instead: the providers act on whatever display the
+    /// number names now. Every reconnect of a ledger entry goes through here — the app's, the
+    /// quit-time one, the CLI's and the no-model intent's.
+    ///
+    /// `observations` is the live topology; `ledger` the managed-offline ledger as stored;
+    /// `uuidForDisplayNumber` is Core Graphics' current persistent UUID for a number (nil when it
+    /// reports none).
+    public static func requestReconnect(
+        _ offline: ManagedOfflineDisplay, lifecycle: any LifecycleProvider, observations: [DisplayObservation],
+        ledger: [ManagedOfflineDisplay], uuidForDisplayNumber: @Sendable (UInt32) -> String?, deadline: Date
+    ) async throws {
+        let target = try ReconnectIdentity.reconnectTarget(for: offline, observations: observations, ledger: ledger,
+                                                           uuidForNumber: uuidForDisplayNumber)
+        try await lifecycle.reconnect(target, deadline: deadline)
+    }
+
+    /// One reconnect, verified the way the app's own is: ask the lifecycle provider (through
+    /// `requestReconnect`, so a number now held by another display is refused), then watch the
     /// topology per `ReconnectVerification` — a patient wait, one `escalate` (the public
-    /// permanent-configuration restore), a second wait. Cancelling ends the watch as `notLit`,
-    /// which keeps the ledger entry: the display may still be dark.
+    /// permanent-configuration restore), a second wait. Only the recorded display counts as lit.
+    /// Cancelling ends the watch as `notLit`, which keeps the ledger entry: the display may still
+    /// be dark.
     public static func verifiedAttempt(
         _ offline: ManagedOfflineDisplay, lifecycle: any LifecycleProvider, observer: any TopologyObserving,
-        deadline: Date, escalate: @Sendable () -> Void
+        ledger: [ManagedOfflineDisplay], uuidForDisplayNumber: @Sendable (UInt32) -> String?, deadline: Date,
+        escalate: @Sendable () -> Void
     ) async -> Attempt {
         do {
-            try await lifecycle.reconnect(offline.reconnectID, deadline: deadline)
+            try await requestReconnect(offline, lifecycle: lifecycle,
+                                       observations: await observer.currentSnapshot().observations,
+                                       ledger: ledger, uuidForDisplayNumber: uuidForDisplayNumber, deadline: deadline)
         } catch {
             return .rejected("\(error)")
         }

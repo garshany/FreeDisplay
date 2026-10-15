@@ -499,6 +499,13 @@ public actor CoreGraphicsProvider: TopologyObserving, DisplayProvider, Lifecycle
     }
 
     private func displayUUID(_ id: CGDirectDisplayID) -> String? {
+        Self.persistentUUID(for: id)
+    }
+
+    /// The persistent UUID Core Graphics reports for a display number right now, in the form the
+    /// `cg:<uuid>` record ids carry — or nil when it reports none. What a reconnect by raw number
+    /// checks first (`ReconnectIdentity`): numbers are reassigned, UUIDs are not.
+    public nonisolated static func persistentUUID(for id: CGDirectDisplayID) -> String? {
         guard let unmanaged = CGDisplayCreateUUIDFromDisplayID(id) else { return nil }
         let uuid = unmanaged.takeRetainedValue()
         return CFUUIDCreateString(kCFAllocatorDefault, uuid) as String?

@@ -49,7 +49,9 @@ final class ManagedOfflineRecoveryTests: XCTestCase {
         let results = await ManagedOfflineRecovery.reconnectAll(
             ledger: [entry(desk), entry(gone)],
             attempt: { offline in
+                // Record-id entries (no display number): the ledger can't contradict them.
                 await ManagedOfflineRecovery.verifiedAttempt(offline, lifecycle: system, observer: system,
+                                                             ledger: [], uuidForDisplayNumber: { _ in nil },
                                                              deadline: .distantFuture, escalate: {})
             },
             save: { saved.append($0) })
