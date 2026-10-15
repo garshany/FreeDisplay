@@ -114,7 +114,7 @@ private struct RememberedDisplayRetentionEditor: View {
                     get: { model.settings.newDisplayIdentityStrategy },
                     set: { model.setNewDisplayIdentityStrategy($0) })) {
                     ForEach(DisplayIdentityStrategy.allCases, id: \.self) { strategy in
-                        Text(strategy.rawValue.appLocalized).tag(strategy)
+                        Text(identityLabel(strategy.rawValue)).tag(strategy)
                     }
                 }
                 Text("The default identification strategy applies only to newly created records. Existing records keep their strategy.")

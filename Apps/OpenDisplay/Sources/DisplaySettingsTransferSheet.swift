@@ -35,9 +35,9 @@ struct DisplaySettingsTransferSheet: View {
                     ForEach(plan.changes, id: \.category) { change in
                         VStack(alignment: .leading, spacing: 4) {
                             if change.effect == .conflict {
-                                Text(change.category.rawValue.appLocalized + " · " + String(localized: "Conflict: both values stay where they are"))
+                                Text(identityLabel(change.category.rawValue) + " · " + String(localized: "Conflict: both values stay where they are"))
                             } else {
-                                Toggle(change.category.rawValue.appLocalized, isOn: Binding(
+                                Toggle(identityLabel(change.category.rawValue), isOn: Binding(
                                     get: { selection.contains(change.category) },
                                     set: { if $0 { selection.insert(change.category) } else { selection.remove(change.category) } }))
                             }
@@ -51,7 +51,7 @@ struct DisplaySettingsTransferSheet: View {
                     }
                     Text("Safety permissions and relationships").font(.subheadline.bold())
                     ForEach(plan.retained, id: \.self) { retained in
-                        Text(retained.rawValue.appLocalized)
+                        Text(identityLabel(retained.rawValue))
                     }
                     if plan.kind == .transfer, let cleanup = plan.sourceCleanup {
                         Text("Removed with the source record").font(.subheadline.bold())
@@ -95,11 +95,11 @@ struct DisplaySettingsTransferSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(verbatim: id.rawValue).bold()
                     ForEach(DisplaySettingsTransfer.Category.allCases.filter { $0 != .name && $0 != .tags }, id: \.self) { category in
-                        LabeledContent(category.rawValue.appLocalized, value: value(category, in: saved))
+                        LabeledContent(identityLabel(category.rawValue), value: value(category, in: saved))
                     }
                     ForEach(saved.protectedLayoutKeys, id: \.self) { Text(verbatim: $0) }
                     ForEach(DisplaySettingsTransfer.Retained.allCases.filter(saved.holds), id: \.self) {
-                        Text($0.rawValue.appLocalized)
+                        Text(identityLabel($0.rawValue))
                     }
                 }.font(.caption)
             }

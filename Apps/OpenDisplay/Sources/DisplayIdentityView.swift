@@ -29,7 +29,7 @@ struct DisplayIdentityView: View {
                         get: { record.identityStrategy ?? .automatic },
                         set: { strategyChoice = $0 })) {
                         ForEach(DisplayIdentityStrategy.allCases, id: \.self) { strategy in
-                            Text(strategy.rawValue.appLocalized).tag(strategy)
+                            Text(identityLabel(strategy.rawValue)).tag(strategy)
                         }
                     }
                     fingerprint(record.fingerprint)
@@ -42,7 +42,7 @@ struct DisplayIdentityView: View {
                             Text(verbatim: provenance.sourceName + " · " + provenance.date.formatted())
                             Text(provenance.kind == .transferredFrom ? "Transferred from another record" : "Migrated from earlier identifiers")
                             Text(verbatim: provenance.sourceObservationIDs.map(\.rawValue).joined(separator: ", "))
-                            Text(provenance.categories.map { $0.appLocalized }.joined(separator: ", "))
+                            Text(provenance.categories.map(identityLabel).joined(separator: ", "))
                         }.font(.caption)
                     }
                 }
@@ -54,12 +54,12 @@ struct DisplayIdentityView: View {
                             LabeledContent("App record", value: assessment.recordID.rawValue)
                             LabeledContent("Fingerprint score", value: assessment.confidence.score.formatted())
                             LabeledContent("Recognition threshold", value: explanation.recognitionThreshold.formatted())
-                            Text(assessment.conflict?.rawValue.appLocalized ?? String(localized: "No conflicting vendor, model or serial"))
+                            Text(assessment.conflict.map { identityLabel($0.rawValue) } ?? String(localized: "No conflicting vendor, model or serial"))
                             if assessment.heldByAnotherDisplay { Text("Claimed by another connected display") }
                             if assessment.serialMatches { Text("Qualified serial matches") }
                             if assessment.indexedUnderThisUUID { Text("macOS UUID points to this record") }
                             ForEach(assessment.fields, id: \.field) { field in
-                                LabeledContent(field.field.rawValue.appLocalized, value: field.agreement.rawValue.appLocalized)
+                                LabeledContent(identityLabel(field.field.rawValue), value: identityLabel(field.agreement.rawValue))
                             }
                         }.font(.caption)
                     }
@@ -139,7 +139,7 @@ struct DisplayIdentityView: View {
             case .serialAndCGUUID: return String(localized: "Recognized by qualified serial and macOS UUID")
             }
         case .newRecord: return String(localized: "No remembered identity matched; a new record was created")
-        case .ambiguous(_, let reason): return reason.rawValue.appLocalized
+        case .ambiguous(_, let reason): return identityLabel(reason.rawValue)
         }
     }
 }

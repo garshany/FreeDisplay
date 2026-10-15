@@ -34,7 +34,7 @@ struct DDCChannelPairingView: View {
                     switch status {
                     case .inUse: Text("The confirmed channel is in use")
                     case .notNeeded: Text("Automatic identity matching resolved the channel")
-                    case .invalid(let reason): Text(reason.rawValue.appLocalized)
+                    case .invalid(let reason): Text(identityLabel(reason.rawValue))
                     }
                 }
                 Button("List DDC channels") {
