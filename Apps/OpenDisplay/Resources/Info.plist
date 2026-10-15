@@ -29,6 +29,15 @@
 	     entry is always available instead. -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>OpenDisplay uses your location once to calculate local sunrise, noon, and sunset times for Clock Mode brightness schedules. You can also enter your coordinates manually.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>FreeDisplay discovers TVs, connects to the TV you explicitly pair, and sends wake requests only when you ask.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Device-local ws endpoints are an explicit controller choice. This does not disable TLS
+		     certificate validation; wss uses system trust or a verified per-device leaf pin. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<!-- Sparkle 2 in-app updates. The feed is the newest release's appcast.xml asset, reached through
 	     GitHub's stable "latest" redirect, so the URL never has to be re-pointed at a new tag.
 	     SUPublicEDKey is the EdDSA public key every downloaded update is verified against; its private
