@@ -102,6 +102,7 @@ final class RefreshTimingTests: XCTestCase {
         session.record(timestamp: 11, reportedFrameDuration: nil)
         XCTAssertEqual(session.phase, .stopped(.user))
         XCTAssertEqual(session.meter.intervalCount, 1, "a stopped measurement keeps its result and takes no more")
+        XCTAssertEqual(RefreshTimingReport.measurementRows(session, .english).first?.value, "Stopped by you")
         session.stop(.viewClosed)
         XCTAssertEqual(session.phase, .stopped(.user), "stopping twice keeps the first reason")
     }

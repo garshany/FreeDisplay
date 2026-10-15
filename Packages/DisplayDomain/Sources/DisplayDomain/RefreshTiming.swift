@@ -225,7 +225,7 @@ public enum RefreshTimingReport {
         switch session.phase {
         case .idle: return []
         case .running: state = l("Measuring")
-        case .stopped(.user): state = l("Stopped")
+        case .stopped(.user): state = l("Stopped by you")
         case .stopped(.viewClosed): state = l("Stopped when the view closed")
         case .stopped(.displayUnavailable): state = l("Stopped: the display is no longer available")
         }
