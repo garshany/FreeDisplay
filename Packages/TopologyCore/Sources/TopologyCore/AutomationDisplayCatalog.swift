@@ -100,6 +100,66 @@ public enum AutomationDisplayCatalog {
         displays.first { $0.displayClass == .builtIn && $0.isActive }
     }
 
+    /// The shared automation candidates (FD-066) for a surface's displays: every current observation
+    /// with its registry record, then the displays OpenDisplay turned off that aren't observed. A
+    /// ledger display that a surface lists as an inactive placeholder observation (the CLI does, to
+    /// keep it reachable) is `disconnected`, not merely inactive — it isn't there at all.
+    ///
+    /// - Parameters:
+    ///   - name: the name the surface shows for a live display (the alias first).
+    ///   - record: the registry record behind an observation or ledger id, when known.
+    ///   - groups: the display groups whose names `group:<name>` resolves.
+    ///   - pointerDisplayID: the Core Graphics id of the display under the pointer, or nil when the
+    ///     surface can't tell (then `pointer` is refused rather than guessed).
+    public static func displaySet(displays: [DisplayObservation], offline: [ManagedOfflineDisplay],
+                                  name: (DisplayObservation) -> String,
+                                  record: (DisplayRecordID) -> DisplayRecord?,
+                                  groups: [DisplayGroup], pointerDisplayID: UInt32?,
+                                  generation: UInt64) -> AutomationDisplaySet {
+        let offlineIDs = Set(offline.map(\.recordID))
+        func groupNames(_ ids: [DisplayRecordID]) -> Set<String> {
+            Set(groups.filter { group in ids.contains(where: group.contains) }.map(\.name))
+        }
+        // A display that isn't there can't hold the pointer, even if its old number now names another.
+        func pointer(_ cgID: UInt32?, present: Bool) -> Bool? {
+            guard let pointerDisplayID else { return nil }
+            return present && cgID == pointerDisplayID
+        }
+        var listed = Set<DisplayRecordID>()
+        var candidates: [AutomationDisplayCandidate] = []
+        for observation in displays where listed.insert(observation.recordID).inserted {
+            let known = record(observation.recordID)
+            let turnedOff = offlineIDs.contains(observation.recordID) && !observation.isActive
+            let availability: AutomationDisplayCandidate.Availability =
+                turnedOff ? .disconnected : observation.isActive ? .active : .inactive
+            let reachability: Reachability =
+                offlineIDs.contains(observation.recordID) ? .managedOffline : observation.isActive ? .active : .discoveredInactive
+            candidates.append(AutomationDisplayCandidate(
+                id: observation.recordID,
+                registryID: known.map(\.id).flatMap { $0 == observation.recordID ? nil : $0 },
+                cgDisplayID: observation.cgDisplayID, name: name(observation), alias: known?.alias,
+                tags: known?.tags ?? [], groups: groupNames([observation.recordID] + (known.map { [$0.id] } ?? [])),
+                availability: availability, reachability: reachability, isMain: observation.isMain,
+                isBuiltIn: observation.displayClass == .builtIn, vendorID: known?.fingerprint.vendorID,
+                productID: known?.fingerprint.productID, serial: known?.fingerprint.serialNumber,
+                containsPointer: pointer(observation.cgDisplayID, present: !turnedOff)))
+        }
+        for display in offline where listed.insert(display.recordID).inserted {
+            let known = record(display.recordID)
+            candidates.append(AutomationDisplayCandidate(
+                id: display.recordID,
+                registryID: known.map(\.id).flatMap { $0 == display.recordID ? nil : $0 },
+                cgDisplayID: display.cgID, name: known?.alias.flatMap { $0.isEmpty ? nil : $0 } ?? display.name,
+                alias: known?.alias, tags: known?.tags ?? [],
+                groups: groupNames([display.recordID] + (known.map { [$0.id] } ?? [])),
+                availability: .disconnected, reachability: .managedOffline,
+                isBuiltIn: display.displayClass == .builtIn, vendorID: known?.fingerprint.vendorID,
+                productID: known?.fingerprint.productID, serial: known?.fingerprint.serialNumber,
+                containsPointer: pointer(display.cgID, present: false)))
+        }
+        return AutomationDisplaySet(candidates: candidates, knownGroups: groups.map(\.name), topologyGeneration: generation)
+    }
+
     private static func listOrder(_ lhs: AutomationDisplayEntry, _ rhs: AutomationDisplayEntry) -> Bool {
         func rank(_ entry: AutomationDisplayEntry) -> Int {
             entry.isMain ? 0 : entry.availability == .active ? 1 : 2
@@ -137,14 +197,15 @@ public enum AutomationBrightness {
         }
     }
 
-    /// A 0...1 level in whole percent.
+    /// A 0...1 level in whole percent (the shared unit, `AutomationLevel`).
     public static func percent(_ level: Float) -> Int {
-        guard level.isFinite else { return 0 }
-        return Int((min(1, max(0, level)) * 100).rounded())
+        AutomationLevel(clamping: Double(level)).wholePercent
     }
 
     /// A requested percentage as the 0...1 level the brightness funnel takes.
-    public static func level(percent: Int) -> Float { Float(min(100, max(0, percent))) / 100 }
+    public static func level(percent: Int) -> Float {
+        AutomationLevel(clamping: Double(percent) / 100).float
+    }
 
     /// Compares a read-back with the request. A percentage read-back must land on the requested whole
     /// percent — the unit the action speaks. A DDC read-back is judged in the monitor's own units,

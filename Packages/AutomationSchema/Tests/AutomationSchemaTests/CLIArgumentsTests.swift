@@ -109,4 +109,32 @@ final class CLIArgumentsTests: XCTestCase {
         XCTAssertEqual(CLIExitCode.usage.rawValue, 2)
         XCTAssertNotEqual(CLIExitCode.partial.rawValue, CLIExitCode.success.rawValue)
     }
+
+    // MARK: Shared-model options (FD-066)
+
+    func testBrightnessTakesMethodAndASignedOffset() throws {
+        let invocation = try run(["brightness", "alias:Desk", "--offset", "-5%", "--method", "hardware", "--json"])
+        XCTAssertEqual(invocation.values, ["--offset": "-5%", "--method": "hardware"])
+        XCTAssertEqual(invocation.positional, ["alias:Desk"])
+        XCTAssertTrue(invocation.flags.contains("--json"))
+    }
+
+    func testAMinusSignAloneIsNotAnOffset() {
+        XCTAssertThrowsError(try CLIGrammar.parse(["brightness", "main", "-5%"])) {
+            XCTAssertEqual($0 as? CLIArgumentError, .unknownOption("-5%"))
+        }
+        XCTAssertThrowsError(try CLIGrammar.parse(["brightness", "main", "--offset"])) {
+            XCTAssertEqual($0 as? CLIArgumentError, .missingValue("--offset"))
+        }
+    }
+
+    func testNewVerbsAndTheirOptions() throws {
+        XCTAssertEqual(try run(["mode", "main", "--json"]).command, "mode")
+        XCTAssertEqual(try run(["commands", "--json"]).command, "commands")
+        XCTAssertThrowsError(try CLIGrammar.parse(["ddc", "main", "brightness", "--method", "ddc"])) {
+            XCTAssertEqual($0 as? CLIArgumentError, .unsupportedOption(option: "--method", command: "ddc"))
+        }
+        XCTAssertThrowsError(try CLIGrammar.parse(["mode", "main", "--offset", "1"]))
+    }
 }
+

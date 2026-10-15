@@ -1,3 +1,4 @@
+import AutomationSchema
 import DisplayDomain
 import XCTest
 @testable import TopologyCore
@@ -172,4 +173,58 @@ final class AutomationDisplayCatalogTests: XCTestCase {
         XCTAssertEqual(AutomationModeOptions.outcome(error: nil, revertPending: false, actual: nil, requested: requested),
                        .notConfirmed)
     }
+
+    // MARK: - Shared automation candidates (FD-066)
+
+    func testDisplaySetCarriesRecordsGroupsPointerAndTurnedOffDisplays() throws {
+        let deskRecord = DisplayRecord(id: DisplayRecordID(rawValue: "disp_desk"), alias: "Desk", tags: ["studio"],
+                                       fingerprint: DisplayFingerprint(vendorID: 4268, productID: 41_234, serialNumber: "XYZ"))
+        let tvRecord = DisplayRecord(id: DisplayRecordID(rawValue: "disp_tv"), alias: "Living room",
+                                     fingerprint: DisplayFingerprint())
+        let records = [DisplayRecordID(rawValue: "desk"): deskRecord, DisplayRecordID(rawValue: "tv"): tvRecord]
+        let work = DisplayGroup(name: "Work", memberRecordIDs: [DisplayRecordID(rawValue: "disp_desk")])
+        var desk = obs("desk", main: true)
+        desk.cgDisplayID = 2
+        var builtin = obs("builtin", builtIn: true)
+        builtin.cgDisplayID = 1
+        let offline = [ManagedOfflineDisplay(recordID: DisplayRecordID(rawValue: "tv"), cgID: 9, name: "LG TV",
+                                             displayClass: .television)]
+        let set = AutomationDisplayCatalog.displaySet(
+            displays: [desk, builtin, obs("mirror", active: false)], offline: offline, name: name,
+            record: { records[$0] }, groups: [work], pointerDisplayID: 2, generation: 5)
+
+        XCTAssertEqual(set.topologyGeneration, 5)
+        XCTAssertEqual(set.knownGroups, ["Work"])
+        XCTAssertEqual(set.candidates.map(\.id.rawValue), ["desk", "builtin", "mirror", "tv"])
+        let deskCandidate = set.candidates[0]
+        XCTAssertEqual(deskCandidate.registryID?.rawValue, "disp_desk")
+        XCTAssertEqual(deskCandidate.alias, "Desk")
+        XCTAssertEqual(deskCandidate.groups, ["Work"], "membership by the registry id counts")
+        XCTAssertEqual(deskCandidate.serial, "XYZ")
+        XCTAssertEqual(deskCandidate.containsPointer, true)
+        XCTAssertEqual(set.candidates[1].containsPointer, false)
+        XCTAssertEqual(set.candidates[2].availability, .inactive)
+        let tv = set.candidates[3]
+        XCTAssertEqual(tv.availability, .disconnected)
+        XCTAssertEqual(tv.reachability, .managedOffline)
+        XCTAssertEqual(tv.cgDisplayID, 9)
+        XCTAssertEqual(tv.name, "Living room", "a turned-off display keeps its alias")
+        XCTAssertEqual(try AutomationSelectorResolver.resolveOne(.display(.alias("Living room")), in: set).id.rawValue, "tv")
+    }
+
+    /// The CLI keeps a turned-off display reachable as an inactive placeholder observation; it is
+    /// still not connected.
+    func testALedgerPlaceholderObservationIsDisconnected() {
+        var placeholder = obs("tv", active: false)
+        placeholder.cgDisplayID = 9
+        let offline = [ManagedOfflineDisplay(recordID: DisplayRecordID(rawValue: "tv"), cgID: 9, name: "LG TV",
+                                             displayClass: .television)]
+        let set = AutomationDisplayCatalog.displaySet(displays: [placeholder], offline: offline, name: name,
+                                                      record: { _ in nil }, groups: [], pointerDisplayID: nil,
+                                                      generation: 0)
+        XCTAssertEqual(set.candidates.count, 1)
+        XCTAssertEqual(set.candidates[0].availability, .disconnected)
+        XCTAssertNil(set.candidates[0].containsPointer)
+    }
 }
+

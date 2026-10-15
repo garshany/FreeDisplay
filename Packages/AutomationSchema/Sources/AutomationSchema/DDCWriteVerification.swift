@@ -29,3 +29,32 @@ public enum DDCWriteVerification: Equatable, Sendable {
         return abs(readback - target) <= max(tolerance, 0) ? .applied : .ignored(actual: readback)
     }
 }
+
+/// When, and how strictly, a DDC write is checked by reading it back — the app's own values, defined
+/// once so the CLI verifies exactly as the app does (owner decision #7, FD-066).
+///
+/// Panels apply a Set-VCP asynchronously, so an immediate read can return the pre-write value and
+/// call a good write ignored; colour presets reprogram the whole colour pipeline and some panels keep
+/// answering with the old code for a beat. Continuous controls are scaled from a 0…1 level and
+/// rounded, so one unit of difference is accepted; discrete codes must match exactly.
+public enum DDCReadbackPolicy {
+    public enum Kind: Sendable {
+        /// Ranged controls: brightness, contrast, volume, sharpness, RGB gains.
+        case continuous
+        /// VCP 0x14 colour preset.
+        case colorPreset
+        /// Other discrete codes: input, mute, power, raw VCP values.
+        case discrete
+    }
+
+    public static let continuousSettleNanoseconds: UInt64 = 250_000_000
+    public static let colorPresetSettleNanoseconds: UInt64 = 1_000_000_000
+
+    public static func settleNanoseconds(_ kind: Kind) -> UInt64 {
+        kind == .colorPreset ? colorPresetSettleNanoseconds : continuousSettleNanoseconds
+    }
+
+    public static func tolerance(_ kind: Kind) -> Int {
+        kind == .continuous ? 1 : 0
+    }
+}

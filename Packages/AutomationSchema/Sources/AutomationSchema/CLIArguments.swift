@@ -67,8 +67,10 @@ public enum CLIGrammar {
     public static let helpOptions: Set<String> = ["--help", "-h"]
     /// Options that never take a value.
     public static let valuelessOptions: Set<String> = ["--json", "--dry-run", "--bundle"]
-    /// Options followed by exactly one value.
-    public static let valuedOptions: Set<String> = ["--out"]
+    /// Options followed by exactly one value. The value is taken as given even when it starts with
+    /// `-`, so `--offset -5%` works while a bare `-5%` stays an unknown option: a minus sign alone
+    /// never turns an absolute level into a relative change.
+    public static let valuedOptions: Set<String> = ["--out", "--method", "--offset"]
 
     /// Which options each verb honours. A verb missing from this table accepts none; an unknown
     /// verb is left for the dispatcher to reject, so its message can list the real verbs.
@@ -83,7 +85,9 @@ public enum CLIGrammar {
         "scene": ["--json"],
         "layout": ["--json"],
         "group": ["--json"],
-        "brightness": ["--json"],
+        "brightness": ["--json", "--method", "--offset"],
+        "mode": ["--json"],
+        "commands": ["--json"],
         "ddc": ["--json"],
         "edid": ["--out"],
     ]
@@ -93,7 +97,7 @@ public enum CLIGrammar {
     public static let commands: Set<String> = [
         "list", "diagnose", "lux", "lid", "listen", "alias", "tag", "recover", "disconnect",
         "reconnect", "scene", "layout", "group", "brightness", "ddc", "edid", "favorite",
-        "favourite", "_rotate-exp", "help",
+        "favourite", "mode", "commands", "_rotate-exp", "help",
     ]
 
     public static func parse(_ arguments: [String]) throws -> CLIParseResult {

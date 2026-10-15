@@ -56,4 +56,38 @@ final class URLCommandTests: XCTestCase {
         XCTAssertEqual(parse("opendisplay://disconnect?display=a&display=b"), .disconnect(selector: "b"))
         XCTAssertEqual(parse("opendisplay://disconnect?DISPLAY=z"), .disconnect(selector: "z"))
     }
+
+    // MARK: Typed requests through the shared parser (FD-066)
+
+    private func request(_ string: String) -> Result<AutomationRequest, AutomationIssue>? {
+        URL(string: string).flatMap(URLCommandParser.parseRequest)
+    }
+
+    func testLinksParseEveryCatalogVerbButOnlyRecoveryKeepsTheLegacyCommand() {
+        guard case .success(let brightness)? = request("opendisplay://brightness?display=alias:Desk&value=50%25") else {
+            return XCTFail("expected a request")
+        }
+        XCTAssertEqual(brightness.command, .setBrightness(AutomationLevel(normalized: 0.5)!, method: .automatic))
+        // Whether a link may run it is the engine's decision; the legacy reading knows two commands.
+        XCTAssertNil(parse("opendisplay://brightness?display=alias:Desk&value=50%25"))
+    }
+
+    func testCallbackParametersAreDroppedButOtherUnknownOnesFail() {
+        XCTAssertEqual(parse("opendisplay://reconnect-all?x-source=Shortcuts&x-success=foo://"), .reconnectAll)
+        guard case .failure(let issue)? = request("opendisplay://reconnect-all?force=1") else {
+            return XCTFail("expected a refusal")
+        }
+        XCTAssertEqual(issue.code, .unknownParameter)
+        XCTAssertNil(parse("opendisplay://reconnect-all?force=1"))
+    }
+
+    func testInvalidValuesAreRefusedWithTheirIssue() {
+        guard case .failure(let issue)? = request("opendisplay://brightness?display=main&value=25") else {
+            return XCTFail("expected a refusal")
+        }
+        XCTAssertEqual(issue.code, .invalidValue)
+        XCTAssertNil(request("https://brightness?display=main"))
+        XCTAssertNil(request("opendisplay://"))
+    }
 }
+
