@@ -7,7 +7,7 @@ import TopologyCore
 
 extension AppModel {
     func clockModeOwnsBrightness(_ id: DisplayRecordID) -> Bool {
-        settings.clockMode?.displays.contains { $0.displayID == id } == true
+        canPersistDisplaySettings(id) && settings.clockMode?.displays.contains { $0.displayID == id } == true
     }
 
     func reconcileClockMode() {
@@ -119,6 +119,7 @@ extension AppModel {
         let configuration = settings.clockMode
         let environment = AppAutomationEnvironment(model: self, surface: .console, beforeClockWrite: { [weak self] in
             guard let self, self.settings.clockMode == configuration,
+                  self.canPersistDisplaySettings(schedule.displayID),
                   configuration?.displays.filter({ $0.displayID == schedule.displayID }).count == 1,
                   !Task.isCancelled, !self.clockModeLifecycleSuspended,
                   !self.clockModeTargetSleeping(schedule.displayID),

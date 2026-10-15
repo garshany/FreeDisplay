@@ -9,18 +9,36 @@ import Foundation
     static let shared = TVControlStore()
     @Published private(set) var states: [DisplayRecordID: TVSessionState] = [:]
     private var stopping = false
+    private var verifiedDisplays: Set<DisplayRecordID> = []
+
+    func updateVerifiedDisplays(_ ids: Set<DisplayRecordID>) {
+        verifiedDisplays = ids.filter(PersistentDisplayIdentity.isPersistent)
+        for id in Array(controllers.keys) where !verifiedDisplays.contains(id) {
+            controllers.removeValue(forKey: id)?.disconnect()
+            states[id] = nil
+        }
+    }
+
+    var quarantinedConfigurations: [String: Data] {
+        let saved = defaults.dictionary(forKey: key) as? [String: Data] ?? [:]
+        return saved.filter { !PersistentDisplayIdentity.isPersistent(DisplayRecordID(rawValue: $0.key)) }
+    }
     private var controllers: [DisplayRecordID: TVController] = [:]
     private let credentials = TVKeychain()
     private let defaults = UserDefaults.standard
     private let key = "opendisplay.tvControllers.v1"
 
     func configuration(for display: DisplayRecordID) -> TVControllerConfiguration? {
+        guard verifiedDisplays.contains(display), PersistentDisplayIdentity.isPersistent(display) else { return nil }
         if let controller = controllers[display] { return controller.configuration }
         guard let data = (defaults.dictionary(forKey: key) as? [String: Data])?[display.rawValue] else { return nil }
         return try? JSONDecoder().decode(TVControllerConfiguration.self, from: data)
     }
 
     func save(_ configuration: TVControllerConfiguration, display: DisplayRecordID, approvedPin: String?) throws {
+        guard verifiedDisplays.contains(display), PersistentDisplayIdentity.isPersistent(display) else {
+            throw AutomationIssue(.notReady, "A verified persistent display identity is required. Earlier provisional associations remain saved but inactive.")
+        }
         guard !stopping else { throw AutomationIssue(.notReady, "TV control is stopping") }
         if let approvedPin { _ = try TVCertificatePin(approvedPin) }
         if let controller = controllers[display] { try controller.update(configuration) }
@@ -59,7 +77,7 @@ import Foundation
         try save(configuration, display: display, approvedPin: nil)
     }
     func canPerform(_ action: TVAction, display: DisplayRecordID) -> Bool {
-        guard !stopping else { return false }
+        guard !stopping, verifiedDisplays.contains(display), PersistentDisplayIdentity.isPersistent(display) else { return false }
         if let controller = controllers[display] { return controller.canPerform(action) }
         // SwiftUI reads this while rendering buttons. Only explicit actions may install/publish a
         // session; a separately saved wake interface is usable without opening a paired socket.
@@ -82,7 +100,7 @@ import Foundation
     }
 
     private func controller(_ display: DisplayRecordID) -> TVController? {
-        guard !stopping else { return nil }
+        guard !stopping, verifiedDisplays.contains(display), PersistentDisplayIdentity.isPersistent(display) else { return nil }
         if let controller = controllers[display] { return controller }
         guard let configuration = configuration(for: display) else { return nil }
         install(configuration, display: display)

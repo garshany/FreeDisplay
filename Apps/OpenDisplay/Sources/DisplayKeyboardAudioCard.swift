@@ -14,7 +14,7 @@ struct KeyboardAndSoundCard: View {
     let display: DisplayObservation
 
     private var preferences: DisplayKeyboardAudioPreferences {
-        model.settings.keyboardAudioPreferences(for: display.recordID)
+        model.keyboardAudioPreferences(for: display.recordID)
     }
 
     private func update(_ change: (inout DisplayKeyboardAudioPreferences) -> Void) {
@@ -68,6 +68,7 @@ struct KeyboardAndSoundCard: View {
                 }
             }
         }
+        .disabled(!model.canPersistDisplaySettings(display.recordID))
         .onAppear { model.refreshAudioOutputs() }
     }
 

@@ -170,7 +170,7 @@ public struct SettingsArchive: Hashable, Sendable {
     /// identity turns up; the import summary lists them so nothing is retargeted silently.
     /// Sorted by name, then id, so the list reads the same every time.
     public func unmatchedDisplays(known: Set<DisplayRecordID>) -> [ArchivedDisplay] {
-        referencedDisplayIDs.subtracting(known)
+        referencedDisplayIDs.filter { !known.contains($0) || !PersistentDisplayIdentity.isPersistent($0) }
             .map { ArchivedDisplay(id: $0, name: archivedName(for: $0)) }
             .sorted { ($0.name ?? $0.id.rawValue, $0.id.rawValue) < ($1.name ?? $1.id.rawValue, $1.id.rawValue) }
     }

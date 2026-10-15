@@ -18,7 +18,8 @@ extension RememberedDisplay {
         let uuids = observationIDs.compactMap(\.cgUUID).sorted()
         facts.uuid = uuids.isEmpty ? nil : uuids.joined(separator: ", ")
         let keys = Set(observationIDs.map(\.rawValue)).union([id])
-        let anchors = Set(keys.compactMap { luminanceSettings[$0] })
+        let anchors = Set(keys.filter { PersistentDisplayIdentity.isPersistent(.init(rawValue: $0)) }
+            .compactMap { luminanceSettings[$0] })
         if anchors.count == 1 { facts.luminanceAnchors = anchors.first }
         return facts
     }

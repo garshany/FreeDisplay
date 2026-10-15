@@ -49,6 +49,17 @@ struct TVControlCard: View {
                footnote: String(localized: "FreeDisplay uses a separately paired network controller. Video connection, pairing and a sent request do not prove that a TV changed power, volume or input. Automatic power handling is off.")) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("TV endpoints, pairing and remote preferences stay on this Mac under their original display identifiers. They are excluded from settings archives, app reset, per-display Forget or Reset, and transfer. Use TV control to disable a controller or delete its local pairing; device-side authorization is unchanged.").font(.caption).foregroundStyle(.secondary)
+                if !store.quarantinedConfigurations.isEmpty {
+                    DisclosureGroup("Inactive TV associations") {
+                        Text("Earlier TV associations with provisional display IDs are inactive. Their configurations and Keychain credentials remain saved on this Mac.")
+                        ForEach(store.quarantinedConfigurations.keys.sorted(), id: \.self) { id in
+                            Text(verbatim: id).bold()
+                            if let data = store.quarantinedConfigurations[id] {
+                                Text(verbatim: String(decoding: data, as: UTF8.self)).textSelection(.enabled)
+                            }
+                        }
+                    }
+                }
                 Toggle("Enable TV control", isOn: $enabled)
                 Picker("TV family", selection: $family) {
                     Text("LG webOS").tag(TVFamily.lgWebOS)
@@ -217,6 +228,10 @@ struct TVControlCard: View {
 
     @discardableResult private func save() -> Bool {
         do {
+            guard model.canPersistDisplaySettings(display.recordID) else {
+                message = String(localized: "A verified persistent display identity is required. Earlier provisional associations remain saved but inactive.")
+                return false
+            }
             guard let port = UInt16(port), let connection = Double(connectionSeconds), let response = Double(responseSeconds),
                   let session = Double(sessionSeconds),
                   certificate.isEmpty || (tls && verifiedCertificate) else {

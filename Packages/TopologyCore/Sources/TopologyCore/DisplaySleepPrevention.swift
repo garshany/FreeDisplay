@@ -121,7 +121,7 @@ public enum DisplaySleepPrevention {
         for candidate in candidates {
             var reasons: Reasons = []
             if anyExternal, candidate.isExternal { reasons.insert(.anyExternal) }
-            if perDisplay.contains(candidate.recordID.rawValue) { reasons.insert(.thisDisplay) }
+            if PersistentDisplayIdentity.isPersistent(candidate.recordID), perDisplay.contains(candidate.recordID.rawValue) { reasons.insert(.thisDisplay) }
             guard !reasons.isEmpty else {
                 standings[candidate.recordID] = .notRequested
                 continue

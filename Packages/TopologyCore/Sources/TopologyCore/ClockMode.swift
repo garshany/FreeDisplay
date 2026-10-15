@@ -126,7 +126,7 @@ public enum ClockCalendarPolicy {
 /// Session state has no clock, timer, transport, retry budget or persistence side effects.
 public struct ClockModeSession: Sendable {
     public enum Hold: Equatable, Sendable {
-        case disabled, safeStartup, sleeping, resumePaused, manualOverride, competingPolicy, noAnchor
+        case disabled, safeStartup, sleeping, resumePaused, manualOverride, competingPolicy, noAnchor, provisionalIdentity
     }
     public enum Decision: Equatable, Sendable {
         case hold(Hold)
@@ -152,6 +152,7 @@ public struct ClockModeSession: Sendable {
 
     public func decision(schedule: ClockDisplaySchedule, sample: ClockCalendarPolicy.Sample?,
                          enabled: Bool, safeStartup: Bool, sleeping: Bool, competingPolicy: Bool) -> Decision {
+        guard PersistentDisplayIdentity.isPersistent(schedule.displayID) else { return .hold(.provisionalIdentity) }
         if !enabled { return .hold(.disabled) }
         if safeStartup { return .hold(.safeStartup) }
         if sleeping { return .hold(.sleeping) }

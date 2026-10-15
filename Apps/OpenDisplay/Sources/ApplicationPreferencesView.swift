@@ -132,15 +132,17 @@ struct DisplaySleepPreventionCard: View {
                         Text(model.rememberedDisplayName(for: id))
                         Text("Keep displays awake while this display is connected")
                             .font(.caption).foregroundStyle(.secondary)
-                        if live == nil {
+                        if !model.canPersistDisplaySettings(id) {
+                            Text("A verified persistent display identity is required. Earlier provisional associations remain saved but inactive.").font(.caption)
+                        } else if live == nil {
                             Text("Not connected; no assertion is held for this display.").font(.caption)
                         } else if let live, DisplaySleepPrevention.ineligibility(of: .init(live)) == .unverified {
                             Text("Physical display presence is unverified; this display cannot own the assertion.").font(.caption)
                         }
                     }
                 }
-                .disabled(!model.preventsDisplaySleep(id) &&
-                          (live.map { DisplaySleepPrevention.ineligibility(of: .init($0)) != nil } ?? true))
+                .disabled(!model.canPersistDisplaySettings(id) || (!model.preventsDisplaySleep(id) &&
+                          (live.map { DisplaySleepPrevention.ineligibility(of: .init($0)) != nil } ?? true)))
             }
             Text("Only active displays with verified physical presence can own the assertion. Turning off one display’s preference leaves other owners and the global external-display preference unchanged.")
             LabeledContent("Assertion type", value: DisplaySleepPrevention.assertionType).textSelection(.enabled)

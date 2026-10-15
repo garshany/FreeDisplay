@@ -886,6 +886,10 @@ final class AppModel: ObservableObject {
     private func refreshRegistryKnownRecords() async {
         guard let registry else { return }
         registryKnownRecords = await registry.recordsByObservationID()
+        let known = registryKnownRecords.merging(records) { _, live in live }
+        TVControlStore.shared.updateVerifiedDisplays(Set(known.compactMap { id, record in
+            PersistentDisplayIdentity.isVerified(id, record: record) ? id : nil
+        }))
         // Republish only on a change: every view observing the model re-evaluates on a publish. While a
         // display is present its `lastSeen` moves on every resolve, so this mainly spares the refreshes
         // of a registry with nothing live — comparing without `lastSeen` would leave "last seen" stale.
@@ -2887,6 +2891,15 @@ final class AppModel: ObservableObject {
     }
 
     func updateClockMode(_ configuration: ClockModeConfiguration?, enabled: Bool? = nil) {
+        if let configuration {
+            let old = settings.clockMode?.displays ?? []
+            guard configuration.displays.allSatisfy({ schedule in
+                canPersistDisplaySettings(schedule.displayID) || old.contains(schedule)
+            }) else {
+                clockModeConfigurationError = String(localized: "A verified persistent display identity is required. Earlier provisional associations remain saved but inactive.")
+                return
+            }
+        }
         settings.clockMode = configuration
         if let enabled { settings.clockScheduleEnabled = enabled }
         clockModeLastRequests.removeAll()
@@ -5660,16 +5673,25 @@ final class AppModel: ObservableObject {
         reconcileDisplaySleepGuard()
     }
 
+    func canPersistDisplaySettings(_ id: DisplayRecordID) -> Bool {
+        PersistentDisplayIdentity.isVerified(id, record: records[id] ?? registryKnownRecords[id])
+    }
+
+    func keyboardAudioPreferences(for id: DisplayRecordID) -> DisplayKeyboardAudioPreferences {
+        guard canPersistDisplaySettings(id) else { return .default }
+        return settings.keyboardAudioPreferences(for: id)
+    }
+
     /// Whether `display` itself keeps the displays awake while it is connected and lit (AM-42).
     func preventsDisplaySleep(_ display: DisplayRecordID) -> Bool {
-        settings.preventDisplaySleepDisplayIDs.contains(display.rawValue)
+        canPersistDisplaySettings(display) && settings.preventsDisplaySleep(for: display)
     }
 
     /// This display's own "keep the displays awake while connected" (AM-42). Turning it off affects
     /// only this display: another display, or the "any external" setting, may still hold the
     /// assertion — `displaySleepPrevention` says which.
     func setPreventsDisplaySleep(_ enabled: Bool, for display: DisplayRecordID) {
-        guard preventsDisplaySleep(display) != enabled else { return }
+        guard canPersistDisplaySettings(display), preventsDisplaySleep(display) != enabled else { return }
         if enabled {
             guard let live = displays.first(where: { $0.recordID == display }),
                   DisplaySleepPrevention.ineligibility(of: .init(live)) == nil else { return }
@@ -5757,7 +5779,9 @@ final class AppModel: ObservableObject {
         let decision = DisplaySleepPrevention.decide(
             // Shift safe startup (FA-09) holds no keep-awake assertion.
             anyExternal: settings.preventDisplaySleepWithExternal && !safeStartup,
-            perDisplay: safeStartup ? [] : settings.preventDisplaySleepDisplayIDs,
+            perDisplay: safeStartup ? [] : Set(settings.preventDisplaySleepDisplayIDs.filter {
+                canPersistDisplaySettings(DisplayRecordID(rawValue: $0))
+            }),
             candidates: displays.map(DisplaySleepPrevention.Candidate.init))
         sleepGuard.apply(decision)
         let snapshot = DisplaySleepPrevention.Snapshot(decision: decision, status: sleepGuard.status)
@@ -6455,17 +6479,19 @@ final class AppModel: ObservableObject {
 
     /// The luminance anchors stored for a display, nil when nothing is stored.
     func luminanceAnchors(for observation: DisplayObservation) -> LuminanceAnchorSettings? {
-        settings.luminanceAnchorsByDisplay[observation.recordID.rawValue]
+        guard canPersistDisplaySettings(observation.recordID) else { return nil }
+        return settings.savedLuminanceAnchors(for: observation.recordID)
     }
 
     /// Stores a display's luminance anchors. Labels only: nothing here reaches the display. A
     /// record back at its first-run state (manual values on, nothing entered) is dropped rather
     /// than kept empty.
     func setLuminanceAnchors(_ anchors: LuminanceAnchorSettings, for observation: DisplayObservation) {
+        guard canPersistDisplaySettings(observation.recordID) else { return }
         let key = observation.recordID.rawValue
         let stored: LuminanceAnchorSettings? = anchors.isDefault ? nil : anchors
         guard settings.luminanceAnchorsByDisplay[key] != stored else { return }
-        settings.luminanceAnchorsByDisplay[key] = stored
+        settings.setLuminanceAnchors(stored, for: observation.recordID)
         persistSettings()
     }
 
@@ -7270,7 +7296,7 @@ final class AppModel: ObservableObject {
                 : brightnessSyncGroup(containing: id).flatMap { $0.syncBrightness ? $0.id : nil }
             return BrightnessKeyRouter.Candidate(
                 observation: observation,
-                keyboardEnabled: settings.keyboardAudioPreferences(for: id).keyboardControl,
+                keyboardEnabled: keyboardAudioPreferences(for: id).keyboardControl,
                 controllable: observation.cgDisplayID != nil && !invisible,
                 macOSControllable: macOSControllable, syncGroup: group)
         }
@@ -7296,7 +7322,7 @@ final class AppModel: ObservableObject {
             switch recipient {
             case .hardware(let id):
                 guard let observation = displays.first(where: { $0.recordID == id }) else { continue }
-                let showsOSD = settings.keyboardAudioPreferences(for: id).showsVolumeOSD
+                let showsOSD = keyboardAudioPreferences(for: id).showsVolumeOSD
                 if action == .muteToggle {
                     handled = toggleMute(for: observation, eventSource: .mediaKey, showsOSD: showsOSD) || handled
                 } else if let current = ddcControl(.volume, for: observation) {
@@ -7308,7 +7334,7 @@ final class AppModel: ObservableObject {
             case .native(let id, let device):
                 let observation = displays.first { $0.recordID == id }
                 handled = applyNativeAudio(action, to: device, delta: delta, feedbackDisplay: observation,
-                                           showsOSD: settings.keyboardAudioPreferences(for: id).showsVolumeOSD) || handled
+                                           showsOSD: keyboardAudioPreferences(for: id).showsVolumeOSD) || handled
             case .currentOutput(let device):
                 handled = applyNativeAudio(action, to: device, delta: delta, feedbackDisplay: nil, showsOSD: true) || handled
             }
@@ -7335,7 +7361,7 @@ final class AppModel: ObservableObject {
     /// Every display as the volume keys see it, against the outputs in `devices`.
     private func audioKeyCandidates(devices: [AudioOutputDevice]) -> [AudioKeyCandidate] {
         displays.map { observation in
-            let preferences = settings.keyboardAudioPreferences(for: observation.recordID)
+            let preferences = keyboardAudioPreferences(for: observation.recordID)
             let matchOverride = observation.displayClass == .builtIn ? AudioDeviceResolution.unset
                 : AudioDeviceSelector.resolve(preferences.audioMatch, in: devices, strictness: .allowsFragment)
             return AudioKeyCandidate(observation: observation, productName: osDisplayName(for: observation),
@@ -7648,25 +7674,26 @@ final class AppModel: ObservableObject {
     // MARK: - Display audio and keyboard preferences (SD-11, SD-16, TB-08, TR-16)
 
     func setShowsVolumeFeedback(_ show: Bool, for id: DisplayRecordID) {
+        guard canPersistDisplaySettings(id) else { return }
         settings.setShowsVolumeFeedback(show, for: id)
         persistSettings()
     }
 
     /// Where this display's volume and mute go right now, against the outputs last read.
     func audioSink(for observation: DisplayObservation) -> DisplayAudioSink {
-        audioSink(for: observation, preferences: settings.keyboardAudioPreferences(for: observation.recordID),
+        audioSink(for: observation, preferences: keyboardAudioPreferences(for: observation.recordID),
                   devices: audioSnapshot.devices)
     }
 
     /// What the display's native-association text names among the present outputs.
     func nativeAudioResolution(for observation: DisplayObservation) -> AudioDeviceResolution {
-        AudioDeviceSelector.resolve(settings.keyboardAudioPreferences(for: observation.recordID).nativeAudioDevice,
+        AudioDeviceSelector.resolve(keyboardAudioPreferences(for: observation.recordID).nativeAudioDevice,
                                     in: audioSnapshot.devices, strictness: .exact)
     }
 
     /// What the display's volume-key matching text names among the present outputs.
     func audioMatchResolution(for observation: DisplayObservation) -> AudioDeviceResolution {
-        AudioDeviceSelector.resolve(settings.keyboardAudioPreferences(for: observation.recordID).audioMatch,
+        AudioDeviceSelector.resolve(keyboardAudioPreferences(for: observation.recordID).audioMatch,
                                     in: audioSnapshot.devices, strictness: .allowsFragment)
     }
 
@@ -7781,9 +7808,10 @@ final class AppModel: ObservableObject {
     /// Updates one display's keyboard/audio preferences (saved at once, like every display setting).
     func updateKeyboardAudioPreferences(for observation: DisplayObservation,
                                         _ change: (inout DisplayKeyboardAudioPreferences) -> Void) {
-        var preferences = settings.keyboardAudioPreferences(for: observation.recordID)
+        guard canPersistDisplaySettings(observation.recordID) else { return }
+        var preferences = keyboardAudioPreferences(for: observation.recordID)
         change(&preferences)
-        guard preferences.normalized != settings.keyboardAudioPreferences(for: observation.recordID).normalized else { return }
+        guard preferences.normalized != keyboardAudioPreferences(for: observation.recordID).normalized else { return }
         settings.setKeyboardAudioPreferences(preferences, for: observation.recordID)
         persistSettings()
         Task { [weak self] in await self?.confirmDisplayAudioForKeys() }

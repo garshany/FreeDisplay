@@ -690,6 +690,12 @@ private struct HealthSection: View {
 
                 Divider()
                 ClockDisplayRecipesCard()
+                if !model.settings.quarantinedDisplayIDs.isEmpty {
+                    Text("Earlier provisional display associations are saved but inactive. Export or inspect their original identifiers before recreating them for a verified display.")
+                        .font(.caption)
+                    Text(verbatim: model.settings.quarantinedDisplayIDs.map(\.rawValue).joined(separator: ", "))
+                        .textSelection(.enabled)
+                }
 
                 Divider()
 

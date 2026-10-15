@@ -34,9 +34,15 @@ final class IntegrationSession: ObservableObject {
         synchronize()
     }
     var displaySet: AutomationDisplaySet { model?.automationDisplaySet(pointerDisplayID: nil) ?? .init(candidates: []) }
+    private func verified(_ id: DisplayRecordID) -> Bool {
+        PersistentDisplayIdentity.isPersistent(id) && model?.canPersistDisplaySettings(id) == true
+    }
     var safeStartup: Bool { model?.safeStartup ?? true }
 
     func save(_ value: IntegrationConfiguration) throws {
+        guard value.displays.allSatisfy({ verified($0.id) || configuration.displays.contains($0) }) else {
+            throw IntegrationError.invalid("A verified persistent display identity is required. Earlier provisional associations remain saved but inactive.")
+        }
         try value.validate(in: displaySet)
         guard let store else { throw IntegrationError.invalid("Integration storage is unavailable") }
         try store.save(value)
@@ -86,13 +92,14 @@ final class IntegrationSession: ObservableObject {
         reconcilePolling()
     }
     private func definition(for id: DisplayRecordID) -> DisplayIntegration? {
-        IntegrationPlan.definition(for: id, in: configuration, displays: displaySet)
+        guard verified(id) else { return nil }
+        return IntegrationPlan.definition(for: id, in: configuration, displays: displaySet)
     }
     private func deliver(_ events: [IntegrationHookEvent]) {
         guard !shuttingDown else { return }
         for event in events {
             activity.append("event=\(event.phase.rawValue) target=\(event.display.rawValue) transition=\(event.transition)")
-            guard let environment else { continue }
+            guard verified(event.display), let environment else { continue }
             do {
                 guard let action = try IntegrationPlan.hook(event, configuration: configuration, displays: displaySet, safeStartup: safeStartup) else { continue }
                 let id = UUID()
@@ -106,7 +113,7 @@ final class IntegrationSession: ObservableObject {
         }
     }
     func invoke(_ control: IntegrationControl, on definition: DisplayIntegration, value: IntegrationValue) async {
-        guard !safeStartup, !shuttingDown, definition.enabled, control.enabled, let environment else { return }
+        guard verified(definition.id), !safeStartup, !shuttingDown, definition.enabled, control.enabled, let environment else { return }
         do {
             let candidate = try AutomationSelectorResolver.resolveOne(.display(.id(definition.id)), in: displaySet)
             guard candidate.availability != .disconnected else { throw IntegrationError.invalid("Display is disconnected") }
@@ -119,7 +126,7 @@ final class IntegrationSession: ObservableObject {
         } catch { failure = (error as? IntegrationError)?.message ?? error.localizedDescription }
     }
     func pull(_ control: IntegrationControl, on display: DisplayIntegration) async {
-        guard !safeStartup, !shuttingDown, !isSleeping, display.enabled, control.enabled,
+        guard verified(display.id), !safeStartup, !shuttingDown, !isSleeping, display.enabled, control.enabled,
               let parser = control.readback, control.readAction != .none, let environment else { return }
         do {
             let candidate = try AutomationSelectorResolver.resolveOne(.display(.id(display.id)), in: displaySet)
@@ -147,8 +154,10 @@ final class IntegrationSession: ObservableObject {
         guard !safeStartup, !shuttingDown, !isSleeping, let environment else { runtime.cancelAll(); pollKeys.removeAll(); return }
         do {
             let plans = try IntegrationPlan.polls(configuration: configuration, displays: displaySet, safeStartup: safeStartup, sleeping: isSleeping)
+                .filter { verified($0.action.target) }
             let wanted = Set(plans.map(\.key))
             for plan in plans where !pollKeys.contains(plan.key) {
+                guard verified(plan.action.target) else { continue }
                 try runtime.startPolling(seconds: plan.seconds, key: plan.key, action: plan.action, parser: plan.parser, environment: environment, failurePolicy: plan.failurePolicy,
                                          sleep: { try await Task.sleep(for: .seconds($0)) })
             }

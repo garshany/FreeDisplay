@@ -53,6 +53,10 @@ private struct IntegrationEditor: View {
                 ForEach(session.configuration.displays) { display in
                     VStack(alignment: .leading) {
                         Text(verbatim: display.id.rawValue).font(.headline)
+                        if !PersistentDisplayIdentity.isPersistent(display.id) {
+                            Text("Earlier provisional display associations are saved but inactive. Export or inspect their original identifiers before recreating them for a verified display.")
+                                .font(.caption)
+                        }
                         ForEach(display.controls) { control in
                             IntegrationControlRow(session: session, display: display, control: control)
                         }
@@ -82,7 +86,7 @@ private struct IntegrationEditor: View {
     }
     private func addPaused() {
         let id = DisplayRecordID(rawValue: selected)
-        guard !session.configuration.displays.contains(where: { $0.id == id }) else { return }
+        guard PersistentDisplayIdentity.isPersistent(id), !session.configuration.displays.contains(where: { $0.id == id }) else { return }
         var copy = session.configuration
         copy.displays.append(.init(id: id, controls: [
             .init(name: "Brightness", kind: .ranged(multiplier: 100, decimalPlaces: 0)),

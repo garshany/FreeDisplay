@@ -38,7 +38,7 @@ struct ClockDisplayRecipesCard: View {
                 ForEach(model.automationDisplayEntries, id: \.id) { display in
                     Button(display.name) { add(display.id) }
                         .disabled(configuration.displays.contains { $0.displayID == display.id }
-                                  || model.brightness[display.id] == nil)
+                                  || model.brightness[display.id] == nil || !model.canPersistDisplaySettings(display.id))
                 }
             }
             Text("Adding a display uses its currently known brightness as the editable Restore value. It adds no schedule points and does not change brightness.")
@@ -74,7 +74,7 @@ struct ClockDisplayRecipesCard: View {
     }
 
     private func add(_ id: DisplayRecordID) {
-        guard let current = model.brightness[id], let level = AutomationLevel(normalized: Double(current)) else { return }
+        guard model.canPersistDisplaySettings(id), let current = model.brightness[id], let level = AutomationLevel(normalized: Double(current)) else { return }
         edit { $0.displays.append(ClockDisplaySchedule(displayID: id, entries: [], method: .automatic,
                                                        restoreLevel: level,
                                                        rampMinutes: ClockSchedulePolicy.defaultRampMinutes)) }
@@ -218,6 +218,7 @@ private struct ClockDisplayRecipeEditor: View {
         case .resumePaused: return String(localized: "Clock Mode is paused after wake. Press Resume.")
         case .manualOverride: return String(localized: "Manual brightness held until the next schedule point.")
         case .competingPolicy: return String(localized: "Clock Mode is blocked by group sync or an active app preset.")
+        case .provisionalIdentity: return String(localized: "A verified persistent display identity is required. Earlier provisional associations remain saved but inactive.")
         case .noAnchor: return String(localized: "No available schedule point. Solar points require a location and an available solar event.")
         }
     }

@@ -559,12 +559,14 @@ public struct OpenDisplaySettings: Hashable, Sendable, Codable {
 
     /// The keyboard/audio preferences of one display: its stored entry or the defaults.
     public func keyboardAudioPreferences(for display: DisplayRecordID) -> DisplayKeyboardAudioPreferences {
-        keyboardAudioByDisplay[display.rawValue] ?? .default
+        guard PersistentDisplayIdentity.isPersistent(display) else { return .default }
+        return keyboardAudioByDisplay[display.rawValue] ?? .default
     }
 
     /// Stores `preferences` for `display`; an entry equal to the defaults is removed rather than kept.
     public mutating func setKeyboardAudioPreferences(_ preferences: DisplayKeyboardAudioPreferences,
                                                      for display: DisplayRecordID) {
+        guard PersistentDisplayIdentity.isPersistent(display) else { return }
         let normalized = preferences.normalized
         keyboardAudioByDisplay[display.rawValue] = normalized.isDefault ? nil : normalized
     }
@@ -631,13 +633,46 @@ public struct SettingsStore: Sendable {
 // either old opt-out on read; an explicit edit resolves both, without changing persisted keys.
 extension OpenDisplaySettings {
     public func showsVolumeFeedback(for id: DisplayRecordID) -> Bool {
-        keyboardAudioPreferences(for: id).showsVolumeOSD && !osdFeedback.volumeHiddenDisplayIDs.contains(id.rawValue)
+        guard PersistentDisplayIdentity.isPersistent(id) else { return true }
+        return keyboardAudioPreferences(for: id).showsVolumeOSD && !osdFeedback.volumeHiddenDisplayIDs.contains(id.rawValue)
     }
 
     public mutating func setShowsVolumeFeedback(_ show: Bool, for id: DisplayRecordID) {
+        guard PersistentDisplayIdentity.isPersistent(id) else { return }
         var preferences = keyboardAudioPreferences(for: id)
         preferences.showsVolumeOSD = show
         keyboardAudioByDisplay[id.rawValue] = preferences.isDefault ? nil : preferences
         osdFeedback.volumeHiddenDisplayIDs.remove(id.rawValue)
+    }
+}
+
+// Quarantine in place preserves old archive keys and values for inspection/export and explicit
+// recovery. Decoding and re-encoding must never discard an association whose owner is unknown.
+extension OpenDisplaySettings {
+    public var quarantinedDisplayIDs: [DisplayRecordID] {
+        let keys = Set(keyboardAudioByDisplay.keys).union(luminanceAnchorsByDisplay.keys)
+            .union(preventDisplaySleepDisplayIDs).union(clockMode?.displays.map { $0.displayID.rawValue } ?? [])
+        return keys.map { DisplayRecordID(rawValue: $0) }.filter { !PersistentDisplayIdentity.isPersistent($0) }
+            .sorted { $0.rawValue < $1.rawValue }
+    }
+
+    public func savedLuminanceAnchors(for id: DisplayRecordID) -> LuminanceAnchorSettings? {
+        guard PersistentDisplayIdentity.isPersistent(id) else { return nil }
+        return luminanceAnchorsByDisplay[id.rawValue]
+    }
+
+    public mutating func setLuminanceAnchors(_ anchors: LuminanceAnchorSettings?, for id: DisplayRecordID) {
+        guard PersistentDisplayIdentity.isPersistent(id) else { return }
+        luminanceAnchorsByDisplay[id.rawValue] = anchors
+    }
+
+    public func preventsDisplaySleep(for id: DisplayRecordID) -> Bool {
+        PersistentDisplayIdentity.isPersistent(id) && preventDisplaySleepDisplayIDs.contains(id.rawValue)
+    }
+
+    public mutating func setPreventsDisplaySleep(_ enabled: Bool, for id: DisplayRecordID) {
+        guard PersistentDisplayIdentity.isPersistent(id) else { return }
+        if enabled { preventDisplaySleepDisplayIDs.insert(id.rawValue) }
+        else { preventDisplaySleepDisplayIDs.remove(id.rawValue) }
     }
 }

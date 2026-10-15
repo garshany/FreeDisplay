@@ -42,12 +42,17 @@ struct DisplayDetailView: View {
                     // selected, and the card's command state (a reset or power result, its
                     // follow-up offer, a pending confirmation) belongs to the display it was sent to.
                     ControlsCard(display: display).id(display.recordID)
+                    if !model.canPersistDisplaySettings(display.recordID) {
+                        Text("A verified persistent display identity is required. Earlier provisional associations remain saved but inactive.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     TVControlCard(display: display).id(display.recordID)
                 }
                 // SD-11/SD-16: keyboard participation for every display, sound binding for externals.
                 KeyboardAndSoundCard(display: display).id(display.recordID)
                 DimmingCard(display: display)
                 LuminanceCard(display: display).id(display.recordID)
+                    .disabled(!model.canPersistDisplaySettings(display.recordID))
                 UseAsCard(display: display)
                 IdentityCard(display: display)
                 DisplayIdentityCard(display: display).id(display.recordID)

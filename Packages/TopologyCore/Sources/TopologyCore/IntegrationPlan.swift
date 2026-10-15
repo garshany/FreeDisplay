@@ -14,7 +14,7 @@ public enum IntegrationPlan {
     public static func definition(for id: DisplayRecordID, in configuration: IntegrationConfiguration,
                                   displays: AutomationDisplaySet) -> DisplayIntegration? {
         configuration.displays.first {
-            (try? AutomationSelectorResolver.resolveOne(.display(.id($0.id)), in: displays).id) == id
+            PersistentDisplayIdentity.isPersistent($0.id) && (try? AutomationSelectorResolver.resolveOne(.display(.id($0.id)), in: displays).id) == id
         }
     }
     /// Safe startup is a session veto, independent of persisted enable flags. Observed loss uses
@@ -41,7 +41,7 @@ public enum IntegrationPlan {
                              safeStartup: Bool, sleeping: Bool) throws -> [IntegrationPollPlan] {
         guard !safeStartup, !sleeping else { return [] }
         var plans: [IntegrationPollPlan] = []
-        for display in configuration.displays where display.enabled {
+        for display in configuration.displays where display.enabled && PersistentDisplayIdentity.isPersistent(display.id) {
             guard let candidate = try? AutomationSelectorResolver.resolveOne(.display(.id(display.id)), in: displays),
                   candidate.availability != .disconnected else { continue }
             for control in display.controls where control.enabled {
