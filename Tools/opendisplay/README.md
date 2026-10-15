@@ -1,10 +1,13 @@
 # opendisplay (CLI)
 
-**macOS target** (`Tools/opendisplay/Sources/main.swift`, no argument-parsing dependency; the
-grammar lives in `Packages/AutomationSchema/Sources/AutomationSchema/CLIArguments.swift`). It runs
-in its own process: it composes its own providers, reads the app's persisted stores (display
-registry, managed-offline list, settings, scenes) and routes lifecycle commands through
-`CommandGateway`, but it is not a remote control for the running app.
+**macOS target** (`Tools/opendisplay/Sources/main.swift`; shared grammar and typed requests in
+`Packages/AutomationSchema`). Shared-model commands now control the **running FreeDisplay app**
+over a same-user Unix socket: readiness, discovery, brightness/offsets, managed hardware contrast,
+recovery/disconnect, mode/main and ICC. The app owns the live state and managed-offline ledger.
+These commands refuse if the app is unavailable and never fall back/retry through direct providers.
+Help/catalog work without it. Other legacy verbs retain their direct-provider implementation only
+while the app is off, and explicitly refuse while it runs. See [transport lifecycle, security,
+compatibility and Home Assistant instructions](../../Docs/Integration-transports.md).
 
 These are the commands it implements — `opendisplay --help` prints the same list:
 
@@ -24,7 +27,17 @@ opendisplay scene <list|save|show|plan|apply|delete> [name] [--json]
 opendisplay layout <protect|unprotect|status> [--json]
 opendisplay group <list|create|delete> [name] [--json]
 opendisplay group <add|remove> <name> <selector>
-opendisplay brightness <selector> [0..1] [--json]
+opendisplay brightness <selector> [0..1|N%] [--method automatic|hardware|native|ddc|software] [--json]
+opendisplay brightness <selector> --offset <delta> [--json]
+opendisplay contrast <selector> [0..1|N%] [--json]
+opendisplay ready [--json]
+opendisplay mode <selector> [mode] [--json]
+opendisplay main <selector> [--json]
+opendisplay profile <selector> [profile] [--json]
+opendisplay profiles [--json]
+opendisplay capabilities <selector> [--json]
+opendisplay commands [--json]
+opendisplay command <name> [parameter=value ...] [--dry-run] [--json]
 opendisplay ddc <selector> <brightness|contrast|volume|input|colour|sharpness|red|green|blue|mute|power|caps> [value] [--json]
 opendisplay ddc <selector> reset
 opendisplay ddc <selector> vcp <0xNN> [value] [--json]
@@ -36,8 +49,9 @@ opendisplay help | --help | -h
 The PRD's generic `get`/`set`/`connect`/`blackout` grammar (PRD §12.2) is **not** implemented.
 
 - **Options are per command.** An option a command doesn't list is an error (exit 2) rather than
-  ignored — in particular `--dry-run` exists only for `disconnect`, and nowhere else does it
-  silently perform the real write. `--help`/`-h` anywhere prints help and touches nothing.
+  ignored — in particular `--dry-run` exists for `disconnect` and typed `command`, and nowhere else does it
+  silently perform the real write. Shared-model IPC commands accept optional caller-supplied
+  `--timeout <seconds>`; without it no client deadline is imposed. `--help`/`-h` anywhere prints help and touches nothing.
 - **Results say what is known.** A write is `verified` only when reading the value back shows
   exactly what was written; `sent` means the display accepted it but nothing confirmed it took
   (no read-back, or one that disagreed — DDC panels ACK writes they then ignore). With `--json`,
@@ -48,9 +62,13 @@ The PRD's generic `get`/`set`/`connect`/`blackout` grammar (PRD §12.2) is **not
   arrangement read afterwards: fields it doesn't execute (on/off, rotation, brightness, colour
   profile, HDR, relative placement) are reported as skipped, and a missing *required* member blocks
   the whole apply.
-- **`recover`** reconnects every display in the shared managed-offline list (displays the app or
-  the CLI turned off), each verified like `reconnect`. If the app is running it keeps its own copy
-  of that list, so prefer the app's Reconnect All while it is up.
+- **`recover`** reconnects through the running app's live managed-offline ledger and verification
+  funnel. It refuses without the app. No standalone copy races the running app's ledger.
+- **`disconnect --dry-run`** now uses the shared typed result/envelope and app safety preflight;
+  its output replaces the old standalone safety-preview object. No display write occurs.
+- Legacy-command sections below describe their **app-off standalone** implementation. New typed
+  `contrast` uses normalized units; raw `ddc … contrast` remains a different monitor-unit interface.
+
 
 Exit status:
 

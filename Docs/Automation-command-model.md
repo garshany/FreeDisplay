@@ -8,13 +8,13 @@ FreeDisplay has its own command protocol. It is not compatible with BetterDispla
 
 | Surface | Default, lifetime and authentication | Discovery and outcomes |
 |---|---|---|
-| Standalone `opendisplay` | One invocation, direct providers and persisted stores; no GUI IPC yet | `help`, `commands --json`, `capabilities <selector> --json`, `mode <selector> --json`; exit 0 success/sent/no-op, 1 failure, 2 usage, 3 partial |
+| `opendisplay` | Shared-model requests use the running app over same-user IPC; no app means explicit refusal. Legacy direct-provider verbs require the app to be off. See [transport contract](Integration-transports.md). | `help`, `commands --json`, `capabilities <selector> --json`, `mode <selector> --json`; exit 0 success/sent/no-op, 1 failure, 2 usage, 3 partial |
 | `opendisplay://` | OS URL handler; no credential; only recovery is admitted | Existing `reconnect-all`/`reconnectAll`/`recover` aliases remain. Disconnect links are refused visibly. Other typed commands are refused by surface admission. No callbacks are invoked. |
-| Local HTTP | Explicit Start in Settings → Automation; loopback, session token and ephemeral port; stops on section departure or Stop | Bearer header; authenticated GET `/v1/displays`, GET `/v1/commands`; POST `/v1/brightness`, `/v1/reconnect-all`, `/v1/command`. Start is not readiness: use the displayed running endpoint. Stop invalidates the token. |
+| Local HTTP | App-owned explicit enable in Settings → Automation; default loopback/off, stable Keychain token and saved chosen port; leaving Settings keeps it running | Bearer header; authenticated GET `/v1/displays`, GET `/v1/commands`; POST `/v1/brightness`, `/v1/reconnect-all`, `/v1/command`. Start is not readiness: use the displayed running endpoint. Disable stops access while retaining the saved credential; explicit Replace revokes it. |
 | App Intents | Runs inside the app; display actions require its live model and wait for startup; recovery has a persisted-ledger fallback | Typed display/mode/profile entities; typed values and outcomes; unavailable targets fail, never redirect. Saved built-in-only Set Brightness shortcuts retain their default target and percent parameter. |
 | App console | Foundation only; UI is FD-040 | Uses the typed parser/engine, not a shell. |
 
-HTTP keeps the existing authentication/framing limits, connection lifetime and session ownership. An expired connection does not roll back a dispatched display write. Recovery is an independent background operation; its legacy response reports requested IDs and the final outcome goes to the app's audit. There is no durable remote/LAN service here; FD-058 owns that work. Never put tokens in query strings or logs.
+HTTP keeps the existing authentication/framing limits and connection lifetime. An expired connection does not roll back a dispatched display write. Recovery is an independent background operation; its legacy response reports requested IDs and the final outcome goes to the app's audit. FD-058 supplies durable app ownership and a separately warned remote opt-in; see the transport contract. Never put tokens in query strings or logs.
 
 ## Values, targets and safety
 
@@ -28,7 +28,7 @@ A confirmed native/DDC readback is not measured luminance. Software dimming is a
 
 Mode selection matches one complete offered tuple, including framebuffer size, refresh, density and depth. No nearest-mode fallback is synthesized. App mode mutations retain the menu's verified keep/revert gate. The Set Display Mode Intent alone offers **Without confirmation**, default off; an explicit on keeps a verified mode immediately. Engine admission also rejects a serialized bypass flag from other surfaces. Main changes use the existing `AppModel.setMain` path; the orchestrator's separate keep/revert work must land for main changes to open that window. ICC writes resolve an installed profile, apply through the model, then verify the ColorSync assignment.
 
-The standalone CLI cannot provide app-owned software dimming or atomic cross-process offsets. Those return capability refusals. Mode mutations, main changes and ICC commands requiring app-owned state are not admitted from the standalone CLI. FD-078 (owner decision #9) must wire app IPC before those become available. Direct CLI and the live app do not yet share mutable state.
+The running-app CLI now shares software brightness, atomic offsets, the live ledger, mode/main keep/revert and ICC handling via FD-078 IPC. The catalog admits CLI mutation because it reaches the app; no direct standalone mutation adapter was enabled. `keepWithoutConfirmation` still admits only App Intents. Managed hardware contrast uses the same canonical levels, selectors, settlement and result model. See [Integration transports](Integration-transports.md) for the deliberate no-app refusal and legacy limits.
 
 ## Examples (documentation only)
 
@@ -56,7 +56,7 @@ rest_command:
     payload: '{"command":"setBrightness","displayId":"cg:INSTALLATION_LOCAL_UUID","value":0.4,"method":"hardware"}'
 ```
 
-Merge that entry into the existing mapping. The URL secret is the reachable endpoint ending in `/v1/command`; the authorization secret is `Bearer ` followed by the private current session token. A remote HA host cannot use its own localhost to reach the Mac. This recipe does not configure a bridge, persist a token, enable a LAN listener or supply a new timeout. Callers own their network deadline. Current session credentials and ports change after restarting the server.
+Merge that entry into the existing mapping. The URL secret is the reachable endpoint ending in `/v1/command`; the authorization secret is `Bearer ` followed by the private saved Keychain token. A remote HA host cannot use its own localhost to reach the Mac. This recipe does not configure a bridge, persist a token, enable a LAN listener or supply a new timeout. Callers own their network deadline. Credentials and the chosen port persist across launches; only an explicit token replacement changes credentials.
 
 Use HA's manual action first. Distinguish 401 authentication, 404 unknown identity/profile/route, 409 offline/inactive/ambiguous/busy, 422 unavailable method/capability, 502 failed/unconfirmed operation and 503 not-ready. Successful commands use 200; partial recovery uses 207 on the typed route. Inspect the JSON outcome and actual monitor separately. Repeating an absolute request is idempotent in state; a running sync policy may affect followers. Stop triggers and let accepted work finish before removing only the added configuration. Removing a trigger or stopping the server does not restore prior brightness.
 
