@@ -31,13 +31,16 @@ enum OpenDisplayAutomation {
         let observer = CoreGraphicsProvider()
         let lifecycle = await makeLifecycleProvider(observer)
         let store = (try? ManagedOfflineStore.defaultDirectory()).map(ManagedOfflineStore.init(directory:))
+        let ledger = store?.load() ?? []
         let results = await ManagedOfflineRecovery.reconnectAll(
-            ledger: store?.load() ?? [],
+            ledger: ledger,
             attempt: { offline in
                 // Per display, the request deadline the CLI's `recover` gives the same verified
                 // reconnect (and the gateway this replaces gave the whole batch).
                 await ManagedOfflineRecovery.verifiedAttempt(
-                    offline, lifecycle: lifecycle, observer: observer, deadline: Date().addingTimeInterval(15),
+                    offline, lifecycle: lifecycle, observer: observer, ledger: ledger,
+                    uuidForDisplayNumber: { CoreGraphicsProvider.persistentUUID(for: $0) },
+                    deadline: Date().addingTimeInterval(15),
                     escalate: { CoreGraphicsProvider.restorePermanentConfiguration() })
             },
             save: { ledger in

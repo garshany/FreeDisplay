@@ -582,11 +582,14 @@ final class AppModel: ObservableObject {
             if !displayConfigurationBusy, let priorArrangement = Self.readRevertMarker() {
                 // An arrangement-revert window was open when the app last died — or its rollback
                 // never verified — so restore the prior mode/origin/mirror/main: a bad resolution or
-                // mirror must not survive a crash/quit. The record goes only once the restore shows.
-                if RevertMarkerPolicy.mayClearMarker(after: await restoreArrangement(priorArrangement)) {
+                // mirror must not survive a crash/quit. The record goes only once the restore shows —
+                // a recorded display that isn't connected keeps it for the launch after this one.
+                let outcome = await restoreArrangement(priorArrangement)
+                if RevertMarkerPolicy.mayClearMarker(after: outcome) {
                     Self.clearRevertMarker()
                 } else {
-                    reportUnverifiedRestore(kind: .mode)
+                    Self.retainRevertMarker(after: outcome)
+                    reportUnverifiedRestore(kind: .mode, after: outcome)
                 }
             }
             #if DEBUG
@@ -929,11 +932,18 @@ final class AppModel: ObservableObject {
                 restoreOutcome = .restored(providerWarnings: [],
                                            mismatches: RevertMarkerPolicy.mismatches(wanted: before, current: current))
             }
-            let restored = RevertMarkerPolicy.isVerified(restoreOutcome)
-            if restored { Self.clearRevertMarker() }
-            arrangementError = restored
-                ? String(localized: "macOS didn’t accept the new arrangement, so the previous one is in effect.")
-                : String(localized: "macOS didn’t accept the new arrangement, and the previous one couldn’t be confirmed. The canvas shows the arrangement in effect; a record of the previous one was saved for recovery.")
+            switch RevertMarkerPolicy.disposition(after: restoreOutcome) {
+            case .clear:
+                Self.clearRevertMarker()
+                arrangementError = String(localized: "macOS didn’t accept the new arrangement, so the previous one is in effect.")
+            case .awaitingDisplays:
+                // Not a success: a recorded display isn't connected, so what it is owed stays on
+                // record for the next launch.
+                Self.retainRevertMarker(after: restoreOutcome)
+                arrangementError = String(localized: "macOS didn’t accept the new arrangement. Not every display in the previous one is connected, so it can’t be confirmed as restored yet; a record of it was saved and is restored at the next launch.")
+            case .unverified:
+                arrangementError = String(localized: "macOS didn’t accept the new arrangement, and the previous one couldn’t be confirmed. The canvas shows the arrangement in effect; a record of the previous one was saved for recovery.")
+            }
         }
     }
 
@@ -2091,6 +2101,10 @@ final class AppModel: ObservableObject {
         // every caller still awaiting it — from being used (see `ddcController`).
         for (id, builder) in ddcBuilders where !ids.contains(id) { builder.task.cancel(); ddcBuilders[id] = nil }
         ddcBindingTokens.retain(only: ids)
+        // Cancelling a writer can't reach a transaction it already queued for the bus or that is
+        // waiting out the pacing gap; withdrawing the binding at the transport does (FB-08), so
+        // nothing more goes on the wire through a dropped controller.
+        for (id, controller) in ddc where !ids.contains(id) { controller.invalidate() }
         ddc = ddc.filter { ids.contains($0.key) }
         brightnessMax = brightnessMax.filter { ids.contains($0.key) }
         ddcTarget = ddcTarget.filter { ids.contains($0.key) }
@@ -4425,11 +4439,19 @@ final class AppModel: ObservableObject {
         let actual = await observer.currentSnapshot().observations.first(where: { $0.cgDisplayID == cgID })?.mode
         guard !Task.isCancelled, DisplayModeChoices.verifiedApply(warnings: warnings, actual: actual, requested: mode) else {
             // Never offer Keep when the provider rejected the request or fresh readback differs.
-            let restorationVerified = RevertMarkerPolicy.isVerified(await restoreArrangement(before))
-            if restorationVerified { Self.clearRevertMarker() }
-            modeChangeError = restorationVerified
-                ? String(localized: "macOS did not confirm the selected mode. The previous mode was restored.")
-                : String(localized: "macOS confirmed neither the selected mode nor the restore. Use emergency recovery; a record of the previous settings was saved.")
+            let restoreOutcome = await restoreArrangement(before)
+            switch RevertMarkerPolicy.disposition(after: restoreOutcome) {
+            case .clear:
+                Self.clearRevertMarker()
+                modeChangeError = String(localized: "macOS did not confirm the selected mode. The previous mode was restored.")
+            case .awaitingDisplays:
+                // The display can drop out under a mode it can't show: its restore is unconfirmed,
+                // not done, and what it is owed stays on record for the next launch.
+                Self.retainRevertMarker(after: restoreOutcome)
+                modeChangeError = String(localized: "macOS did not confirm the selected mode. Not every display in the previous settings is connected, so they can’t be confirmed as restored yet; a record of them was saved and is restored at the next launch.")
+            case .unverified:
+                modeChangeError = String(localized: "macOS confirmed neither the selected mode nor the restore. Use emergency recovery; a record of the previous settings was saved.")
+            }
             return
         }
         await noteLayoutSelfChange()
@@ -4583,16 +4605,23 @@ final class AppModel: ObservableObject {
         revertGate = nil
         pendingRevert = nil
         guard RevertMarkerPolicy.mayClearMarker(after: outcome) else {
-            reportUnverifiedRestore(kind: revertKind)
+            Self.retainRevertMarker(after: outcome)
+            reportUnverifiedRestore(kind: revertKind, after: outcome)
             return
         }
         Self.clearRevertMarker()
     }
 
     /// Says that a rollback couldn't be confirmed and its record was kept, where the change came
-    /// from: the canvas for an arrangement, the mode controls otherwise.
-    private func reportUnverifiedRestore(kind: PendingRevert.Kind) {
-        let message = String(localized: "macOS didn’t confirm that the previous display settings were restored. OpenDisplay kept a record of them and restores it at the next launch; the next display change you make replaces that record.")
+    /// from: the canvas for an arrangement, the mode controls otherwise. A restore that only lacks a
+    /// disconnected display says that — it is not yet verified, not refused.
+    private func reportUnverifiedRestore(kind: PendingRevert.Kind, after outcome: RevertMarkerPolicy.Outcome) {
+        let message: String
+        if case .awaitingDisplays = RevertMarkerPolicy.disposition(after: outcome) {
+            message = String(localized: "Not every display in the previous display settings is connected, so their restore can’t be confirmed yet. OpenDisplay kept a record of them and restores it at the next launch; the next display change you make replaces that record.")
+        } else {
+            message = String(localized: "macOS didn’t confirm that the previous display settings were restored. OpenDisplay kept a record of them and restores it at the next launch; the next display change you make replaces that record.")
+        }
         if kind == .arrangement { arrangementError = message } else { modeChangeError = message }
     }
 
@@ -4652,6 +4681,16 @@ final class AppModel: ObservableObject {
     }
     private static func clearRevertMarker() {
         if let url = revertMarkerURL() { try? FileManager.default.removeItem(at: url) }
+    }
+    /// After a restore of the record on disk that didn't verify: keeps it whole, or — when all it
+    /// lacks is displays that aren't connected — narrows it to what they are owed
+    /// (`RevertMarkerPolicy.recordToKeep`), so the next launch doesn't put the connected displays'
+    /// old settings back over whatever was changed since. Called straight after the restore, on the
+    /// main actor, before anything else can write a record of its own.
+    private static func retainRevertMarker(after outcome: RevertMarkerPolicy.Outcome) {
+        guard let recorded = readRevertMarker(),
+              let kept = RevertMarkerPolicy.recordToKeep(recorded, after: outcome), kept != recorded else { return }
+        writeRevertMarker(kept)
     }
 
     /// Turns a live display off (flagship). Routes through the coordinator, which preflights and
@@ -4713,7 +4752,12 @@ final class AppModel: ObservableObject {
         defer { busy = false }
         if forgettingIntent { stampReconnectFailure(nil, for: offline) }  // a fresh attempt
         do {
-            try await lifecycle.reconnect(offline.reconnectID, deadline: Date().addingTimeInterval(10))
+            // By raw number only while it still names this display (`ReconnectIdentity`): the
+            // number may have been handed to another monitor since the entry was written.
+            try await ManagedOfflineRecovery.requestReconnect(
+                offline, lifecycle: lifecycle, observations: await observer.currentSnapshot().observations,
+                ledger: managedOffline, uuidForDisplayNumber: { CoreGraphicsProvider.persistentUUID(for: $0) },
+                deadline: Date().addingTimeInterval(10))
         } catch {
             // Keep the ledger entry: it is the ONLY record that this display exists and is owed a
             // reconnect. Forgetting it on a failed attempt orphans the display permanently — the
@@ -4722,8 +4766,11 @@ final class AppModel: ObservableObject {
             Self.err("reconnect failed for \(offline.name): \(error) — keeping it owed")
             #endif
             await refresh()
-            logDisplayEvent("reconnect:rejected \(offline.name)")
-            if forgettingIntent { await noteReconnectFailure(of: offline) }
+            // Our own refusal is not macOS's: nothing was sent, and the timeline says why.
+            let refusal = error as? ReconnectIdentity.Conflict
+            logDisplayEvent(refusal.map { "reconnect:refused \(offline.name): \($0)" }
+                            ?? "reconnect:rejected \(offline.name)")
+            if forgettingIntent { await noteReconnectFailure(of: offline, refusedBecause: refusal) }
             return false
         }
         guard forgettingIntent else {
@@ -4770,11 +4817,16 @@ final class AppModel: ObservableObject {
 
     /// Records a reconnect that produced no display: stamps the ledger entry (which is what the
     /// off card reads), writes the audit entry, and notifies if the user has notifications on.
-    private func noteReconnectFailure(of offline: OfflineDisplay) async {
+    /// `refusedBecause`: the request was never sent, because the display number now names another
+    /// display (`ReconnectIdentity`) — said as such, not as macOS failing to bring it back.
+    private func noteReconnectFailure(of offline: OfflineDisplay,
+                                      refusedBecause refusal: ReconnectIdentity.Conflict? = nil) async {
         stampReconnectFailure(Date(), for: offline)
         await appendAudit(ReconnectVerification.failureAudit(of: offline, actor: .ui, at: Date()))
         if settings.displayNotificationsEnabled {
-            NotificationDelivery.post(NotificationDelivery.reconnectFailureNotification(for: offline, method: logicalOffMethod))
+            NotificationDelivery.post(refusal == nil
+                ? NotificationDelivery.reconnectFailureNotification(for: offline, method: logicalOffMethod)
+                : NotificationDelivery.reconnectRefusedNotification(for: offline))
         }
     }
 
@@ -5602,7 +5654,11 @@ final class AppModel: ObservableObject {
         // display that stayed dark, and the next launch's off card and safety net work from it.
         if !managedOffline.isEmpty {
             for offline in managedOffline {
-                try? await lifecycle.reconnect(offline.reconnectID, deadline: Date().addingTimeInterval(10))
+                // Refused when the number now names another display — that entry is kept below.
+                try? await ManagedOfflineRecovery.requestReconnect(
+                    offline, lifecycle: lifecycle, observations: await observer.currentSnapshot().observations,
+                    ledger: managedOffline, uuidForDisplayNumber: { CoreGraphicsProvider.persistentUUID(for: $0) },
+                    deadline: Date().addingTimeInterval(10))
             }
             // One look, straight after the requests: quit doesn't wait out a slow link. A display still
             // training its link is therefore kept too — and dropped by the next launch, which forgets

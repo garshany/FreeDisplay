@@ -91,6 +91,14 @@ enum NotificationDelivery {
         }
     }
 
+    /// A reconnect OpenDisplay didn't send: the display number the turned-off display was recorded
+    /// under now names another display (`ReconnectIdentity`), and sending it could have reached that
+    /// one instead.
+    static func reconnectRefusedNotification(for offline: ManagedOfflineDisplay) -> NotificationPolicy.DisplayNotification {
+        .init(title: String(localized: "\(offline.name) wasn’t reconnected"),
+              body: String(localized: "Its display number now belongs to another display, so OpenDisplay didn’t send the request — it could have reached the wrong screen. It is still listed in the menu, with recovery steps."))
+    }
+
     /// `LayoutProtectionPolicy.restoreNotification(for:names:enabled:)`: what moved, per display,
     /// from the policy's structured drift.
     static func layoutRestoreNotification(for analysis: DisplayConfigDrifter.DriftAnalysis,

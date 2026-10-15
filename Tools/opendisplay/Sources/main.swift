@@ -487,7 +487,7 @@ func runRecover() async {
     var ledger = managedOfflineDisplays
     var results: [(displayId: String, reconnected: Bool)] = []
     for offline in managedOfflineDisplays {
-        let attempt = await attemptVerifiedReconnect(offline, reconnectID: offline.reconnectID)
+        let attempt = await attemptVerifiedReconnect(offline, ledger: ledger)
         switch attempt {
         case .lit:
             ledger.removeAll { $0.recordID == offline.recordID }
@@ -496,7 +496,8 @@ func runRecover() async {
             ledger = ledger.map { $0.recordID == offline.recordID ? stampedReconnectFailure(offline) : $0 }
             await logDisplayEvent("reconnect:notLit \(offline.name)")
         case .rejected(let reason):
-            warn("\(offline.name): macOS rejected the reconnect: \(reason)")
+            // macOS's refusal, or ours: a display number that now names another display.
+            warn("\(offline.name): reconnect failed: \(reason)")
             await logDisplayEvent("reconnect:rejected \(offline.name)")
         }
         do { try managedOfflineStore?.save(ledger) } catch {
@@ -530,11 +531,16 @@ enum ReconnectAttempt: Equatable {
 
 /// One reconnect, checked: accepted is not back (issue #40), so only a display observed lit counts.
 /// The caller owns the ledger — it forgets the entry on `.lit` and keeps it otherwise, since the
-/// entry is the only thing that still knows a dark display exists.
+/// entry is the only thing that still knows a dark display exists. By raw display number (a
+/// disabled display can't be resolved through its UUID), and only while that number still names
+/// this display (`ReconnectIdentity`) — otherwise it is refused, as the app refuses it.
 func attemptVerifiedReconnect(_ offline: ManagedOfflineDisplay,
-                              reconnectID: DisplayRecordID) async -> ReconnectAttempt {
+                              ledger: [ManagedOfflineDisplay]) async -> ReconnectAttempt {
     do {
-        try await lifecycle.reconnect(reconnectID, deadline: Date().addingTimeInterval(15))
+        try await ManagedOfflineRecovery.requestReconnect(
+            offline, lifecycle: lifecycle, observations: await observer.currentSnapshot().observations,
+            ledger: ledger, uuidForDisplayNumber: { CoreGraphicsProvider.persistentUUID(for: $0) },
+            deadline: Date().addingTimeInterval(15))
     } catch {
         return .rejected("\(error)")
     }
@@ -606,17 +612,14 @@ func runReconnect() async {
     let pairs = await resolveCurrentDisplays()
     let target = uniqueDisplay(selectorArg, in: pairs, managedOffline: managedOfflineIDs)
     let recordID = target.observation.recordID
-    // A disabled display is off the online list, so its CG UUID can't be resolved — reconnect by
-    // raw display id, the same way the app does.
-    let reconnectID = managedOfflineDisplays.first { $0.recordID == recordID }?.reconnectID
-        ?? target.observation.cgDisplayID.map { DisplayRecordID(rawValue: "cgid:\($0)") }
-        ?? recordID
+    // A disabled display is off the online list, so its CG UUID can't be resolved — the reconnect
+    // goes by raw display id (`reconnectID`), the same way the app does.
     let offline = managedOfflineDisplays.first { $0.recordID == recordID }
         ?? ManagedOfflineDisplay(recordID: recordID, cgID: target.observation.cgDisplayID ?? 0,
                                  name: name(for: target), displayClass: target.observation.displayClass)
     // Accepted is not back (issue #40): only forget the display once it is observed lit. If it
     // never appears, the record stays — it is the only thing that still knows the display exists.
-    switch await attemptVerifiedReconnect(offline, reconnectID: reconnectID) {
+    switch await attemptVerifiedReconnect(offline, ledger: managedOfflineDisplays) {
     case .rejected(let reason):
         fail("reconnect failed: \(reason)")
     case .notLit:

@@ -71,9 +71,11 @@ final class QuitReconnectLedgerTests: XCTestCase {
 
     func testOnlyTheDisplaysThatCameBackAreDropped() {
         let kept = ReconnectVerification.ledgerAfterQuitReconnect(
-            [entry("back", cgID: 7), entry("stillDark", cgID: 8), entry("reminted", cgID: 9)],
+            [entry("back", cgID: 7), entry("stillDark", cgID: 8), entry("otherUnderItsNumber", cgID: 9)],
             observations: [lit("back", cgID: 7), lit("cg:NEW-RECORD", cgID: 9)], at: now)
-        XCTAssertEqual(kept.map(\.recordID.rawValue), ["stillDark"])
+        // A different display lit under an entry's old number is not that display back (R4 P0):
+        // only the recorded identity counts, so that entry stays with the dark one.
+        XCTAssertEqual(kept.map(\.recordID.rawValue), ["stillDark", "otherUnderItsNumber"])
     }
 
     func testADisplayLitButStillInactiveIsNotBack() {
