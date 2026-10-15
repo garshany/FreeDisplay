@@ -33,7 +33,8 @@ final class DisplaySleepGuardTests: XCTestCase {
         let backend = FakePowerAssertions()
         let guardian = DisplaySleepGuard(backend: backend)
         guardian.update(enabled: true, externalPresent: true)
-        XCTAssertEqual(backend.lastName, "FreeDisplay: external display connected")
+        // The name (shown by `pmset -g assertions`) says what is held: idle display sleep only (FB-12).
+        XCTAssertEqual(backend.lastName, "FreeDisplay: keeping displays awake (idle display sleep only)")
     }
 
     func testHoldsOnlyWhenEnabledAndExternalPresent() {
