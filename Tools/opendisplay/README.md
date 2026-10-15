@@ -1,13 +1,58 @@
 # opendisplay (CLI)
 
 **macOS target** (`Tools/opendisplay/Sources/main.swift`; shared grammar and typed requests in
-`Packages/AutomationSchema`). Shared-model commands now control the **running FreeDisplay app**
-over a same-user Unix socket: readiness, discovery, brightness/offsets, managed hardware contrast,
-recovery/disconnect, mode/main and ICC. The app owns the live state and managed-offline ledger.
-These commands refuse if the app is unavailable and never fall back/retry through direct providers.
-Help/catalog work without it. Other legacy verbs retain their direct-provider implementation only
-while the app is off, and explicitly refuse while it runs. See [transport lifecycle, security,
-compatibility and Home Assistant instructions](../../Docs/Integration-transports.md).
+`Packages/AutomationSchema`). Shared-model commands use the **running FreeDisplay app** over a
+same-user Unix socket. With the app off and the endpoint absent/refusing connections **before any
+request bytes are sent**, the CLI uses its standalone shared `AutomationEngine`, on-disk ledger
+and hardware providers. `opendisplay recover` therefore works after an app crash, including when
+managed-offline displays are missing from OS enumeration. No command launches the app automatically.
+
+A running app with an unreachable endpoint refuses; quit it or restore IPC. Unsafe endpoint
+permissions/ownership, cancellation, timeouts, a lost/invalid reply, or any failure after sending
+never fall back or retry standalone: the app may have accepted the operation. A reachable endpoint
+always wins even if the app-presence snapshot missed it. See [transport lifecycle, security and
+Home Assistant instructions](../../Docs/Integration-transports.md).
+
+Shared-model JSON output adds `"servedBy": "app"` or `"servedBy": "standalone"` at the existing
+object's top level, including brightness readings, result envelopes, dry-run previews and readiness.
+Existing keys and schema versions remain intact; `list` retains this branch's typed
+`AutomationResult` shape on both routes. Legacy JSON shapes are unchanged.
+
+### Execution table
+
+Here “standalone” means the existing direct-provider/persisted-state path; while the app runs,
+legacy reads use a registry snapshot in memory so identity resolution does not save registry changes.
+IPC requires a reachable app endpoint; an unreachable running app never grants standalone writes.
+
+| Verb / form | App running | App not running, endpoint unavailable before send |
+|---|---|---|
+| `help`, `--help`, `commands` | Local help/catalog, no providers | Same |
+| `ready` | IPC readiness, exit 0 only for ready | `ready: false`, exit 1; no providers |
+| `list` | IPC live app discovery | Standalone hardware + managed-offline ledger discovery |
+| `recover` | IPC app recovery funnel/live ledger | w4 ledger-based verified recovery; keeps failed entries |
+| `disconnect` | IPC app safety/ledger funnel | w4 standalone gateway safety + ledger persistence |
+| `disconnect --dry-run` | IPC app safety preview, typed result envelope | w4 standalone safety preview object; no display writes |
+| `brightness` read / absolute value | IPC live route/group policy | w4 native/DDC shared-engine path; absolute group policy retained |
+| `brightness --offset` | IPC atomic adjustment | Explicit refusal: requires app-owned atomic state |
+| `brightness --method software` / software-preferred route | IPC app software state | Explicit refusal: unavailable in this process |
+| `contrast` read / absolute value | IPC managed hardware contrast | Shared-engine ranged DDC contrast, normalized units and readback |
+| `mode` discovery, `capabilities` | IPC app discovery | Standalone shared-engine discovery; capabilities report standalone refusals |
+| `mode <mode>`, `main` | IPC app keep/revert funnel | Explicit refusal: requires the running app |
+| `profile`, `profiles` (read or write) | IPC app ICC handling | w4 explicit refusal, including ICC discovery |
+| `command <name>` (including `--dry-run`) | IPC shared parser/engine | Standalone shared parser/engine with the same app-owned refusals; dry runs never write |
+| `diagnose` (including `--bundle`), `lux`, `lid`, `listen`, `edid` | Standalone reads/export/event subscription | Same |
+| `ddc` feature read / `caps` / `vcp <code>` read | Standalone hardware read | Same |
+| `ddc` writes, `reset`, `power` | Refuse: would bypass app-owned control/cache state | Existing raw DDC write path |
+| `reconnect <selector>` | Refuse: would race the app-owned ledger; use `recover` | Existing single-display verified recovery |
+| `scene list/show/plan` | Standalone read / dry plan | Same |
+| `scene save/apply/delete` | Refuse: app owns scene library / display state | Existing standalone scene path |
+| `alias`, `tag` (registry edits) | Refuse: app owns registry | Existing registry edits |
+| `layout status`, `group list`, `favorite list` / `favourite list` | Standalone read | Same |
+| `layout protect/unprotect`, `group create/delete/add/remove`, `favorite set/unset` | Refuse: app owns stored settings/favorites | Existing standalone edits |
+| `_rotate-exp` (undocumented experimental verb) | Refuse: app owns arrangement | Existing experimental standalone path |
+
+`--timeout` applies only to IPC and imposes no standalone operation deadline. App presence is a
+snapshot; starting the app after standalone selection can still race the old standalone paths.
 
 These are the commands it implements — `opendisplay --help` prints the same list:
 
@@ -62,12 +107,13 @@ The PRD's generic `get`/`set`/`connect`/`blackout` grammar (PRD §12.2) is **not
   arrangement read afterwards: fields it doesn't execute (on/off, rotation, brightness, colour
   profile, HDR, relative placement) are reported as skipped, and a missing *required* member blocks
   the whole apply.
-- **`recover`** reconnects through the running app's live managed-offline ledger and verification
-  funnel. It refuses without the app. No standalone copy races the running app's ledger.
-- **`disconnect --dry-run`** now uses the shared typed result/envelope and app safety preflight;
-  its output replaces the old standalone safety-preview object. No display write occurs.
-- Legacy-command sections below describe their **app-off standalone** implementation. New typed
-  `contrast` uses normalized units; raw `ddc … contrast` remains a different monitor-unit interface.
+- **`recover`** uses the running app's live managed-offline ledger, or w4's standalone persisted-ledger
+  recovery when the app is off. A disabled display does not need to appear in OS discovery.
+- **`disconnect --dry-run`** uses app safety preflight via IPC, or the original standalone safety-preview
+  object when the app is off. Neither path writes display state.
+- Legacy-command sections below describe their standalone implementation; the execution table above
+  identifies which forms also work while the app runs. Typed `contrast` uses normalized units;
+  raw `ddc … contrast` remains a different monitor-unit interface.
 
 
 Exit status:

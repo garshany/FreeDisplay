@@ -70,10 +70,10 @@ let helpText = """
       opendisplay profiles [--json]
       opendisplay command <name> [parameter=value ...] [--json] [--dry-run]
 
-    Shared-model commands require the running FreeDisplay app. --timeout <seconds> is optional
-    on these commands; without it no client deadline is imposed. Losing a response does not undo
-    accepted work. Legacy verbs are refused while the app runs; they retain standalone behavior
-    only while it is off. No command launches the app automatically.
+    Shared-model commands use the running FreeDisplay app, or standalone providers when it is off.
+    --timeout <seconds> is optional for IPC; without it no client deadline is imposed. Losing a
+    response never retries standalone. Legacy reads work while the app runs; legacy mutations
+    require it to be off. No command launches the app automatically.
       opendisplay ddc <selector> <brightness|contrast|volume|input|colour|sharpness|red|green|blue|mute|power|caps> [value] [--json]
       opendisplay ddc <selector> reset                # restore the monitor's factory defaults (VCP 0x04)
       opendisplay ddc <selector> vcp <0xNN> [value]   # any raw MCCS feature code
@@ -130,11 +130,13 @@ let valueArg: String? = invocation.argument2
 let asJSON = flags.contains("--json")
 let dryRun = flags.contains("--dry-run")
 
-func emit<T: Encodable>(_ value: T) {
+func emit<T: Encodable>(_ value: T, servedBy: CLIExecutionPath = .standalone) {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
     encoder.dateEncodingStrategy = .iso8601
-    guard let data = try? encoder.encode(value), let text = String(data: data, encoding: .utf8) else {
+    guard let encoded = try? encoder.encode(value),
+          let data = try? (CLIAppRequest.commands.contains(command) ? servedBy.annotating(encoded) : encoded),
+          let text = String(data: data, encoding: .utf8) else {
         fail("failed to encode JSON output")
     }
     print(text)
@@ -157,57 +159,74 @@ if command == "commands" {
     exit(CLIExitCode.success.rawValue)
 }
 
-// Shared-model commands require the app, including when no endpoint is present. A lost response
-// must never fall back to an in-process write: the app may already have accepted the command.
+func appIsRunning() -> Bool {
+    ["local.personal.OpenDisplay", "local.personal.OpenDisplay.publicapionly"].contains {
+        NSRunningApplication.runningApplications(withBundleIdentifier: $0).contains { !$0.isTerminated }
+    }
+}
+
+func renderSharedResult(_ result: AutomationResult, servedBy: CLIExecutionPath) {
+    if command == "brightness" {
+        if let report = result.brightness, report.requested == nil, let level = report.level {
+            struct Reading: Encodable { var displayId: String; var level: Double; var provider: String; var raw: Int?; var max: Int? }
+            if asJSON { emit(Reading(displayId: report.displayId, level: level.normalized,
+                provider: report.route == .native ? "displayServices" : report.route.rawValue,
+                raw: report.raw, max: report.rawMaximum), servedBy: servedBy) }
+            else { print("\(level.wholePercent)%") }
+        } else {
+            if asJSON { emit(result.envelope, servedBy: servedBy) }
+            else if let report = result.brightness { print("\(report.displayName): \(report.outcome?.rawValue ?? "unknown")") }
+            else if let issue = result.issue { warn(issue.message) }
+            else { print(result.status.rawValue) }
+        }
+    } else if ["recover", "disconnect"].contains(command) {
+        if asJSON { emit(result.envelope, servedBy: servedBy) }
+        else if let issue = result.issue { warn(issue.message) }
+        else { print(result.plan ?? result.status.rawValue) }
+    } else if asJSON { emit(result, servedBy: servedBy) }
+    else if let issue = result.issue { warn(issue.message) }
+    else if let modes = result.modes { for mode in modes.available { print("\(mode.isCurrent ? "*" : " ") \(mode.key)") } }
+    else { emit(result, servedBy: servedBy) }
+}
+
+// Only a missing/refused endpoint before send may select standalone. A response (even invalid or
+// not-ready), timeout or any later error ends this request without a second provider execution.
 if CLIAppRequest.commands.contains(command) {
     do {
         let request = try LocalAutomationProtocol.Request(command: CLIAppRequest.request(invocation))
-        let data = try await LocalAutomationSocket.exchange(JSONEncoder().encode(request),
-            path: LocalAutomationSocket.defaultPath(), timeout: CLIAppRequest.timeout(invocation))
-        let response = try JSONDecoder().decode(LocalAutomationProtocol.Response.self, from: data)
-        switch try response.validated(for: request) {
-        case .readiness(let state):
-            if asJSON { emit(response) } else { print(state.rawValue) }
-            exit(state == .ready ? CLIExitCode.success.rawValue : CLIExitCode.failure.rawValue)
-        case .failure(let failure):
-            fail("FreeDisplay IPC: \(failure.rawValue); no command was dispatched by this response")
-        case .result(let result):
-            if command == "brightness" {
-                if let report = result.brightness, report.requested == nil, let level = report.level {
-                    struct Reading: Encodable { var displayId: String; var level: Double; var provider: String; var raw: Int?; var max: Int? }
-                    if asJSON { emit(Reading(displayId: report.displayId, level: level.normalized,
-                        provider: report.route == .native ? "displayServices" : report.route.rawValue, raw: report.raw, max: report.rawMaximum)) }
-                    else { print("\(level.wholePercent)%") }
-                } else {
-                    if asJSON { emit(result.envelope) }
-                    else if let report = result.brightness { print("\(report.displayName): \(report.outcome?.rawValue ?? "unknown")") }
-                    else if let issue = result.issue { warn(issue.message) }
-                    else { print(result.status.rawValue) }
-                }
-            } else if ["recover", "disconnect"].contains(command) {
-                if asJSON { emit(result.envelope) }
-                else if let issue = result.issue { warn(issue.message) }
-                else { print(result.plan ?? result.status.rawValue) }
-            } else if asJSON { emit(result) }
-            else if let issue = result.issue { warn(issue.message) }
-            else if let modes = result.modes { for mode in modes.available { print("\(mode.isCurrent ? "*" : " ") \(mode.key)") } }
-            else { emit(result) }
-            exit(CLIExitCode(result).rawValue)
+        let timeout = try CLIAppRequest.timeout(invocation)
+        let bytes = try JSONEncoder().encode(request)
+        if let data = try await CLIExecutionPolicy.appResponse(exchangeIfAvailable: {
+            try await LocalAutomationSocket.exchangeIfAvailable(bytes,
+                path: LocalAutomationSocket.defaultPath(), timeout: timeout)
+        }, appIsRunning: { appIsRunning() }) {
+            let response = try JSONDecoder().decode(LocalAutomationProtocol.Response.self, from: data)
+            switch try response.validated(for: request) {
+            case .readiness(let state):
+                if asJSON { emit(response, servedBy: .app) } else { print(state.rawValue) }
+                exit(state == .ready ? CLIExitCode.success.rawValue : CLIExitCode.failure.rawValue)
+            case .failure(let failure):
+                fail("FreeDisplay IPC: \(failure.rawValue); no command was dispatched by this response")
+            case .result(let result):
+                renderSharedResult(result, servedBy: .app)
+                exit(CLIExitCode(result).rawValue)
+            }
+        }
+        if command == "ready" {
+            struct Unavailable: Encodable { var ready = false; var reason = "FreeDisplay is not running" }
+            if asJSON { emit(Unavailable()) } else { warn("FreeDisplay is not running") }
+            exit(CLIExitCode.failure.rawValue)
         }
     } catch let issue as AutomationIssue {
         fail(issue.message, code: issue.category == .usage ? CLIExitCode.usage.rawValue : CLIExitCode.failure.rawValue)
     } catch {
-        fail("FreeDisplay app IPC unavailable: \(error). Start FreeDisplay and check Automation settings. No standalone retry was attempted.")
+        fail("FreeDisplay app IPC failed: \(error). No standalone retry was attempted.")
     }
 }
 
-// Legacy verbs have no typed running-app adapter yet. Refuse rather than touch app-owned state
-// through a second provider. They retain their existing standalone behavior only with the app off.
-let runningApp = ["local.personal.OpenDisplay", "local.personal.OpenDisplay.publicapionly"].contains {
-    NSRunningApplication.runningApplications(withBundleIdentifier: $0).contains { !$0.isTerminated }
-}
-if runningApp {
-    fail("'\(command)' has no running-app IPC adapter. Use a typed command (opendisplay commands); direct legacy commands are refused while FreeDisplay runs.")
+let runningApp = appIsRunning()
+if runningApp && !CLIExecutionPolicy.legacyMayRunWithApp(invocation) {
+    fail("'\(command)' would mutate app-owned state without an IPC adapter. Quit FreeDisplay or use a typed command (opendisplay commands).")
 }
 
 // MARK: - Composition root
@@ -230,7 +249,11 @@ let gateway = CommandGateway(
 let registryStore: any RegistryStoring =
     (try? DiskRegistryStore.defaultDirectory()).map { DiskRegistryStore(directory: $0) }
     ?? InMemoryRegistryStore()
-let registry = await DisplayRegistry(store: registryStore)
+// Even legacy reads resolve identities. Keep those incidental registry updates in memory while
+// the app owns the persisted registry; only app-off standalone commands may save them.
+let effectiveRegistryStore: any RegistryStoring = runningApp
+    ? InMemoryRegistryStore(await registryStore.load()) : registryStore
+let registry = await DisplayRegistry(store: effectiveRegistryStore)
 let sceneStore: any SceneStoring =
     (try? DiskSceneStore.defaultDirectory()).map { DiskSceneStore(directory: $0) }
     ?? InMemorySceneStore()
@@ -415,6 +438,20 @@ func emitEnvelope(_ envelope: ResultEnvelope) {
     for error in envelope.errors {
         FileHandle.standardError.write(Data("  ! \(error.code): \(error.message)\n".utf8))
     }
+}
+
+func runStandaloneSharedCommand() async {
+    do {
+        guard let request = try CLIAppRequest.request(invocation) else { return }
+        let pairs = request.command.name == .reconnectAll ? [] : await resolveCurrentDisplays()
+        let result = await AutomationEngine(environment: CLIAutomationEnvironment(pairs: pairs)).run(request)
+        if let report = result.brightness, report.requested != nil,
+           let target = pairs.first(where: { $0.observation.recordID.rawValue == report.displayId }) {
+            publishBrightnessEvent(brightnessWrite(result, target: target))
+        }
+        renderSharedResult(result, servedBy: .standalone)
+        exit(CLIExitCode(result).rawValue)
+    } catch { fail(error.message, code: CLIExitCode.usage.rawValue) }
 }
 
 // MARK: - Commands
@@ -1172,7 +1209,7 @@ func runBrightness() async {
     // Preserve the established absolute group-base operation. It is a policy operation rather than
     // an arbitrary multi-target write; offsets and method overrides must not be silently discarded.
     if let group = groupSelector(sel) {
-        guard valueArg != nil, invocation.values.isEmpty else {
+        guard valueArg != nil, invocation.values.keys.allSatisfy({ $0 == "--timeout" }) else {
             fail("group brightness accepts an absolute level; method overrides and offsets require one display", code: CLIExitCode.usage.rawValue)
         }
         await runGroupBrightness(group, in: pairs)
@@ -1203,7 +1240,7 @@ func runBrightness() async {
 }
 
 /// The standalone CLI offers public mode discovery. Applying a mode needs the running app's
-/// keep/revert gate and is refused by the catalog until FD-078 provides that transport.
+/// keep/revert gate and is refused by the standalone environment.
 func runMode() async {
     guard let selectorArg, invocation.positional.count <= 2 else {
         fail("usage: opendisplay mode <selector> [mode] [--json]", code: CLIExitCode.usage.rawValue)
@@ -1273,12 +1310,19 @@ final class CLIAutomationEnvironment: AutomationEnvironment {
     }
 
     nonisolated func unavailability(of command: AutomationCommandName) -> AutomationIssue? {
-        command == .adjustBrightness
-            ? AutomationIssue(.capabilityUnavailable, "atomic CLI offsets require the running-app transport (FD-078); use the app HTTP command endpoint")
-            : nil
+        CLIExecutionPolicy.standaloneUnavailability(of: command)
     }
 
     func reconnectAll() async throws(AutomationIssue) -> ResultEnvelope { await performRecover() }
+
+    func validateDisconnect(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) {
+        _ = try target(display)
+        let outcome = await gateway.preflightDisconnect(display.id, identityConfidence: 1.0)
+        guard outcome.decision == .allowed else {
+            throw AutomationIssue(outcome.decision == .needsConfirmation ? .confirmationRequired : .capabilityUnavailable,
+                                  outcome.reasons.joined(separator: ","), subject: display.id.rawValue)
+        }
+    }
 
     func disconnect(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> ResultEnvelope {
         await performDisconnect(try target(display))
@@ -1332,9 +1376,25 @@ final class CLIAutomationEnvironment: AutomationEnvironment {
 
     func adjustBrightness(by delta: AutomationLevelDelta, of display: AutomationDisplayCandidate,
                           via route: BrightnessRoute) async throws(AutomationIssue) -> BrightnessWriteReport {
-        // One process executes one request. Cross-process accumulation requires FD-078 app IPC;
-        // refusing here avoids pretending two concurrent processes share an atomic read/write.
-        throw AutomationIssue(.capabilityUnavailable, "atomic CLI offsets require the running-app transport (FD-078); use the app HTTP command endpoint")
+        // Only the app can serialize relative writes against its live brightness state.
+        throw CLIExecutionPolicy.standaloneUnavailability(of: .adjustBrightness)!
+    }
+
+    func readContrast(of display: AutomationDisplayCandidate) async throws(AutomationIssue) -> BrightnessReadback {
+        let target = try target(display)
+        guard let ddc = bindDDC(target).controller, let reading = await ddc.read(.contrast) else { return .none }
+        return .ddc(current: reading.current, max: reading.max)
+    }
+
+    func writeContrast(_ level: AutomationLevel, to display: AutomationDisplayCandidate) async throws(AutomationIssue) -> BrightnessWriteReport {
+        let target = try target(display)
+        guard let ddc = bindDDC(target).controller, let reading = await ddc.read(.contrast), reading.max > 0 else {
+            throw AutomationIssue(.methodUnavailable, "hardware contrast is unavailable", subject: display.id.rawValue)
+        }
+        let accepted = await ddc.write(.contrast, level.raw(maximum: reading.max))
+        if accepted { try? await Task.sleep(nanoseconds: DDCReadbackPolicy.settleNanoseconds(.continuous)) }
+        return BrightnessWriteReport(requested: level, accepted: accepted,
+                                     readback: accepted ? try await readContrast(of: display) : .none)
     }
 
     func modes(of display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationModeState {
@@ -1958,7 +2018,7 @@ func runListen() async {
 // MARK: - Dispatch
 
 switch command {
-case "list": await runList()
+case "list", "contrast", "main", "profile", "profiles", "command": await runStandaloneSharedCommand()
 case "diagnose": await runDiagnose()
 case "lux": await runLux()
 case "lid": await runLid()

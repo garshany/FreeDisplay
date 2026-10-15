@@ -5,19 +5,26 @@ Home Assistant recipes are not wire compatible.
 
 ## Running-app CLI and same-user IPC
 
-`opendisplay help` and `commands` work without the app and do not construct providers. `ready`,
-`list`, `recover`, `disconnect`, `brightness`, `contrast`, `mode`, `main`, `profile`, `profiles`,
-`capabilities` and `command` require the running app. They never launch it automatically or fall
-back to a second mutable model. Start the app normally, then use `opendisplay ready` to check it.
-Unavailable/stale socket, timeout, malformed reply and correlation mismatch are transport failures
-(exit 1); engine results retain the shared 0/1/2/3 exit mapping. `ready` exits 1 for starting/stopping.
+`opendisplay help` and `commands` work locally without constructing providers. Typed commands
+prefer same-user app IPC. When the endpoint is absent/refuses connection before sending any request
+bytes and neither known app bundle ID is running, the original standalone shared-engine/provider
+path is selected. The persisted managed-offline ledger and hardware are then authoritative, so
+`opendisplay recover` works after an app crash. A reachable endpoint always wins. A running app with
+unreachable IPC refuses rather than racing its state. Nothing launches the app automatically.
 
-Legacy verbs (`ddc`, `reconnect`, scenes, registry edits, diagnostics and the other direct-provider
-verbs) retain their existing standalone implementation with the app off. They refuse while the app
-is running because they have no app-owned adapter. In particular, use `contrast` for managed
-normalized hardware contrast and `recover` for the app's managed-offline ledger. `ddc … contrast`
-is a separate raw monitor-unit operation and is never silently reinterpreted as normalized contrast.
-The two known app bundle IDs (full/public-only) are checked before any legacy providers are composed.
+Timeout, cancellation, unsafe ownership/permissions, malformed/correlation-mismatched response,
+not-ready response and every error after send never cause standalone retry. Accepted work may still
+complete. Engine results retain the shared 0/1/2/3 exit mapping. Typed CLI JSON adds top-level
+`servedBy: app|standalone` without replacing existing keys/schema versions. App-off `ready` reports
+false and exits 1 without constructing providers.
+
+Standalone retains w4's refusals for atomic offsets, software dimming, mode/main keep/revert and
+ICC (including discovery). Hardware brightness and normalized ranged DDC contrast run through the
+shared engine. Legacy read-only forms, including DDC reads, scene plans and registry-backed listing,
+work while the app runs; their identity resolution uses a memory snapshot instead of saving registry
+changes. Legacy writes to app-owned hardware/ledger/registry/settings/scenes still refuse while it
+runs. Raw `ddc … contrast` is never reinterpreted as normalized contrast. See the complete
+[verb → app running / app off table](../Tools/opendisplay/README.md#execution-table).
 
 Examples (documentation only; choose a real explicit stable ID from discovery):
 

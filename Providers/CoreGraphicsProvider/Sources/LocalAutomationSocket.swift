@@ -36,12 +36,16 @@ public enum LocalAutomationSocket {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { body($0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
     }
-    private static func check(_ path: String, type: mode_t, mode: mode_t) throws {
+    @discardableResult
+    private static func check(_ path: String, type: mode_t, mode: mode_t, allowMissing: Bool = false) throws -> Bool {
         var info = stat()
-        guard lstat(path, &info) == 0, info.st_uid == geteuid(),
+        let result = lstat(path, &info)
+        if result != 0, allowMissing, errno == ENOENT { return false }
+        guard result == 0, info.st_uid == geteuid(),
               info.st_mode & S_IFMT == type, info.st_mode & 0o777 == mode else {
             throw TransportError("FreeDisplay IPC endpoint has unsafe ownership, type or permissions")
         }
+        return true
     }
     private static func sameUser(_ fd: Int32) throws {
         var uid: uid_t = 0
@@ -129,6 +133,15 @@ public enum LocalAutomationSocket {
     }
 
     public static func exchange(_ data: Data, path: String, timeout: TimeInterval? = nil) async throws -> Data {
+        guard let response = try await exchangeIfAvailable(data, path: path, timeout: timeout) else {
+            throw TransportError("FreeDisplay IPC endpoint is unavailable")
+        }
+        return response
+    }
+
+    /// nil proves that the endpoint was absent/refused before any request bytes were sent.
+    /// Permission/identity errors and every failure after connect remain errors, never fallback.
+    public static func exchangeIfAvailable(_ data: Data, path: String, timeout: TimeInterval? = nil) async throws -> Data? {
         if let timeout, !timeout.isFinite || timeout <= 0 { throw TransportError("IPC timeout must be finite and positive") }
         let connection = ClientConnection()
         return try await withTaskCancellationHandler(operation: {
@@ -137,8 +150,12 @@ public enum LocalAutomationSocket {
                     do {
                         try connection.checkCancellation()
                         let deadline = timeout.map { Date().addingTimeInterval($0) }
-                        try check(URL(fileURLWithPath: path).deletingLastPathComponent().path, type: mode_t(S_IFDIR), mode: 0o700)
-                        try check(path, type: mode_t(S_IFSOCK), mode: 0o600)
+                        guard try check(URL(fileURLWithPath: path).deletingLastPathComponent().path,
+                                        type: mode_t(S_IFDIR), mode: 0o700, allowMissing: true),
+                              try check(path, type: mode_t(S_IFSOCK), mode: 0o600, allowMissing: true) else {
+                            try connection.checkCancellation()
+                            continuation.resume(returning: nil); return
+                        }
                         let fd = try socketFD()
                         do { try connection.install(fd) }
                         catch { close(fd); throw error }
@@ -146,11 +163,22 @@ public enum LocalAutomationSocket {
                         if deadline != nil, fcntl(fd, F_SETFL, O_NONBLOCK) != 0 { throw failure("nonblocking client") }
                         let connected = try withAddress(path) { connect(fd, $0, $1) }
                         if connected != 0 {
+                            if errno == ENOENT || errno == ECONNREFUSED {
+                                try connection.checkCancellation()
+                                continuation.resume(returning: nil); return
+                            }
                             guard deadline != nil, errno == EINPROGRESS else { throw failure("connect") }
                             try wait(fd, event: Int16(POLLOUT), deadline: deadline)
                             var error: Int32 = 0
                             var size = socklen_t(MemoryLayout.size(ofValue: error))
-                            guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &size) == 0, error == 0 else {
+                            guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &size) == 0 else {
+                                throw failure("connect status")
+                            }
+                            if error == ENOENT || error == ECONNREFUSED {
+                                try connection.checkCancellation()
+                                continuation.resume(returning: nil); return
+                            }
+                            guard error == 0 else {
                                 throw TransportError("FreeDisplay IPC connection failed")
                             }
                         }
