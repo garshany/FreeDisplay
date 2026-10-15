@@ -2263,9 +2263,13 @@ final class AppModel: ObservableObject {
               let registry else { return .persistenceFailed(recoveryPath: nil, restored: true) }
         let checkedSettings = settings, checkedFavorites = favorites, checkedLayout = menuLayout
         let checkedLedger = managedOffline
+        let registryLease = await registry.beginMutationLease()
         let previousRegistry = await registry.currentState()
         guard settings == checkedSettings, favorites == checkedFavorites, menuLayout == checkedLayout,
-              managedOffline == checkedLedger else { return .stateChanged }
+              managedOffline == checkedLedger else {
+            await registry.endMutationLease(registryLease)
+            return .stateChanged
+        }
         let previous = DisplaySettingsRecoverySnapshot(settings: checkedSettings, favorites: checkedFavorites,
             menuLayout: checkedLayout, managedOffline: checkedLedger, registry: previousRegistry)
         let updatedSettings = DisplaySettingsTransfer.applying(current, selection: selection, to: settings)
@@ -2292,16 +2296,17 @@ final class AppModel: ObservableObject {
                         if current.kind == .transfer {
                             if let destination = change.destinationRecordID {
                                 guard try await registry.transferUserDataPersisting(from: change.sourceRecordID,
-                                    to: destination, alias: change.alias, tags: change.tags, provenance: provenance) != nil
+                                    to: destination, alias: change.alias, tags: change.tags, provenance: provenance,
+                                    lease: registryLease) != nil
                                 else { throw CocoaError(.fileWriteUnknown) }
                             } else if let source = change.sourceRecordID {
                                 var state = previousRegistry
                                 state.records.removeAll { $0.id == source }
                                 state.cgUUIDIndex = state.cgUUIDIndex.filter { $0.value != source }
-                                try await registry.replaceState(state)
+                                try await registry.replaceState(state, lease: registryLease)
                             }
                         } else if let destination = current.destinationRecordID {
-                            try await registry.appendProvenancePersisting(provenance, to: destination)
+                            try await registry.appendProvenancePersisting(provenance, to: destination, lease: registryLease)
                         }
                     }
                 }, commit: {
@@ -2326,15 +2331,18 @@ final class AppModel: ObservableObject {
                     case .favorites: try favoritesStore.save(favorites)
                     case .menuLayout: try menuLayoutStore.save(menuLayout)
                     case .managedOffline: try managedOfflineStore.save(managedOffline)
-                    case .registry: try await registry.replaceState(previous.registry)
+                    case .registry: try await registry.replaceState(previous.registry, lease: registryLease)
                     }
                 })
         } catch let failure as DisplaySettingsTransaction.Failure {
+            await registry.endMutationLease(registryLease)
             if failure.restored, failure.underlying is DisplaySettingsTransaction.StateChanged { return .stateChanged }
             return .persistenceFailed(recoveryPath: failure.recoveryURL.path, restored: failure.restored)
         } catch {
+            await registry.endMutationLease(registryLease)
             return .persistenceFailed(recoveryPath: nil, restored: true)
         }
+        await registry.endMutationLease(registryLease)
         groupSyncStates.removeAll()
         if clockChanged {
             for id in current.sourceIDs {

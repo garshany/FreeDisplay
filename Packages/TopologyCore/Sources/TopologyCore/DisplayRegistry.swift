@@ -94,6 +94,44 @@ public actor DisplayRegistry {
     /// under. In memory only: provisional records are answers about the current topology.
     private var provisional: [DisplayRecordID: (record: DisplayRecord, cgUUID: String?)] = [:]
 
+    /// A settings transfer keeps this lease through local commit or registry rollback. Every
+    /// registry writer joins the same queue, including writers already awaiting their store.
+    public struct MutationLease: Hashable, Sendable {
+        fileprivate let id = UUID()
+    }
+
+    private var mutationOwner: MutationLease?
+    private var mutationWaiters: [CheckedContinuation<MutationLease, Never>] = []
+    var pendingMutationCount: Int { mutationWaiters.count }
+
+    public func beginMutationLease() async -> MutationLease {
+        if mutationOwner == nil {
+            let lease = MutationLease()
+            mutationOwner = lease
+            return lease
+        }
+        return await withCheckedContinuation { mutationWaiters.append($0) }
+    }
+
+    public func endMutationLease(_ lease: MutationLease) {
+        precondition(mutationOwner == lease)
+        if mutationWaiters.isEmpty {
+            mutationOwner = nil
+        } else {
+            let next = MutationLease()
+            mutationOwner = next
+            mutationWaiters.removeFirst().resume(returning: next)
+        }
+    }
+
+    private func acquireMutation(unlessOwnedBy lease: MutationLease?) async -> MutationLease? {
+        if let lease {
+            precondition(mutationOwner == lease)
+            return nil
+        }
+        return await beginMutationLease()
+    }
+
     public init(store: any RegistryStoring, recognitionThreshold: Double = 0.5) async {
         self.store = store
         self.recognitionThreshold = recognitionThreshold
@@ -133,6 +171,8 @@ public actor DisplayRegistry {
         displayClass: DisplayClass = .unknown,
         now: Date = Date()
     ) async -> DisplayRecord {
+        let lease = await beginMutationLease()
+        defer { endMutationLease(lease) }
         let record = resolveLocked([(fingerprint, cgUUID, displayClass)], now: now)[0].record
         await persist()
         return record
@@ -156,6 +196,8 @@ public actor DisplayRegistry {
         now: Date = Date(),
         newRecordStrategy: DisplayIdentityStrategy = .automatic
     ) async -> [(record: DisplayRecord, explanation: IdentityMatchExplanation)] {
+        let lease = await beginMutationLease()
+        defer { endMutationLease(lease) }
         let resolved = resolveLocked(inputs, now: now, newRecordStrategy: newRecordStrategy)
         if !inputs.isEmpty { await persist() }
         return resolved
@@ -318,10 +360,12 @@ public actor DisplayRegistry {
 
     /// Changing policy never transfers preferences or rewrites UUID routing.
     public func setIdentityStrategy(_ strategy: DisplayIdentityStrategy, for id: DisplayRecordID) async {
+        let lease = await beginMutationLease()
+        defer { endMutationLease(lease) }
         guard let record = record(for: id),
               Self.supports(strategy, fingerprint: record.fingerprint,
                             cgUUID: state.cgUUIDIndex.first(where: { $0.value == id })?.key) else { return }
-        try? await mutate(id) { $0.identityStrategy = strategy }
+        try? await mutate(id, lease: lease) { $0.identityStrategy = strategy }
     }
 
     /// Marks a record as an explicit user pairing, lifting its identity confidence (REG-004).
@@ -338,7 +382,9 @@ public actor DisplayRegistry {
     /// resolve works from the new records. Throws when registry.json couldn't be written: memory
     /// then holds `newState` while the file still holds what was there, and the caller decides —
     /// an import puts the previous state back the same way.
-    public func replaceState(_ newState: RegistryState) async throws {
+    public func replaceState(_ newState: RegistryState, lease: MutationLease? = nil) async throws {
+        let acquired = await acquireMutation(unlessOwnedBy: lease)
+        defer { if let acquired { endMutationLease(acquired) } }
         state = newState
         provisional.removeAll()
         try await store.save(state)
@@ -360,6 +406,8 @@ public actor DisplayRegistry {
     /// Returns false when there was no such persisted record (a provisional one has nothing stored).
     @discardableResult
     public func forget(_ id: DisplayRecordID) async -> Bool {
+        let lease = await beginMutationLease()
+        defer { endMutationLease(lease) }
         guard state.records.contains(where: { $0.id == id }) else { return false }
         state.records.removeAll { $0.id == id }
         state.cgUUIDIndex = state.cgUUIDIndex.filter { $0.value != id }
@@ -372,8 +420,10 @@ public actor DisplayRegistry {
     /// so a connected display whose settings are reset is still recognized as itself rather than
     /// re-matched from scratch.
     public func clearUserData(for id: DisplayRecordID) async {
+        let lease = await beginMutationLease()
+        defer { endMutationLease(lease) }
         guard state.records.contains(where: { $0.id == id }) else { return }
-        try? await mutate(id) {
+        try? await mutate(id, lease: lease) {
             $0.alias = nil
             $0.tags = []
             $0.provenance = nil
@@ -398,7 +448,10 @@ public actor DisplayRegistry {
     @discardableResult
     public func transferUserDataPersisting(from source: DisplayRecordID?, to destination: DisplayRecordID,
                                            alias: Bool, tags: Bool,
-                                           provenance: DisplayRecordProvenance) async throws -> DisplayRecordID? {
+                                           provenance: DisplayRecordProvenance,
+                                           lease: MutationLease? = nil) async throws -> DisplayRecordID? {
+        let acquired = await acquireMutation(unlessOwnedBy: lease)
+        defer { if let acquired { endMutationLease(acquired) } }
         let previous = state
         let previousProvisional = provisional
         guard source != destination else { return nil }
@@ -425,11 +478,16 @@ public actor DisplayRegistry {
     /// Notes on a record that settings were moved onto it from one of its own earlier identifiers
     /// (`DisplaySettingsTransfer` migration). Nothing about recognition changes.
     public func appendProvenance(_ provenance: DisplayRecordProvenance, to id: DisplayRecordID) async {
+        let lease = await beginMutationLease()
+        defer { endMutationLease(lease) }
         guard state.records.contains(where: { $0.id == id }) else { return }
-        try? await mutate(id) { $0.provenance = ($0.provenance ?? []) + [provenance] }
+        try? await mutate(id, lease: lease) { $0.provenance = ($0.provenance ?? []) + [provenance] }
     }
 
-    public func appendProvenancePersisting(_ provenance: DisplayRecordProvenance, to id: DisplayRecordID) async throws {
+    public func appendProvenancePersisting(_ provenance: DisplayRecordProvenance, to id: DisplayRecordID,
+                                          lease: MutationLease? = nil) async throws {
+        let acquired = await acquireMutation(unlessOwnedBy: lease)
+        defer { if let acquired { endMutationLease(acquired) } }
         let previous = state
         guard let index = state.records.firstIndex(where: { $0.id == id }) else { throw RegistryError.unknownRecord }
         state.records[index].provenance = (state.records[index].provenance ?? []) + [provenance]
@@ -441,7 +499,10 @@ public actor DisplayRegistry {
 
     private enum RegistryError: Error { case unknownRecord }
 
-    private func mutate(_ id: DisplayRecordID, _ change: (inout DisplayRecord) -> Void) async throws {
+    private func mutate(_ id: DisplayRecordID, lease: MutationLease? = nil,
+                        _ change: (inout DisplayRecord) -> Void) async throws {
+        let acquired = await acquireMutation(unlessOwnedBy: lease)
+        defer { if let acquired { endMutationLease(acquired) } }
         guard let index = state.records.firstIndex(where: { $0.id == id }) ?? materializeLocked(id) else {
             throw RegistryError.unknownRecord
         }

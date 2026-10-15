@@ -196,3 +196,146 @@ extension DisplaySettingsTransactionTests {
         XCTAssertEqual(state, original)
     }
 }
+
+/// The first save stops inside the backend, so tests exercise actor reentrancy without clocks.
+private actor PausingTransferRegistryStore: RegistryStoring {
+    private var state: RegistryState
+    private var paused = false
+    private var didPause = false
+    private var pauseObservers: [CheckedContinuation<Void, Never>] = []
+    private var resumeSave: CheckedContinuation<Void, Never>?
+    private let failPausedSave: Bool
+
+    init(_ state: RegistryState, failPausedSave: Bool) {
+        self.state = state
+        self.failPausedSave = failPausedSave
+    }
+    func load() -> RegistryState { state }
+    func save(_ state: RegistryState) async throws {
+        if !didPause {
+            didPause = true
+            await withCheckedContinuation { continuation in
+                resumeSave = continuation
+                paused = true
+                for observer in pauseObservers { observer.resume() }
+                pauseObservers.removeAll()
+            }
+            if failPausedSave { throw CocoaError(.fileWriteOutOfSpace) }
+        }
+        self.state = state
+    }
+    func waitUntilPaused() async {
+        if paused { return }
+        await withCheckedContinuation { pauseObservers.append($0) }
+    }
+    func resume() {
+        resumeSave?.resume()
+        resumeSave = nil
+    }
+}
+
+extension DisplaySettingsTransactionTests {
+    @MainActor
+    func testTransferRollbackSerializesConcurrentRenameAndPreservesOrdinarySettingEdit() async throws {
+        for storageFailure in [false, true] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let a = DisplayRecord(id: .init(rawValue: "disp_A"), alias: "A", fingerprint: .init(),
+                                  displayClass: .external, lastSeen: Date())
+            let b = DisplayRecord(id: .init(rawValue: "disp_B"), alias: "B", fingerprint: .init(),
+                                  displayClass: .external, lastSeen: Date())
+            let c = DisplayRecord(id: .init(rawValue: "disp_C"), alias: "C", fingerprint: .init(),
+                                  displayClass: .external, lastSeen: Date())
+            let original = RegistryState(records: [a, b, c], cgUUIDIndex: ["A": a.id, "B": b.id, "C": c.id])
+            let store = PausingTransferRegistryStore(original, failPausedSave: storageFailure)
+            let registry = await DisplayRegistry(store: store)
+            let lease = await registry.beginMutationLease()
+            let snapshot = DisplaySettingsRecoverySnapshot(settings: .default, favorites: .init(),
+                menuLayout: .default, managedOffline: [], registry: await registry.currentState())
+            var memory = snapshot
+            var disk = snapshot
+            var rename: Task<Void, Never>?
+            var renamed = false
+            var published = false
+            do {
+                try await DisplaySettingsTransaction.run(snapshot: snapshot,
+                    recoveryURL: directory.appendingPathComponent("recovery.json"), write: { step in
+                        if step == .settings { disk.settings.keyboardAudioByDisplay["cg:B"] = .init(nativeAudioDevice: "USB") }
+                        if step == .registry {
+                            let transfer = Task {
+                                try await registry.transferUserDataPersisting(from: a.id, to: b.id,
+                                    alias: true, tags: true,
+                                    provenance: .init(kind: .transferredFrom, date: Date(), sourceName: "A",
+                                        sourceRecordID: a.id, sourceObservationIDs: [.forCGUUID("A")], categories: ["name"]),
+                                    lease: lease)
+                            }
+                            await store.waitUntilPaused()
+                            rename = Task {
+                                await registry.setAlias("C renamed", for: c.id)
+                                renamed = true
+                            }
+                            // Observe either actual admission to the queue or the pre-fix edit
+                            // finishing; no scheduler timing assumption or timeout is required.
+                            while await registry.pendingMutationCount == 0 && !renamed { await Task.yield() }
+                            memory.settings.mediaKeyInterceptionEnabled.toggle()
+                            disk.settings = memory.settings
+                            await store.resume()
+                            _ = try await transfer.value
+                        }
+                    }, commit: {
+                        try DisplaySettingsTransaction.commitIfUnchanged(expected: snapshot, current: memory,
+                            persist: { XCTFail("conflict must precede final saves") }, publish: { published = true })
+                    }, restore: { step in
+                        switch step {
+                        case .registry: try await registry.replaceState(snapshot.registry, lease: lease)
+                        case .settings: disk.settings = memory.settings
+                        case .favorites: disk.favorites = memory.favorites
+                        case .menuLayout: disk.menuLayout = memory.menuLayout
+                        case .managedOffline: disk.managedOffline = memory.managedOffline
+                        }
+                    })
+                XCTFail("conflicting edit or failed store must abort")
+            } catch let failure as DisplaySettingsTransaction.Failure {
+                XCTAssertTrue(failure.restored)
+                if !storageFailure { XCTAssertTrue(failure.underlying is DisplaySettingsTransaction.StateChanged) }
+            }
+            await registry.endMutationLease(lease)
+            await rename?.value
+            XCTAssertFalse(published)
+            XCTAssertEqual(disk.settings, memory.settings)
+            XCTAssertNotEqual(memory.settings, snapshot.settings)
+            var expected = original
+            expected.records[2].alias = "C renamed"
+            let current = await registry.currentState()
+            let saved = await store.load()
+            XCTAssertEqual(current, expected, "rollback restores A/B while the unrelated rename survives")
+            XCTAssertEqual(saved, expected)
+        }
+    }
+
+    @MainActor
+    func testTransferLeaseWaitsForRegistryWriterAlreadyPersisting() async {
+        let c = DisplayRecord(id: .init(rawValue: "disp_C"), alias: "C", fingerprint: .init(),
+                              displayClass: .external, lastSeen: Date())
+        let store = PausingTransferRegistryStore(.init(records: [c]), failPausedSave: false)
+        let registry = await DisplayRegistry(store: store)
+        let rename = Task { await registry.setAlias("C renamed", for: c.id) }
+        await store.waitUntilPaused()
+        var acquired = false
+        let transfer = Task {
+            let lease = await registry.beginMutationLease()
+            acquired = true
+            let snapshot = await registry.currentState()
+            await registry.endMutationLease(lease)
+            return snapshot
+        }
+        while await registry.pendingMutationCount == 0 && !acquired { await Task.yield() }
+        XCTAssertFalse(acquired, "a transfer snapshot cannot precede an in-flight registry writer")
+        await store.resume()
+        await rename.value
+        let snapshot = await transfer.value
+        XCTAssertEqual(snapshot.records.first?.alias, "C renamed")
+        let saved = await store.load()
+        XCTAssertEqual(saved, snapshot)
+    }
+}
