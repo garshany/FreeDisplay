@@ -17,7 +17,7 @@ final class LocalControlServer {
     private(set) var port: UInt16?
     private(set) var failure: String?
 
-    typealias Handler = @MainActor @Sendable (LocalHTTPControl.ParseResult) async -> Data
+    typealias Handler = @MainActor @Sendable (LocalHTTPControl.ParseResult) async -> AutomationHTTPResponse
 
     /// Every authenticated route goes to `handler`, which runs against the app's live model.
     func start(handler: @escaping Handler) throws {
@@ -96,12 +96,12 @@ final class LocalControlServer {
                         else { self.receive(connection, id: id, data: accumulated, token: token, handler: handler) }
                     case .rejected(let status):
                         self.send(LocalHTTPControl.response(status: status), connection: connection, id: id)
-                    case .displays, .brightness, .reconnectAll:
+                    case .displays, .brightness, .reconnectAll, .command, .catalog, .invalid:
                         // Reconnect-all goes to the live model too: a gateway composed here would
                         // never see the app's managed-offline ledger and always answer noOp.
-                        let body = await handler(parsed)
+                        let response = await handler(parsed)
                         guard !Task.isCancelled, self.connections[id] != nil else { return }
-                        self.send(LocalHTTPControl.response(status: 200, body: body), connection: connection, id: id)
+                        self.send(LocalHTTPControl.response(status: response.status, body: response.body), connection: connection, id: id)
                     }
                 }
             }

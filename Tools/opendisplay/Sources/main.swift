@@ -39,7 +39,7 @@ func exitIfUnsuccessful(_ status: ResultEnvelope.Status) {
 }
 
 let helpText = """
-    opendisplay — OpenDisplay automation CLI
+    opendisplay — FreeDisplay automation CLI
 
     USAGE:
       opendisplay list [--json]
@@ -57,7 +57,11 @@ let helpText = """
       opendisplay layout <protect|unprotect|status> [--json]
       opendisplay group <list|create|delete> [name] [--json]
       opendisplay group <add|remove> <name> <selector>
-      opendisplay brightness <selector> [0..1] [--json]
+      opendisplay brightness <selector> [0..1|N%] [--method automatic|hardware|native|ddc|software] [--json]
+      opendisplay brightness <selector> --offset <delta>  # requires FD-078; currently refused
+      opendisplay mode <selector> [--json]       # exact available modes, current first
+      opendisplay capabilities <selector> [--json]
+      opendisplay commands [--json]             # typed command catalog
       opendisplay ddc <selector> <brightness|contrast|volume|input|colour|sharpness|red|green|blue|mute|power|caps> [value] [--json]
       opendisplay ddc <selector> reset                # restore the monitor's factory defaults (VCP 0x04)
       opendisplay ddc <selector> vcp <0xNN> [value]   # any raw MCCS feature code
@@ -133,6 +137,12 @@ func emitLine<T: Encodable>(_ value: T) {
         fail("failed to encode JSON event")
     }
     print(text)
+}
+
+if command == "commands" {
+    if asJSON { emit(AutomationCatalog.descriptors(for: .cli)) }
+    else { for item in AutomationCatalog.descriptors(for: .cli) { print("\(item.name.rawValue): \(item.summary)") } }
+    exit(CLIExitCode.success.rawValue)
 }
 
 // MARK: - Composition root
@@ -482,7 +492,7 @@ func runTag() async {
 /// snapshot's offline list — which `CoreGraphicsProvider` never fills — so `recover` printed
 /// "nothing to reconnect" while the ledger still held every display the app or CLI had turned off.
 /// The ledger is re-saved after each display, so an interrupted run never loses a record.
-func runRecover() async {
+func performRecover() async -> ResultEnvelope {
     let requestedAt = Date()
     var ledger = managedOfflineDisplays
     var results: [(displayId: String, reconnected: Bool)] = []
@@ -512,6 +522,12 @@ func runRecover() async {
         timestamp: requestedAt, actor: .cli, command: "reconnectAll",
         transactionId: envelope.transactionId, status: envelope.status.rawValue,
         targets: envelope.targets.map(\.displayId)))
+    return envelope
+}
+
+func runRecover() async {
+    let result = await AutomationEngine(environment: CLIAutomationEnvironment(pairs: [])).run(.init(.reconnectAll))
+    let envelope = result.envelope
     if !asJSON && envelope.targets.isEmpty {
         print("recover: nothing to reconnect")
         return
@@ -558,7 +574,18 @@ func stampedReconnectFailure(_ offline: ManagedOfflineDisplay) -> ManagedOffline
 func runDisconnect() async {
     guard let selectorArg else { fail("usage: opendisplay disconnect <selector> [--dry-run] [--json]") }
     let pairs = await resolveCurrentDisplays()
-    let target = uniqueDisplay(selectorArg, in: pairs, managedOffline: managedOfflineIDs)
+    let environment = await CLIAutomationEnvironment(pairs: pairs)
+    let target: ResolvedDisplay
+    do {
+        let candidate = try AutomationSelectorResolver.resolveOne(AutomationSelector.parse(selectorArg), text: selectorArg,
+                                                                  in: await environment.displaySet())
+        if let issue = AutomationSelectorResolver.availabilityIssue(candidate, requirement: .activeDisplay) { throw issue }
+        guard let resolved = pairs.first(where: { $0.observation.recordID == candidate.id }) else {
+            throw AutomationIssue(.displayNotFound, "the selected display is no longer present")
+        }
+        target = resolved
+    } catch { fail(String(describing: error)) }
+
 
     if dryRun {
         let outcome = await gateway.preflightDisconnect(target.observation.recordID, identityConfidence: 1.0)
@@ -584,6 +611,12 @@ func runDisconnect() async {
         return
     }
 
+    let request = AutomationRequest.byID(.disconnect, target.observation.recordID)
+    let result = await AutomationEngine(environment: CLIAutomationEnvironment(pairs: pairs)).run(request)
+    emitEnvelope(result.envelope)
+}
+
+func performDisconnect(_ target: ResolvedDisplay) async -> ResultEnvelope {
     // Same pre-disconnect copy of macOS's saved display configuration the app takes (issue #40).
     if let root = try? WindowServerConfigBackup.defaultDirectory() {
         WindowServerConfigBackup.snapshot(
@@ -604,7 +637,7 @@ func runDisconnect() async {
             displayClass: target.observation.displayClass))
     }
     await logDisplayEvent("disconnect:\(envelope.status == .committed ? "committed" : "failed") \(name(for: target))")
-    emitEnvelope(envelope)
+    return envelope
 }
 
 func runReconnect() async {
@@ -962,53 +995,19 @@ struct BrightnessWrite {
 /// read-back of exactly the written value counts as `verified` — no tolerance is assumed — so a
 /// panel that quantizes, is still applying, or ignored the write reports `sent` with what it said.
 func applyBrightness(_ level: Float, to target: ResolvedDisplay) async -> BrightnessWrite {
-    var write = BrightnessWrite(target: target, requested: level, outcome: .failed)
-    guard let cgID = target.observation.cgDisplayID else {
-        write.note = "no Core Graphics id"
-        return write
-    }
-    if target.observation.displayClass == .builtIn {
-        let provider = DisplayServicesBrightnessProvider()
-        write.provider = "displayServices"
-        guard provider.setBrightness(level, for: cgID) else {
-            write.note = "DisplayServices unavailable"
-            return write
-        }
-        write.observed = provider.brightness(for: cgID)
-        if write.observed == level {
-            write.outcome = .verified
-        } else {
-            write.outcome = .sent
-            write.note = write.observed.map { String(format: "read back %.4f", $0) } ?? "no read-back"
-        }
-        return write
-    }
-    let binding = bindDDC(target)
-    guard let ddc = binding.controller else {
-        write.outcome = .unsupported
-        write.note = binding.refusal.map(ddcRefusalText) ?? "no brightness control for this display"
-        return write
-    }
-    write.provider = "ddc"
-    let maxValue = await ddc.read(.brightness)?.max ?? 100
-    let raw = Int((level * Float(maxValue)).rounded())
-    guard await ddc.write(.brightness, raw) else {
-        write.note = "DDC write failed"
-        return write
-    }
-    let reading = await ddc.read(.brightness)
-    if let reading, reading.max > 0 { write.observed = Float(reading.current) / Float(reading.max) }
-    switch DDCWriteVerification.outcome(target: raw, readback: reading?.current) {
-    case .applied:
-        write.outcome = .verified
-    case .ignored(let actual):
-        write.outcome = .sent
-        write.note = "the panel reports \(actual)/\(reading?.max ?? maxValue) instead of \(raw)"
-    case .unknown:
-        write.outcome = .sent
-        write.note = "no read-back"
-    }
-    return write
+    let environment = await CLIAutomationEnvironment(pairs: [target])
+    let request = AutomationRequest.byID(.setBrightness(AutomationLevel(clamping: Double(level)), method: .automatic),
+                                         target.observation.recordID)
+    let result = await AutomationEngine(environment: environment).run(request)
+    return brightnessWrite(result, target: target)
+}
+
+func brightnessWrite(_ result: AutomationResult, target: ResolvedDisplay) -> BrightnessWrite {
+    let report = result.brightness
+    return BrightnessWrite(target: target, requested: report?.requested?.float ?? 0,
+                           outcome: report?.outcome ?? .failed, observed: report?.level?.float,
+                           provider: report.map { $0.route == .native ? "displayServices" : $0.route.rawValue },
+                           note: result.issue?.message ?? report?.note)
 }
 
 /// Publishes a CLI brightness change on the OSD event channel, as the app does for its own
@@ -1063,9 +1062,10 @@ func finishBrightness(_ writes: [BrightnessWrite], skipped: [ResultEnvelope.Targ
 /// arithmetic. Re-read at write time, since the app owns the file and may have toggled FaceLight
 /// since launch.
 func runGroupBrightness(_ group: DisplayGroup, in pairs: [ResolvedDisplay]) async {
-    guard let raw = valueArg, let level = Float(raw), (0...1).contains(level) else {
+    guard let raw = valueArg, let parsed = try? AutomationValueParser.level(raw) else {
         fail("usage: opendisplay brightness group:\(group.name) <0..1>", code: CLIExitCode.usage.rawValue)
     }
+    let level = parsed.float
     let present = pairs.filter { $0.observation.isActive }.map(\.observation.recordID)
     let governed = GroupSyncPolicy.governedDisplays(in: settingsStore?.load() ?? OpenDisplaySettings())
     let world = GroupSyncPolicy.World(present: Set(present), governed: governed)
@@ -1092,41 +1092,192 @@ func runGroupBrightness(_ group: DisplayGroup, in pairs: [ResolvedDisplay]) asyn
 
 /// Get or set a display's brightness (0..1). Built-in via DisplayServices, external via DDC.
 func runBrightness() async {
-    guard let sel = selectorArg else { fail("usage: opendisplay brightness <selector> [0..1]") }
+    guard let sel = selectorArg, invocation.positional.count <= 2 else {
+        fail("usage: opendisplay brightness <selector> [0..1|N%] [--method <method>] [--offset <delta>]", code: CLIExitCode.usage.rawValue)
+    }
+    let request: AutomationRequest
+    do {
+        var parameters: [String: AutomationParameterValue] = ["display": .string(sel)]
+        if let valueArg { parameters["value"] = .string(valueArg) }
+        if let method = invocation.values["--method"] { parameters["method"] = .string(method) }
+        if let offset = invocation.values["--offset"] { parameters["offset"] = .string(offset) }
+        request = try AutomationRequestParser.parse(verb: "brightness", parameters: parameters)
+    } catch { fail(error.message, code: CLIExitCode.usage.rawValue) }
     let pairs = await resolveCurrentDisplays()
+    // Preserve the established absolute group-base operation. It is a policy operation rather than
+    // an arbitrary multi-target write; offsets and method overrides must not be silently discarded.
     if let group = groupSelector(sel) {
+        guard valueArg != nil, invocation.values.isEmpty else {
+            fail("group brightness accepts an absolute level; method overrides and offsets require one display", code: CLIExitCode.usage.rawValue)
+        }
         await runGroupBrightness(group, in: pairs)
         return
     }
-    let target = uniqueDisplay(sel, in: pairs, managedOffline: managedOfflineIDs)
-    guard let cgID = target.observation.cgDisplayID else { fail("display has no Core Graphics id") }
-    let builtIn = target.observation.displayClass == .builtIn
-    if let raw = valueArg {
-        guard let level = Float(raw), (0...1).contains(level) else {
-            fail("brightness value must be 0..1", code: CLIExitCode.usage.rawValue)
-        }
-        let write = await applyBrightness(level, to: target)
-        publishBrightnessEvent(write)
-        await finishBrightness([write])
-        return
+    let result = await AutomationEngine(environment: CLIAutomationEnvironment(pairs: pairs)).run(request)
+    if let issue = result.issue {
+        if asJSON { emit(result.envelope) } else { warn(issue.message) }
+        exit(CLIExitCode(result).rawValue)
     }
-    struct Reading: Encodable {
-        var displayId: String; var level: Double; var provider: String; var raw: Int?; var max: Int?
-    }
-    let id = target.observation.recordID.rawValue
-    if builtIn, let value = DisplayServicesBrightnessProvider().brightness(for: cgID) {
-        if asJSON { emit(Reading(displayId: id, level: Double(value), provider: "displayServices")) }
-        else { print("\(Int((value * 100).rounded()))%") }
-    } else if !builtIn, let ddc = bindDDC(target).controller,
-              let reading = await ddc.read(.brightness), reading.max > 0 {
-        let level = Float(reading.current) / Float(reading.max)
-        if asJSON {
-            emit(Reading(displayId: id, level: Double(level), provider: "ddc", raw: reading.current, max: reading.max))
-        } else {
-            print("\(Int((level * 100).rounded()))% (\(reading.current)/\(reading.max), DDC)")
+    guard let report = result.brightness else { fail("brightness result is unavailable") }
+    if report.requested != nil {
+        if let target = pairs.first(where: { $0.observation.recordID.rawValue == report.displayId }) {
+            publishBrightnessEvent(brightnessWrite(result, target: target))
         }
+        if asJSON { emit(result.envelope) }
+        else { print("\(report.displayName): \(report.level?.wholePercent ?? report.requested!.wholePercent)% — \(report.outcome?.rawValue ?? "sent")") }
     } else {
-        fail("brightness can't be read on \(name(for: target)) (no DisplayServices or DDC answer)")
+        struct Reading: Encodable { var displayId: String; var level: Double; var provider: String; var raw: Int?; var max: Int? }
+        if asJSON {
+            emit(Reading(displayId: report.displayId, level: report.level!.normalized,
+                         provider: report.route == .native ? "displayServices" : report.route.rawValue,
+                         raw: report.raw, max: report.rawMaximum))
+        } else { print("\(report.level!.wholePercent)%") }
+    }
+    let code = CLIExitCode(result)
+    if code != .success { exit(code.rawValue) }
+}
+
+/// The standalone CLI offers public mode discovery. Applying a mode needs the running app's
+/// keep/revert gate and is refused by the catalog until FD-078 provides that transport.
+func runMode() async {
+    guard let selectorArg, invocation.positional.count <= 2 else {
+        fail("usage: opendisplay mode <selector> [mode] [--json]", code: CLIExitCode.usage.rawValue)
+    }
+    let request: AutomationRequest
+    do {
+        var parameters: [String: AutomationParameterValue] = ["display": .string(selectorArg)]
+        if let valueArg { parameters["mode"] = .string(valueArg) }
+        request = try AutomationRequestParser.parse(verb: valueArg == nil ? "listModes" : "mode", parameters: parameters)
+    } catch { fail(error.message, code: CLIExitCode.usage.rawValue) }
+    let pairs = await resolveCurrentDisplays()
+    let result = await AutomationEngine(environment: CLIAutomationEnvironment(pairs: pairs)).run(request)
+    if asJSON { emit(result) }
+    else if let issue = result.issue { warn(issue.message) }
+    else {
+        for mode in result.modes?.available ?? [] { print("\(mode.isCurrent ? "*" : " ") \(mode.key)") }
+    }
+    let code = CLIExitCode(result)
+    if code != .success { exit(code.rawValue) }
+}
+
+func runCapabilities() async {
+    guard let selectorArg, invocation.positional.count == 1 else {
+        fail("usage: opendisplay capabilities <selector> [--json]", code: CLIExitCode.usage.rawValue)
+    }
+    let selector: AutomationSelector
+    do { selector = try AutomationSelector.parse(selectorArg) }
+    catch { fail(error.message, code: CLIExitCode.usage.rawValue) }
+    let pairs = await resolveCurrentDisplays()
+    let result = await AutomationEngine(environment: CLIAutomationEnvironment(pairs: pairs))
+        .run(.init(.getCapabilities, target: selector, targetText: selectorArg))
+    if asJSON { emit(result) }
+    else if let issue = result.issue { warn(issue.message) }
+    else if let report = result.capabilities {
+        for command in report.commands {
+            print("\(command.command.rawValue): \(command.issue?.code.rawValue ?? "admitted")")
+        }
+        for route in BrightnessRoute.allCases {
+            print("brightness.\(route.rawValue): \(report.brightnessRoutes.isAvailable(route) ? "available" : "unavailable")")
+        }
+    }
+    let code = CLIExitCode(result)
+    if code != .success { exit(code.rawValue) }
+}
+
+/// Only I/O lives here; resolution, method choice and settlement stay in AutomationSchema.
+@MainActor
+final class CLIAutomationEnvironment: AutomationEnvironment {
+    nonisolated let surface = AutomationSurface.cli
+    let pairs: [ResolvedDisplay]
+    init(pairs: [ResolvedDisplay]) { self.pairs = pairs }
+
+    func displaySet() async -> AutomationDisplaySet {
+        AutomationDisplayCatalog.displaySet(
+            displays: pairs.map(\.observation), offline: managedOfflineDisplays,
+            name: { observation in pairs.first { $0.observation.recordID == observation.recordID }.map { name(for: $0) } ?? observation.recordID.rawValue },
+            record: { id in pairs.first { $0.observation.recordID == id }?.record },
+            groups: displayGroups, pointerDisplayID: nil,
+            generation: await observer.currentSnapshot().generation.value)
+    }
+
+    private func target(_ display: AutomationDisplayCandidate) throws(AutomationIssue) -> ResolvedDisplay {
+        guard let target = pairs.first(where: { $0.observation.recordID == display.id && $0.observation.isActive }) else {
+            throw AutomationIssue(.displayNotConnected, "the selected display is not active", subject: display.id.rawValue)
+        }
+        return target
+    }
+
+    nonisolated func unavailability(of command: AutomationCommandName) -> AutomationIssue? {
+        command == .adjustBrightness
+            ? AutomationIssue(.capabilityUnavailable, "atomic CLI offsets require the running-app transport (FD-078); use the app HTTP command endpoint")
+            : nil
+    }
+
+    func reconnectAll() async throws(AutomationIssue) -> ResultEnvelope { await performRecover() }
+
+    func disconnect(_ display: AutomationDisplayCandidate) async throws(AutomationIssue) -> ResultEnvelope {
+        await performDisconnect(try target(display))
+    }
+
+    func brightnessRoutes(for display: AutomationDisplayCandidate) async -> BrightnessRouteAvailability {
+        guard let target = try? target(display), let cgID = target.observation.cgDisplayID else {
+            return .init(current: nil, states: [:])
+        }
+        if settingsStore?.load().softwareBrightnessDisplayIDs.contains(display.id.rawValue) == true {
+            return .init(current: nil, states: [.native: .unavailable(.softwarePreferred), .ddc: .unavailable(.softwarePreferred),
+                                               .software: .unavailable(.notInThisProcess)])
+        }
+        if (target.observation.displayClass == .builtIn || CGDisplayVendorNumber(cgID) == 0x610),
+           DisplayServicesBrightnessProvider().brightness(for: cgID) != nil {
+            return .init(current: .native, states: [.native: .available, .ddc: .unavailable(.notCurrentRoute),
+                                                   .software: .unavailable(.notInThisProcess)])
+        }
+        let binding = bindDDC(target)
+        return .init(current: binding.controller == nil ? nil : .ddc,
+                     states: [.native: .unavailable(.notOffered),
+                              .ddc: binding.controller == nil ? .unavailable(.refused, detail: binding.refusal.map(ddcRefusalText)) : .available,
+                              .software: .unavailable(.notInThisProcess)])
+    }
+
+    func readBrightness(of display: AutomationDisplayCandidate, via route: BrightnessRoute) async throws(AutomationIssue) -> BrightnessReadback {
+        let target = try target(display)
+        if route == .native, let cgID = target.observation.cgDisplayID {
+            return DisplayServicesBrightnessProvider().brightness(for: cgID).map { .level(Double($0)) } ?? .none
+        }
+        if route == .ddc, let ddc = bindDDC(target).controller, let reading = await ddc.read(.brightness) {
+            return .ddc(current: reading.current, max: reading.max)
+        }
+        return .none
+    }
+
+    func writeBrightness(_ level: AutomationLevel, to display: AutomationDisplayCandidate,
+                         via route: BrightnessRoute) async throws(AutomationIssue) -> BrightnessWriteReport {
+        let target = try target(display)
+        let accepted: Bool
+        if route == .native, let cgID = target.observation.cgDisplayID {
+            accepted = DisplayServicesBrightnessProvider().setBrightness(level.float, for: cgID)
+        } else if route == .ddc, let ddc = bindDDC(target).controller {
+            let maximum = await ddc.read(.brightness)?.max ?? 100 // existing CLI fallback
+            accepted = await ddc.write(.brightness, level.raw(maximum: maximum))
+            if accepted { try? await Task.sleep(nanoseconds: DDCReadbackPolicy.settleNanoseconds(.continuous)) }
+        } else { accepted = false }
+        return BrightnessWriteReport(requested: level, accepted: accepted,
+                                     readback: accepted ? try await readBrightness(of: display, via: route) : .none)
+    }
+
+    func adjustBrightness(by delta: AutomationLevelDelta, of display: AutomationDisplayCandidate,
+                          via route: BrightnessRoute) async throws(AutomationIssue) -> BrightnessWriteReport {
+        // One process executes one request. Cross-process accumulation requires FD-078 app IPC;
+        // refusing here avoids pretending two concurrent processes share an atomic read/write.
+        throw AutomationIssue(.capabilityUnavailable, "atomic CLI offsets require the running-app transport (FD-078); use the app HTTP command endpoint")
+    }
+
+    func modes(of display: AutomationDisplayCandidate) async throws(AutomationIssue) -> AutomationModeState {
+        let target = try target(display)
+        guard let cgID = target.observation.cgDisplayID else {
+            throw AutomationIssue(.displayNotConnected, "the selected display has no current display number")
+        }
+        return AutomationModeState(current: target.observation.mode, offered: observer.availableModes(for: cgID))
     }
 }
 
@@ -1236,7 +1387,9 @@ func runDDC() async {
         }
         let ok = await ddc.write(feature, value)
         await finishDDCWrite(target, field: "ddc.\(featureKey)", subject: "\(featureArg) = \(value)",
-                             value: value, ok: ok, readBack: { await ddc.read(feature) })
+                             value: value, ok: ok,
+                             kind: feature == .colorPreset ? .colorPreset : [.brightness, .contrast, .volume, .sharpness, .redGain, .greenGain, .blueGain].contains(feature) ? .continuous : .discrete,
+                             readBack: { await ddc.read(feature) })
     } else {
         await printDDCReading(await ddc.read(feature), feature: featureArg, code: feature.rawValue, target: target)
     }
@@ -1247,6 +1400,7 @@ func runDDC() async {
 /// written value. A different answer is reported, not called a failure: the panel may still be
 /// applying the value, or may have ignored it (they ACK writes they then drop).
 func finishDDCWrite(_ target: ResolvedDisplay, field: String, subject: String, value: Int, ok: Bool,
+                    kind: DDCReadbackPolicy.Kind = .discrete,
                     readBack: (() async -> (current: Int, max: Int)?)? = nil) async {
     var operation = ResultEnvelope.OperationResult(
         field: field, requested: .int(value), verification: .notApplicable, provider: "ddc", outcome: .failed)
@@ -1255,9 +1409,10 @@ func finishDDCWrite(_ target: ResolvedDisplay, field: String, subject: String, v
         operation.outcome = .sent
         operation.verification = .readBackUnavailable
         if let readBack {
+            try? await Task.sleep(nanoseconds: DDCReadbackPolicy.settleNanoseconds(kind))
             let reading = await readBack()
             operation.observed = reading.map { .int($0.current) }
-            switch DDCWriteVerification.outcome(target: value, readback: reading?.current) {
+            switch DDCWriteVerification.outcome(target: value, readback: reading?.current, tolerance: DDCReadbackPolicy.tolerance(kind)) {
             case .applied:
                 operation.outcome = .verified
                 operation.verification = .verified
@@ -1752,6 +1907,8 @@ case "scene": await runScene()
 case "layout": await runLayout()
 case "group": await runGroup()
 case "brightness": await runBrightness()
+case "mode": await runMode()
+case "capabilities": await runCapabilities()
 case "ddc": await runDDC()
 case "edid": await runEDID()
 case "favorite", "favourite": await runFavorite()

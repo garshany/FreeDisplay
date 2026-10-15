@@ -87,29 +87,23 @@ enum OpenDisplayAutomation {
     /// logged no-op, never a crash. Returns the parsed command (nil when unrecognized).
     @discardableResult
     static func handleURL(_ url: URL, model: AppModel) async -> URLCommand? {
-        guard let command = URLCommandParser.parse(url) else {
-            log("ignored malformed/unknown URL: \(url.absoluteString)")
+        guard let parsed = URLCommandParser.parseRequest(url) else {
+            log("ignored malformed/unknown URL")
             return nil
         }
-        guard !command.requiresConfirmation else {
-            log("refused URL command \(command.name): arrangement-altering commands aren't accepted from URLs")
-            // Shown from a run-loop block, not a main-actor job: a modal alert run inside a main-queue
-            // job would hold every other main-actor task — the display safety net included — until
-            // someone dismisses it, and any web page can open this URL.
-            RunLoop.main.perform { MainActor.assumeIsolated { presentRefusal(of: command) } }
-            CFRunLoopWakeUp(CFRunLoopGetMain())  // a scheduled block doesn't wake an idle run loop
-            return command
+        let legacy = URLCommandParser.parse(url)
+        switch parsed {
+        case .failure(let issue):
+            log("refused URL request: \(issue.code.rawValue)")
+        case .success(let request):
+            let result = await AppAutomation.run(request, from: .url, model: model)
+            log("routed URL request: \(result.issue?.code.rawValue ?? result.status.rawValue)")
+            if result.issue?.code == .confirmationRequired, let legacy {
+                RunLoop.main.perform { MainActor.assumeIsolated { presentRefusal(of: legacy) } }
+                CFRunLoopWakeUp(CFRunLoopGetMain())
+            }
         }
-        switch command {
-        case .reconnectAll:
-            // The app's own Reconnect All: a gateway composed here never sees the managed-offline
-            // ledger, so it reconnected nothing.
-            let envelope = await model.reconnectAll(actor: .url)
-            log("routed URL command \(command.name): \(envelope.status.rawValue)")
-        case .disconnect:
-            break  // unreachable: disconnect requiresConfirmation and returned above
-        }
-        return command
+        return legacy
     }
 
     @MainActor private static var isPresentingRefusal = false
@@ -138,6 +132,16 @@ enum OpenDisplayAutomation {
     }
 }
 
+/// Recovery alone can run without an app model. Admission and outcome mapping still use the
+/// shared engine; it can never stand in for live brightness, arrangement or color-profile state.
+private struct LedgerAutomationEnvironment: AutomationEnvironment {
+    let surface: AutomationSurface
+    func displaySet() async -> AutomationDisplaySet { .init(candidates: []) }
+    func reconnectAll() async throws(AutomationIssue) -> ResultEnvelope {
+        await OpenDisplayAutomation.reconnectAllFromLedger(actor: surface.actor)
+    }
+}
+
 /// Reconnects every managed-offline display — the always-available recovery action, now usable from
 /// Shortcuts, Siri, and the Shortcuts menu-bar surface.
 struct ReconnectAllIntent: AppIntent {
@@ -153,9 +157,9 @@ struct ReconnectAllIntent: AppIntent {
         // launch has loaded it. With no model in this process, the same ledger is read from disk.
         let envelope: ResultEnvelope
         if let model = await OpenDisplayAutomation.liveModel {
-            envelope = await model.reconnectAll(actor: .appIntent)
+            envelope = await AppAutomation.run(.init(.reconnectAll), from: .appIntent, model: model).envelope
         } else {
-            envelope = await OpenDisplayAutomation.reconnectAllFromLedger(actor: .appIntent)
+            envelope = await AutomationEngine(environment: LedgerAutomationEnvironment(surface: .appIntent)).run(.init(.reconnectAll)).envelope
         }
         let restored = envelope.targets.filter { target in
             target.operations.contains { $0.verification == .verified }

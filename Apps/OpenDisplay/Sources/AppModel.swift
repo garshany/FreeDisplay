@@ -353,6 +353,7 @@ final class AppModel: ObservableObject {
     private var groupBrightnessLoop: Task<Void, Never>?
     private var nativeMonitors: [DisplayRecordID: BrightnessMonitor] = [:]
     private var nativeTargets: [DisplayRecordID: Float] = [:]
+    private var automationBrightnessWriteAccepted: [DisplayRecordID: Bool] = [:]
     private var nativeWriters: [DisplayRecordID: Task<Void, Never>] = [:]
     /// When the poll last saw a native member change — what switches it to the fast cadence.
     private var groupBrightnessLastChange: Date?
@@ -2373,6 +2374,7 @@ final class AppModel: ObservableObject {
             // adaptive yields instead of fighting the slider. The adaptive loop's own writes go
             // through `applyAdaptiveBrightness`, never here.
             noteManualBrightnessForAdaptive(value, id: id)
+            automationBrightnessWriteAccepted[id] = false
             ddcTarget[id] = Int((value * Float(brightnessMax[id] ?? 100)).rounded())
             if ddcWriters[id] == nil {
                 ddcWriters[id] = Task { [weak self] in await self?.drainDDCWrites(id, observation) }
@@ -2475,6 +2477,7 @@ final class AppModel: ObservableObject {
     private func writeNativeBrightness(_ value: Float, for observation: DisplayObservation) {
         guard let cgID = observation.cgDisplayID else { return }
         let id = observation.recordID
+        automationBrightnessWriteAccepted[id] = false
         nativeMonitors[id, default: BrightnessMonitor()].beginWrite()
         nativeTargets[id] = value
         guard nativeWriters[id] == nil else { return }
@@ -2483,10 +2486,12 @@ final class AppModel: ObservableObject {
             let control = brightnessControl
             var sample: Float?
             while let target = nativeTargets.removeValue(forKey: id) {
-                sample = await Task.detached(priority: .userInitiated) {
-                    control.setBrightness(target, for: cgID)
-                    return control.brightness(for: cgID)
+                let receipt = await Task.detached(priority: .userInitiated) {
+                    let accepted = control.setBrightness(target, for: cgID)
+                    return (accepted, control.brightness(for: cgID))
                 }.value
+                automationBrightnessWriteAccepted[id] = receipt.0
+                sample = receipt.1
             }
             nativeMonitors[id, default: BrightnessMonitor()].endWrite(value: sample)
             nativeWriters[id] = nil
@@ -2769,7 +2774,7 @@ final class AppModel: ObservableObject {
                 guard ddcBindingIsCurrent(controller, for: id) else { return }
                 ddcTarget[id] = nil
                 lastTarget = target
-                await controller.write(.brightness, target)
+                automationBrightnessWriteAccepted[id] = await controller.write(.brightness, target)
             }
             guard let lastTarget else { break }
             switch await readBackAfterDrain(controller, vcp: vcp, settleNanos: Self.continuousSettleNanos,
@@ -2778,7 +2783,7 @@ final class AppModel: ObservableObject {
             case .superseded: continue  // a newer target arrived; write it, verify that one instead
             case .reading(let reading):
                 let outcome = DDCWriteVerification.outcome(
-                    target: lastTarget, readback: reading?.current, tolerance: 1)
+                    target: lastTarget, readback: reading?.current, tolerance: DDCReadbackPolicy.tolerance(.continuous))
                 noteWriteVerification(outcome, vcp: vcp, id: id)
                 if case .ignored(let actual) = outcome, let reading, reading.max > 0,
                    brightnessMethod[id] == .hardware {
@@ -2794,8 +2799,8 @@ final class AppModel: ObservableObject {
     /// Set-VCP asynchronously; reading back immediately can return the pre-write value and report a
     /// good write as ignored. Colour presets get longer — a mode switch reprograms the scaler's whole
     /// colour pipeline and some panels keep answering with the old code for a beat.
-    private static let continuousSettleNanos: UInt64 = 250_000_000
-    private static let presetSettleNanos: UInt64 = 1_000_000_000
+    private static let continuousSettleNanos = DDCReadbackPolicy.continuousSettleNanoseconds
+    private static let presetSettleNanos = DDCReadbackPolicy.colorPresetSettleNanoseconds
 
     /// What the post-drain read-back saw.
     private enum DrainReadBack {
@@ -3032,7 +3037,7 @@ final class AppModel: ObservableObject {
             case .superseded: continue
             case .reading(let reading):
                 let outcome = DDCWriteVerification.outcome(
-                    target: lastTarget, readback: reading?.current, tolerance: 1)
+                    target: lastTarget, readback: reading?.current, tolerance: DDCReadbackPolicy.tolerance(.continuous))
                 noteWriteVerification(outcome, vcp: key.vcp, id: key.id)
                 noteWriteTransport(sent: lastSent, outcome: outcome, vcp: key.vcp, id: key.id)
                 // Snap the slider to where the panel actually is, so it stops showing a level the
@@ -6657,10 +6662,73 @@ extension AppModel {
         await startupLoad?.value
     }
 
+    /// The shared automation candidates (FD-066): the current displays, the ones OpenDisplay turned
+    /// off, their registry records and groups, and the display under the pointer.
+    func automationDisplaySet(pointerDisplayID: UInt32?) -> AutomationDisplaySet {
+        AutomationDisplayCatalog.displaySet(
+            displays: displays, offline: managedOffline, name: displayName(for:),
+            record: { [records, registryKnownRecords] in records[$0] ?? registryKnownRecords[$0] },
+            groups: settings.displayGroups, pointerDisplayID: pointerDisplayID,
+            generation: displays.map(\.generation.value).max() ?? 0)
+    }
+
+    /// The brightness routes a display offers automation (FD-066): the route its slider uses, and why
+    /// the others can't carry a request. The app doesn't switch a display's route for one request,
+    /// so only the current route is available; a display the user set to software dimming refuses
+    /// hardware routes (a hardware-only request then fails instead of overriding that choice).
+    func automationBrightnessRoutes(for id: DisplayRecordID) -> BrightnessRouteAvailability {
+        let current: BrightnessRoute? = brightnessMethod[id].map {
+            switch $0 {
+            case .native: return .native
+            case .hardware: return .ddc
+            case .software: return .software
+            }
+        }
+        #if PUBLIC_API_ONLY
+        let publicAPIOnly = true
+        #else
+        let publicAPIOnly = false
+        #endif
+        return .appRoutes(current: current, publicAPIOnly: publicAPIOnly,
+                          softwarePreferred: settings.softwareBrightnessDisplayIDs.contains(id.rawValue),
+                          ddcRefusal: ddcBindingRefusal[id].map { "DDC withheld: \($0)" })
+    }
+
+    /// A display's ICC assignment as automation reports it (FD-067), from the caches
+    /// `refreshColorProfile` fills.
+    func automationColorProfileState(for id: DisplayRecordID) -> AutomationColorProfileState {
+        let assignment = colorProfileAssignment[id]
+        let custom = assignment.flatMap { $0.isFactory ? nil : $0.customURL?.standardizedFileURL.path }
+        return AutomationColorProfileState(name: colorProfileName[id], customProfilePath: custom,
+                                           isFactory: assignment?.isFactory ?? false,
+                                           controllable: colorProfileControllable[id] ?? false)
+    }
+
+    /// Coalescing owns the transport receipt; automation must not turn a rejected write into a
+    /// successful request just because the last cached level exists.
+    func automationBrightnessWriteReport(_ requested: AutomationLevel,
+                                         for observation: DisplayObservation) async -> BrightnessWriteReport {
+        let readback = await automationBrightnessReadback(for: observation)
+        let accepted: Bool
+        switch brightnessMethod[observation.recordID] {
+        case .software?:
+            accepted = gammaWriteFailures[observation.recordID] == nil || effectiveDimmingMethod != .gamma
+        case .native?, .hardware?:
+            #if !PUBLIC_API_ONLY
+            accepted = automationBrightnessWriteAccepted[observation.recordID] ?? false
+            #else
+            accepted = false
+            #endif
+        case nil: accepted = false
+        }
+        return BrightnessWriteReport(requested: requested, accepted: accepted, readback: readback,
+                                     failure: accepted ? nil : "the brightness route rejected the write")
+    }
+
     /// The display's brightness as read back once every write already queued for it has run (TB-05):
     /// a fresh DisplayServices or DDC read for hardware routes, and the level OpenDisplay put on
     /// screen for software dimming (unless macOS rejected that change). Never the requested value.
-    func automationBrightnessReadback(for observation: DisplayObservation) async -> AutomationBrightness.Readback {
+    func automationBrightnessReadback(for observation: DisplayObservation) async -> BrightnessReadback {
         let id = observation.recordID
         #if !PUBLIC_API_ONLY
         // Native and DDC writes are coalesced on one task per display; the request just made is on it.
@@ -6673,7 +6741,7 @@ extension AppModel {
             guard let cgID = observation.cgDisplayID else { return .none }
             let control = brightnessControl
             let level = await Task.detached(priority: .userInitiated) { control.brightness(for: cgID) }.value
-            return level.map(AutomationBrightness.Readback.level) ?? .none
+            return level.map { .level(Double($0)) } ?? .none
             #else
             return .none
             #endif
@@ -6689,7 +6757,7 @@ extension AppModel {
         case .software?:
             // With gamma as the only carrier, a rejected table write changed nothing on screen.
             if gammaWriteFailures[id] != nil && effectiveDimmingMethod == .gamma { return .none }
-            return brightness[id].map(AutomationBrightness.Readback.level) ?? .none
+            return brightness[id].map { .applied(Double($0)) } ?? .none
         case nil:
             return .none
         }

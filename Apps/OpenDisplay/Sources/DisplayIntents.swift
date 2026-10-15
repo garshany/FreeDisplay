@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #if os(macOS)
 import AppIntents
+import AutomationSchema
 import DisplayDomain
 import Foundation
 import TopologyCore
@@ -156,6 +157,7 @@ struct BrightnessResultEntity: TransientAppEntity {
     @Property(title: "Requested Brightness (%)") var requestedPercent: Int?
     @Property(title: "Confirmed by the Display") var confirmed: Bool
     @Property(title: "Control") var control: BrightnessControlKind
+    @Property(title: "Outcome") var outcome: CommandIntentOutcome
 
     init() {
         display = nil
@@ -163,6 +165,7 @@ struct BrightnessResultEntity: TransientAppEntity {
         requestedPercent = nil
         confirmed = false
         control = .unknown
+        outcome = .failed
     }
 
     init(_ report: DisplayIntentRunner.BrightnessReport) {
@@ -172,6 +175,7 @@ struct BrightnessResultEntity: TransientAppEntity {
         requestedPercent = report.requestedPercent
         confirmed = report.confirmed
         control = report.control
+        outcome = report.outcome
     }
 
     var displayRepresentation: DisplayRepresentation {
@@ -183,11 +187,12 @@ struct BrightnessResultEntity: TransientAppEntity {
 
 /// What a mode change did.
 enum DisplayModeOutcome: String, AppEnum {
-    case alreadyInEffect, awaitingConfirmation
+    case alreadyInEffect, awaitingConfirmation, applied
 
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Mode Change Outcome"
     static let caseDisplayRepresentations: [DisplayModeOutcome: DisplayRepresentation] = [
         .alreadyInEffect: "Already in this mode",
+        .applied: "Mode applied",
         .awaitingConfirmation: "Changed; waiting to be kept",
     ]
 }
@@ -255,6 +260,7 @@ extension AppEnum {
 /// Why a display action didn't run. Each message says what to do; none echoes anything but the
 /// display's own name.
 enum DisplayIntentError: Error, CustomLocalizedStringResourceConvertible {
+    case commandFailed(AutomationIssue.Code)
     case appNotReady
     case displayNotConnected(String)
     case displayInactive(String)
@@ -268,20 +274,45 @@ enum DisplayIntentError: Error, CustomLocalizedStringResourceConvertible {
 
     var localizedStringResource: LocalizedStringResource {
         switch self {
+        case .commandFailed(let code):
+            switch code {
+            case .displayNotFound, .displayNotConnected:
+                return "The selected display isn’t connected. Connect it and try again in FreeDisplay."
+            case .displayInactive:
+                return "The selected display isn’t showing its own desktop. Nothing was changed."
+            case .ambiguousSelector, .ambiguousMode, .ambiguousProfile:
+                return "The selection is ambiguous. Choose an exact display, mode or color profile in FreeDisplay."
+            case .methodUnavailable, .capabilityUnavailable, .refusedFromSurface:
+                return "The requested control isn’t available for this display or build of FreeDisplay."
+            case .modeNotOffered:
+                return "The display no longer offers this mode. Choose it again from the current mode list."
+            case .profileNotFound:
+                return "The selected color profile is no longer installed. Choose an installed profile."
+            case .busy, .confirmationRequired:
+                return "Another display change is waiting. Finish or revert it in FreeDisplay first."
+            case .executionFailed:
+                return "FreeDisplay couldn’t complete the display operation. Check the display’s status in FreeDisplay."
+            case .notConfirmed:
+                return "The display operation couldn’t be confirmed. Check the actual display state in FreeDisplay."
+            case .notReady:
+                return "FreeDisplay isn’t ready. Open FreeDisplay and try again."
+            default:
+                return "The display request is invalid. Check its parameters in FreeDisplay."
+            }
         case .appNotReady:
-            return "OpenDisplay isn’t ready to run this action. Open OpenDisplay and try again."
+            return "FreeDisplay isn’t ready to run this action. Open FreeDisplay and try again."
         case .displayNotConnected(let name):
-            return "“\(name)” isn’t connected. Connect it, or turn it back on in OpenDisplay, and try again."
+            return "“\(name)” isn’t connected. Connect it, or turn it back on in FreeDisplay, and try again."
         case .displayInactive(let name):
             return "“\(name)” is connected but isn’t showing its own desktop (for example, it’s mirroring another display). Nothing was changed."
         case .noBuiltInDisplay:
             return "There’s no active built-in display. Choose a display for this action."
         case .brightnessUnavailable(let name):
-            return "OpenDisplay can’t read or set the brightness of “\(name)”."
+            return "FreeDisplay can’t read or set the brightness of “\(name)”."
         case .modeNotOffered(let name):
             return "“\(name)” doesn’t offer this mode now. Choose the mode again from the display’s current list."
         case .modeChangePending:
-            return "Another display mode change is waiting to be kept or reverted. Finish it in OpenDisplay first."
+            return "Another display mode change is waiting to be kept or reverted. Finish it in FreeDisplay first."
         case .modeChangeFailed(let message):
             return "\(message)"
         case .modeNotConfirmed(let name):
@@ -298,7 +329,7 @@ enum DisplayIntentError: Error, CustomLocalizedStringResourceConvertible {
 struct GetBrightnessIntent: AppIntent {
     static let title: LocalizedStringResource = "Get Display Brightness"
     static let description = IntentDescription(
-        "Gets a display’s brightness in percent (0–100). The result says whether the display itself reported it; with software dimming it is the level OpenDisplay applies."
+        "Gets a display’s brightness in percent (0–100). The result says whether the display itself reported it; with software dimming it is the level FreeDisplay applies."
     )
     static let openAppWhenRun = false
 
@@ -314,7 +345,7 @@ struct GetBrightnessIntent: AppIntent {
         let name = report.display?.name ?? display.name
         let dialog: IntentDialog = report.confirmed
             ? "\(name): \(report.percent ?? 0) %."
-            : "\(name): \(report.percent ?? 0) % (the level OpenDisplay applies; the display can’t report it)."
+            : "\(name): \(report.percent ?? 0) % (the level FreeDisplay applies; the display can’t report it)."
         return .result(value: BrightnessResultEntity(report), dialog: dialog)
     }
 }
@@ -347,7 +378,7 @@ struct SetBrightnessIntent: AppIntent {
         if report.confirmed {
             dialog = "\(name): brightness \(report.percent ?? requested) %."
         } else if report.control == .software, let applied = report.percent {
-            dialog = "\(name): \(applied) % (the level OpenDisplay applies; the display can’t report it)."
+            dialog = "\(name): \(applied) % (the level FreeDisplay applies; the display can’t report it)."
         } else if let actual = report.percent {
             dialog = "Requested \(requested) % on \(name); it reports \(actual) %."
         } else {
@@ -362,22 +393,27 @@ struct SetBrightnessIntent: AppIntent {
 struct SetDisplayModeIntent: AppIntent {
     static let title: LocalizedStringResource = "Set Display Mode"
     static let description = IntentDescription(
-        "Switches a display to one of the exact modes it offers. Keep the new mode in OpenDisplay before the countdown ends, or the previous mode comes back."
+        "Switches a display to one of the exact modes it offers. Keep the new mode in FreeDisplay before the countdown ends, or the previous mode comes back."
     )
     static let openAppWhenRun = false
 
     @Parameter(title: "Display")
     var display: DisplayEntity
 
+    @Parameter(title: "Without confirmation", description: "Keeps a verified mode immediately. Leave off to keep the keep-or-revert window.", default: false)
+    var withoutConfirmation: Bool
+
     @Parameter(title: "Mode", optionsProvider: DisplayModeOptionsProvider())
     var mode: DisplayModeEntity
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Set \(\.$display) to \(\.$mode)")
+        Summary("Set \(\.$display) to \(\.$mode)") {
+            \.$withoutConfirmation
+        }
     }
 
     func perform() async throws -> some IntentResult & ReturnsValue<DisplayModeResultEntity> & ProvidesDialog {
-        let report = try await DisplayIntentRunner.setMode(mode.mode, of: display)
+        let report = try await DisplayIntentRunner.setMode(mode.mode, of: display, withoutConfirmation: withoutConfirmation)
         let result = DisplayModeResultEntity()
         result.display = DisplayEntity(report.display)
         result.mode = DisplayModeEntity(report.mode)
@@ -388,8 +424,10 @@ struct SetDisplayModeIntent: AppIntent {
         switch report.outcome {
         case .alreadyInEffect:
             dialog = "\(name) is already in this mode."
+        case .applied:
+            dialog = "\(name) switched modes without confirmation."
         case .awaitingConfirmation:
-            dialog = "\(name) switched modes. Keep the new mode in OpenDisplay within \(report.secondsToKeep ?? 0) seconds, or it reverts."
+            dialog = "\(name) switched modes. Keep the new mode in FreeDisplay within \(report.secondsToKeep ?? 0) seconds, or it reverts."
         }
         return .result(value: result, dialog: dialog)
     }
@@ -414,9 +452,12 @@ struct SetMainDisplayIntent: AppIntent {
     func perform() async throws -> some IntentResult & ReturnsValue<DisplayEntity> & ProvidesDialog {
         let report = try await DisplayIntentRunner.setMain(display)
         let main = DisplayEntity(report.main)
-        let dialog: IntentDialog = report.changed
-            ? "\(main.name) is now the main display."
-            : "\(main.name) is already the main display."
+        let dialog: IntentDialog
+        if let seconds = report.secondsToKeep {
+            dialog = "\(main.name) is now the main display. Keep the arrangement in FreeDisplay within \(seconds) seconds, or it reverts."
+        } else {
+            dialog = report.changed ? "\(main.name) is now the main display." : "\(main.name) is already the main display."
+        }
         return .result(value: main, dialog: dialog)
     }
 }
@@ -433,6 +474,7 @@ enum DisplayIntentRunner {
         var requestedPercent: Int?
         var confirmed: Bool
         var control: BrightnessControlKind
+        var outcome: CommandIntentOutcome
     }
 
     struct ModeChoices: Sendable {
@@ -450,6 +492,7 @@ enum DisplayIntentRunner {
     struct MainReport: Sendable {
         var main: AutomationDisplayEntry
         var changed: Bool
+        var secondsToKeep: Int?
     }
 
     static func entities(for identifiers: [String]) async -> [DisplayEntity] {
@@ -465,107 +508,63 @@ enum DisplayIntentRunner {
             .map(DisplayEntity.init)
     }
 
-    static func readBrightness(of display: DisplayEntity) async throws -> BrightnessReport {
+    static func run(_ request: AutomationRequest) async throws -> AutomationResult {
         let model = try await requireModel()
-        let observation = try activeTarget(display, in: model)
-        let id = observation.recordID
-        // A fresh read through the display's route: DisplayServices or DDC where they answer,
-        // otherwise the software level OpenDisplay applies.
-        await model.refreshBrightness(for: observation)
-        guard let level = model.brightness[id] else { throw DisplayIntentError.brightnessUnavailable(display.name) }
-        let method = model.brightnessMethod[id]
-        return BrightnessReport(display: entry(for: id, in: model), percent: AutomationBrightness.percent(level),
-                                requestedPercent: nil, confirmed: method == .native || method == .hardware,
-                                control: control(method))
+        let result = await AppAutomation.run(request, from: .appIntent, model: model)
+        if let issue = result.issue { throw DisplayIntentError.commandFailed(issue.code) }
+        return result
+    }
+
+    static func readBrightness(of display: DisplayEntity) async throws -> BrightnessReport {
+        try await brightness(.byID(.getBrightness(method: .automatic), DisplayRecordID(rawValue: display.id)))
     }
 
     static func setBrightness(percent: Int, of display: DisplayEntity?) async throws -> BrightnessReport {
+        let level = try AutomationValueParser.level(number: Double(percent) / 100)
+        let command = AutomationCommand.setBrightness(level, method: .automatic)
+        let request = display.map { AutomationRequest.byID(command, DisplayRecordID(rawValue: $0.id)) }
+            ?? AutomationRequest(command, target: .display(.role(.builtin)), targetText: "builtin")
+        return try await brightness(request)
+    }
+
+    private static func brightness(_ request: AutomationRequest) async throws -> BrightnessReport {
+        let result = try await run(request)
+        guard let report = result.brightness else { throw DisplayIntentError.appNotReady }
         let model = try await requireModel()
-        let observation: DisplayObservation
-        if let display {
-            observation = try activeTarget(display, in: model)
-        } else {
-            guard let builtIn = AutomationDisplayCatalog.activeBuiltIn(in: model.displays) else {
-                throw DisplayIntentError.noBuiltInDisplay
-            }
-            observation = builtIn
-        }
-        let id = observation.recordID
-        guard observation.cgDisplayID != nil else {
-            throw DisplayIntentError.brightnessUnavailable(model.displayName(for: observation))
-        }
-        if model.brightnessMethod[id] == nil { await model.refreshBrightness(for: observation) }
-        let requested = min(100, max(0, percent))
-        // The app's own brightness funnel, as the HTTP route uses it: same routes, OSD event and
-        // group behaviour as any other change.
-        model.setBrightness(AutomationBrightness.level(percent: requested), for: observation, eventSource: .appIntent)
-        let readback = await model.automationBrightnessReadback(for: observation)
-        let outcome = AutomationBrightness.outcome(requestedPercent: requested, readback: readback)
-        let method = model.brightnessMethod[id]
-        // Software dimming has no display to ask: its level is OpenDisplay's own, so it is reported
-        // but never as confirmed by the display (the same as Get Display Brightness says).
-        return BrightnessReport(display: entry(for: id, in: model), percent: outcome.resultingPercent,
-                                requestedPercent: requested, confirmed: outcome.verified && method != .software,
-                                control: control(method))
+        return BrightnessReport(display: entry(for: DisplayRecordID(rawValue: report.displayId), in: model),
+                                percent: report.level?.wholePercent, requestedPercent: report.requested?.wholePercent,
+                                confirmed: report.requested == nil ? report.reportedByDisplay : report.outcome == .verified,
+                                control: report.route == .native ? .native : report.route == .ddc ? .hardware : .software,
+                                outcome: CommandIntentOutcome(result))
     }
 
     static func modeChoices(for display: DisplayEntity) async throws -> ModeChoices {
-        let model = try await requireModel()
-        let observation = try activeTarget(display, in: model)
-        return ModeChoices(current: observation.mode,
-                           options: AutomationModeOptions.options(from: model.allModes(for: observation),
-                                                                  current: observation.mode))
+        let result = try await run(.byID(.listModes, DisplayRecordID(rawValue: display.id)))
+        return ModeChoices(current: result.modes?.current?.mode, options: result.modes?.available.map(\.mode) ?? [])
     }
 
-    static func setMode(_ requested: DisplayMode, of display: DisplayEntity) async throws -> ModeReport {
-        let model = try await requireModel()
-        // The outcome is read from the model's display list afterwards, and `setMode` doesn't refresh
-        // it when the display is already in the mode; start from a fresh list so that read is current.
-        await model.refresh()
-        let observation = try activeTarget(display, in: model)
-        let name = model.displayName(for: observation)
-        guard model.pendingRevert == nil else { throw DisplayIntentError.modeChangePending }
-        let choices = model.allModes(for: observation) + [observation.mode].compactMap { $0 }
-        guard let offered = AutomationModeOptions.offered(requested, among: choices) else {
-            throw DisplayIntentError.modeNotOffered(name)
+    static func setMode(_ requested: DisplayMode, of display: DisplayEntity,
+                        withoutConfirmation: Bool) async throws -> ModeReport {
+        let result = try await run(.byID(.setMode(.exact(requested), keepWithoutConfirmation: withoutConfirmation),
+                                        DisplayRecordID(rawValue: display.id)))
+        guard let report = result.mode, let model = await readyModel(),
+              let entry = entry(for: DisplayRecordID(rawValue: report.displayId), in: model)
+        else { throw DisplayIntentError.appNotReady }
+        let outcome: DisplayModeOutcome
+        switch report.settlement {
+        case .alreadyInEffect: outcome = .alreadyInEffect
+        case .awaitingConfirmation: outcome = .awaitingConfirmation
+        case .applied: outcome = .applied
         }
-        // The menu's own path: exact-mode check, verified apply, rollback on mismatch, then the
-        // keep-or-revert countdown.
-        await model.setMode(offered, for: observation)
-        let actual = model.displays.first { $0.recordID == observation.recordID }?.mode
-        let outcome = AutomationModeOptions.outcome(error: model.modeChangeError, revertPending: model.pendingRevert != nil,
-                                                    actual: actual, requested: offered)
-        let entry = entry(for: observation.recordID, in: model)
-            ?? AutomationDisplayEntry(id: observation.recordID, name: name, availability: .active,
-                                      isMain: observation.isMain, isBuiltIn: observation.displayClass == .builtIn)
-        switch outcome {
-        case .alreadyInEffect:
-            return ModeReport(display: entry, mode: offered, outcome: .alreadyInEffect, secondsToKeep: nil)
-        case .awaitingConfirmation:
-            return ModeReport(display: entry, mode: offered, outcome: .awaitingConfirmation,
-                              secondsToKeep: model.pendingRevert?.secondsRemaining)
-        case .failed(let message):
-            throw DisplayIntentError.modeChangeFailed(message)
-        case .notConfirmed:
-            throw DisplayIntentError.modeNotConfirmed(name)
-        }
+        return ModeReport(display: entry, mode: report.mode.mode, outcome: outcome, secondsToKeep: report.secondsToKeep)
     }
 
     static func setMain(_ display: DisplayEntity) async throws -> MainReport {
-        let model = try await requireModel()
-        // `setMain` re-reads the topology only when it moves something; read it here so both "was it
-        // already main" and the check afterwards see the current arrangement.
-        await model.refresh()
-        let observation = try activeTarget(display, in: model)
-        let id = observation.recordID
-        let wasMain = observation.isMain
-        if !wasMain { await model.setMain(for: observation) }
-        // Judge by what macOS reports afterwards, not by the request.
-        guard let main = model.displays.first(where: { $0.isMain && $0.isActive }), main.recordID == id,
-              let entry = entry(for: id, in: model) else {
-            throw DisplayIntentError.mainNotConfirmed(model.displayName(for: observation))
-        }
-        return MainReport(main: entry, changed: !wasMain)
+        let result = try await run(.byID(.setMain, DisplayRecordID(rawValue: display.id)))
+        guard let report = result.main, let model = await readyModel(),
+              let entry = entry(for: DisplayRecordID(rawValue: report.displayId), in: model)
+        else { throw DisplayIntentError.appNotReady }
+        return MainReport(main: entry, changed: report.changed, secondsToKeep: report.secondsToKeep)
     }
 
     // MARK: Helpers
