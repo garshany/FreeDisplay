@@ -157,6 +157,9 @@ struct ICCProfileDetails: Identifiable, Hashable, Sendable {
     let header: ICCProfileHeader?
     let provenance: ICCProfileProvenance
     let exists: Bool
+    /// The file as it was when read, so a removal acts on this file and not whatever later sits
+    /// at the same path. Nil when there was no file.
+    var identity: ConfinedFile.Identity? = nil
 
     var displayName: String { name ?? url.deletingPathExtension().lastPathComponent }
     /// Only the user's own copies, and only while the file is there.
@@ -189,7 +192,8 @@ extension ColorProfileService {
         let header = profile.flatMap(headerBytes).flatMap(ICCProfileHeader.init(bytes:))
         let provenance = ICCProfileCatalog.provenance(of: url.path, factoryPaths: factoryURLs.map(\.path),
                                                       userFolder: userProfilesFolder.path)
-        return ICCProfileDetails(url: url, name: name, header: header, provenance: provenance, exists: exists)
+        return ICCProfileDetails(url: url, name: name, header: header, provenance: provenance, exists: exists,
+                                 identity: exists ? ConfinedFile.identity(of: url) : nil)
     }
 
     private static func headerBytes(_ profile: ColorSyncProfile) -> [UInt8]? {
@@ -274,15 +278,28 @@ extension ColorProfileService {
     /// Moves a user-folder profile to the Trash (reversible) and returns where it went. Refuses
     /// anything that isn't the user's own copy — including a display's factory file, wherever it
     /// is kept: those belong to macOS or an administrator.
-    static func moveToTrash(_ url: URL, factoryURLs: [URL]) throws -> URL {
-        let provenance = ICCProfileCatalog.provenance(of: url.path, factoryPaths: factoryURLs.map(\.path),
-                                                      userFolder: userProfilesFolder.path)
-        guard ICCProfileCatalog.isRemovable(provenance) else {
-            throw ICCProfileFileError.fileSystem(String(localized: "Only profiles in your own profiles folder can be removed here."))
+    ///
+    /// Decided from what the path reaches now, not from its text: a folder along it replaced by a
+    /// link since the list was read must not lead the Trash out of the profiles folder, so the file
+    /// is resolved through real directories only (`ConfinedFile`) and the Trash is given that real
+    /// location. Factory files are told apart by file identity, so no other path to the same file
+    /// passes as the user's copy; `expected`, when given, is the file the user picked, and a
+    /// different file at that path is left alone.
+    static func moveToTrash(_ url: URL, factoryURLs: [URL], expected: ConfinedFile.Identity? = nil) throws -> URL {
+        let refusal = ICCProfileFileError.fileSystem(String(localized: "Only profiles in your own profiles folder can be removed here."))
+        guard let location = try? ConfinedFile.resolve(url, inside: userProfilesFolder),
+              let identity = ConfinedFile.identity(of: location) else { throw refusal }
+        let provenance = ICCProfileCatalog.provenance(
+            of: location.path, factoryPaths: factoryURLs.map { $0.standardizedFileURL.resolvingSymlinksInPath().path },
+            userFolder: ConfinedFile.boundary(of: userProfilesFolder).path)
+        guard ICCProfileCatalog.isRemovable(provenance),
+              !factoryURLs.contains(where: { ConfinedFile.identity(of: $0) == identity }) else { throw refusal }
+        if let expected, expected != identity {
+            throw ICCProfileFileError.fileSystem(String(localized: "The file has changed since the list was read, so it wasn’t removed. Refresh the list and try again."))
         }
         var resulting: NSURL?
         do {
-            try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
+            try FileManager.default.trashItem(at: location, resultingItemURL: &resulting)
         } catch {
             throw ICCProfileFileError.fileSystem(error.localizedDescription)
         }
@@ -292,12 +309,21 @@ extension ColorProfileService {
         return trashed
     }
 
-    /// Puts a trashed profile back where it was; never overwrites a file that took its place.
+    /// Puts a trashed profile back where it was; never overwrites a file that took its place, and
+    /// never follows a link that took the place of a folder on the way (`ConfinedFile`).
     static func restoreFromTrash(_ trashed: URL, to original: URL) throws {
+        let destination: URL
         do {
-            try FileManager.default.createDirectory(at: original.deletingLastPathComponent(),
+            destination = try ConfinedFile.resolveDestination(original, inside: userProfilesFolder)
+        } catch ConfinedFile.Refusal.notARegularFile {
+            throw ICCProfileFileError.fileSystem(String(localized: "Another file is already at “\(original.lastPathComponent)”, so nothing was put back."))
+        } catch {
+            throw ICCProfileFileError.fileSystem(String(localized: "The profiles folder has changed (a folder on the way is now a link), so nothing was put back."))
+        }
+        do {
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
-            try FileManager.default.moveItem(at: trashed, to: original)
+            try FileManager.default.moveItem(at: trashed, to: destination)
         } catch {
             throw ICCProfileFileError.fileSystem(error.localizedDescription)
         }
