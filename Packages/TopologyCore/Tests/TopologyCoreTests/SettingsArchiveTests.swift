@@ -240,6 +240,43 @@ final class SettingsArchiveTests: XCTestCase {
         }
     }
 
+    private func archive(setting key: String, _ value: Any) throws -> Data {
+        var object = try archiveObject()
+        var settings = try XCTUnwrap(object["settings"] as? [String: Any])
+        settings[key] = value
+        object["settings"] = settings
+        return try json(object)
+    }
+
+    /// Same class as the revert countdown: values outside a setting's defined domain (a level is a
+    /// fraction, a start time a minute of the day, a percentage 0...100) or whose seconds overflow
+    /// were accepted and trapped later — a level of 1e30 crashed Settings when shown as a percent.
+    func testOutOfDomainNumericSettingsAreRefused() throws {
+        let cases: [(String, Any)] = [
+            ("adaptiveFallbackDayLevel", 1e30), ("adaptiveFallbackDayLevel", -0.5),
+            ("adaptiveFallbackNightLevel", 1.5),
+            ("adaptiveDayStartMinute", 1440), ("adaptiveNightStartMinute", -1),
+            ("adaptiveTransitionMinutes", -5), ("adaptiveTransitionMinutes", Int.max),
+            ("xdrAutoOffMinutes", Int.max / 2), ("xdrLowBatteryCutoffPercent", 101),
+            ("confirmationCountdownSeconds", Int.max),
+        ]
+        for (key, value) in cases {
+            XCTAssertThrowsError(try SettingsArchive.decode(archive(setting: key, value)), "\(key)=\(value)") { error in
+                XCTAssertEqual(error as? SettingsArchiveError, .invalidValue(section: "settings", item: key))
+            }
+        }
+    }
+
+    /// The domain edges themselves are valid and import unchanged.
+    func testInDomainNumericSettingsImportUnchanged() throws {
+        let settings = try SettingsArchive.decode(archive(setting: "adaptiveFallbackNightLevel", 0)).settings
+        XCTAssertEqual(settings.adaptiveFallbackNightLevel, 0)
+        XCTAssertEqual(try SettingsArchive.decode(archive(setting: "adaptiveNightStartMinute", 1439))
+            .settings.adaptiveNightStartMinute, 1439)
+        XCTAssertEqual(try SettingsArchive.decode(archive(setting: "xdrAutoOffMinutes", 600))
+            .settings.xdrAutoOffMinutes, 600)
+    }
+
     private func archive(sceneDesired desired: [String: Any]) throws -> Data {
         var object = try archiveObject()
         var scenes = try XCTUnwrap(object["scenes"] as? [[String: Any]])

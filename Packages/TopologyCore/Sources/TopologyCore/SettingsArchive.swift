@@ -256,7 +256,33 @@ extension OpenDisplaySettings {
         if arrangementAutoRevertSeconds < 0 || Double(exactly: arrangementAutoRevertSeconds) == nil {
             return "arrangementAutoRevertSeconds"
         }
+        // The disconnect countdown takes the same Double round trip.
+        if confirmationCountdownSeconds < 0 || Double(exactly: confirmationCountdownSeconds) == nil {
+            return "confirmationCountdownSeconds"
+        }
+        // Each of these is defined as a minute of the day; anything else names no time at all.
+        if !(0..<Self.minutesPerDay).contains(adaptiveDayStartMinute) { return "adaptiveDayStartMinute" }
+        if !(0..<Self.minutesPerDay).contains(adaptiveNightStartMinute) { return "adaptiveNightStartMinute" }
+        // Durations in minutes become seconds where they're scheduled: a negative one isn't a
+        // duration, and one whose seconds overflow `Int` traps there.
+        if !Self.isMinuteDuration(adaptiveTransitionMinutes) { return "adaptiveTransitionMinutes" }
+        if let minutes = xdrAutoOffMinutes, !Self.isMinuteDuration(minutes) { return "xdrAutoOffMinutes" }
+        // Levels are fractions of the panel's range (0...1 is their defined domain); a non-finite or
+        // out-of-domain level trapped Settings when it was shown as a whole percentage.
+        if !Self.isLevel(adaptiveFallbackDayLevel) { return "adaptiveFallbackDayLevel" }
+        if !Self.isLevel(adaptiveFallbackNightLevel) { return "adaptiveFallbackNightLevel" }
+        if let percent = xdrLowBatteryCutoffPercent, !(0...100).contains(percent) { return "xdrLowBatteryCutoffPercent" }
         return nil
+    }
+
+    private static let minutesPerDay = 24 * 60
+
+    private static func isMinuteDuration(_ minutes: Int) -> Bool {
+        minutes >= 0 && !minutes.multipliedReportingOverflow(by: 60).overflow
+    }
+
+    private static func isLevel(_ level: Float) -> Bool {
+        level.isFinite && (0...1).contains(level)
     }
 
     /// These settings with every restore ledger emptied. The ledgers record what a display looked

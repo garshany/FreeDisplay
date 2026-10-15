@@ -789,13 +789,13 @@ private struct HealthSection: View {
                     .fixedSize()
                     if model.settings.adaptiveBrightnessSyncEnabled {
                         HStack(spacing: 16) {
-                            Stepper("Day brightness: \(Int((model.settings.adaptiveFallbackDayLevel * 100).rounded()))%",
+                            Stepper("Day brightness: \(Int(exactly: (model.settings.adaptiveFallbackDayLevel * 100).rounded()) ?? 0)%",
                                     value: Binding(
                                         get: { Double(model.settings.adaptiveFallbackDayLevel) },
                                         set: { model.setAdaptiveFallbackLevels(day: Float($0),
                                                                                night: model.settings.adaptiveFallbackNightLevel) }),
                                     in: 0.1...1, step: 0.05)
-                            Stepper("Night brightness: \(Int((model.settings.adaptiveFallbackNightLevel * 100).rounded()))%",
+                            Stepper("Night brightness: \(Int(exactly: (model.settings.adaptiveFallbackNightLevel * 100).rounded()) ?? 0)%",
                                     value: Binding(
                                         get: { Double(model.settings.adaptiveFallbackNightLevel) },
                                         set: { model.setAdaptiveFallbackLevels(day: model.settings.adaptiveFallbackDayLevel,
