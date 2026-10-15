@@ -56,6 +56,9 @@ final class IntegrationSession: ObservableObject {
         let connected = Set(set.candidates.filter { $0.availability != .disconnected }.map(\.id))
         let remembered = Set(set.candidates.filter { $0.availability == .disconnected }.map(\.id))
         let events = state.topology(connected: connected, remembered: remembered, ready: connected)
+        for event in events where event.phase == .hardDisconnect {
+            delayed.removeValue(forKey: event.display)?.cancel()
+        }
         // Cancel existing polls only for disconnected/disabled controls; ordinary topology refresh
         // neither resets the interval nor restarts pending reads.
         reconcilePolling()

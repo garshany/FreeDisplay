@@ -61,6 +61,17 @@ final class IntegrationHooksTests: XCTestCase {
         _ = state.topology(connected: [], remembered: [a], ready: [])
         XCTAssertNil(state.delayedWake(display: a, generation: current))
     }
+    func testDisconnectReconnectionInvalidatesOnlyThatDisplaysDelayedWake() {
+        var state = IntegrationHookState()
+        _ = state.topology(connected: [a, b], remembered: [], ready: [a, b])
+        _ = state.sleep(); _ = state.wake(); let generation = state.wakeGeneration
+        _ = state.topology(connected: [b], remembered: [a], ready: [b])
+        _ = state.topology(connected: [a, b], remembered: [], ready: [a, b])
+        XCTAssertNil(state.delayedWake(display: a, generation: generation))
+        XCTAssertNotNil(state.delayedWake(display: b, generation: generation))
+        _ = state.sleep(); _ = state.wake()
+        XCTAssertNotNil(state.delayedWake(display: a, generation: state.wakeGeneration))
+    }
     func testNewConfigurationsAreInactiveAndImportRequiresReview() throws {
         let hook = IntegrationHook(phase: .hardReconnect)
         XCTAssertFalse(hook.enabled); XCTAssertEqual(hook.action, .none)
