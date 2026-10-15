@@ -1444,7 +1444,7 @@ final class AppModel: ObservableObject {
             power: xdrPowerSnapshot,
             boostFraction: boosted.flatMap { xdrBoostFraction[$0.recordID] },
             builtInActive: builtIn != nil,
-            now: Date())
+            now: Date(), safeStartup: safeStartup)
         switch decision {
         case .none:
             break
@@ -1465,6 +1465,11 @@ final class AppModel: ObservableObject {
     /// settings. Pure setup — it never evaluates, so the evaluate → reconcile → evaluate cycle a
     /// self-refreshing monitor callback would create can't form.
     private func reconcileXDRPowerAutomation() {
+        guard !safeStartup else {
+            xdrPowerMonitor.stop()
+            xdrAutoOffTimer.cancel()
+            return
+        }
         let rules = xdrAutomationRules
         if settings.xdrBrightnessEnabled, rules.needsPowerMonitoring {
             let wasRunning = xdrPowerMonitor.isRunning
@@ -5060,7 +5065,7 @@ final class AppModel: ObservableObject {
     /// Idempotent — safe to call on every topology change and every settings change.
     private func reconcileDisplaySleepGuard() {
         sleepGuard.update(
-            enabled: settings.preventDisplaySleepWithExternal,
+            enabled: settings.preventDisplaySleepWithExternal && !safeStartup,
             externalPresent: hasExternalDisplay
         )
     }

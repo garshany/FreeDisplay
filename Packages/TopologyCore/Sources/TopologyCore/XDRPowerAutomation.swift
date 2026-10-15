@@ -198,13 +198,16 @@ public struct XDRPowerAutomation {
     ///   - boostFraction: the boost in effect now (nil or 0 = off).
     ///   - builtInActive: whether the built-in panel is still an active surface.
     ///   - now: the clock, injected so tests can stand at any point around a deadline.
+    ///   - safeStartup: holds automatic writes and their pending state for a recovery session.
     public mutating func evaluate(
         rules: Rules,
         power: PowerSnapshot,
         boostFraction: Float?,
         builtInActive: Bool,
-        now: Date
+        now: Date,
+        safeStartup: Bool = false
     ) -> Decision {
+        guard !safeStartup else { return .none }
         let fraction = boostFraction ?? 0
         guard fraction > 0 else { return evaluateWhileOff(rules: rules, power: power,
                                                           builtInActive: builtInActive, now: now) }

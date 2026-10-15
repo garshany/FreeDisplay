@@ -2,6 +2,22 @@ import XCTest
 @testable import TopologyCore
 
 final class XDRPowerAutomationTests: XCTestCase {
+    func testSafeStartupSuppressesAutomaticSuspendAndPreservesPendingRestore() {
+        let rules = XDRPowerAutomation.Rules(disableOnBattery: true, restoreOnPower: true)
+        var automation = engaged()
+        let battery = XDRPowerAutomation.PowerSnapshot(onBattery: true, batteryPercent: 90)
+        XCTAssertEqual(automation.evaluate(rules: rules, power: battery, boostFraction: boost,
+                                           builtInActive: true, now: now, safeStartup: true), .none)
+        XCTAssertNil(automation.suspendedFraction)
+        XCTAssertEqual(automation.evaluate(rules: rules, power: battery, boostFraction: boost,
+                                           builtInActive: true, now: now), .suspend(reason: .onBattery))
+        XCTAssertEqual(automation.evaluate(rules: rules, power: .onWallPower, boostFraction: 0,
+                                           builtInActive: true, now: now, safeStartup: true), .none)
+        XCTAssertEqual(automation.suspendedFraction, boost)
+        XCTAssertEqual(automation.evaluate(rules: rules, power: .onWallPower, boostFraction: 0,
+                                           builtInActive: true, now: now), .restore(fraction: boost))
+    }
+
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
     private let boost: Float = 0.45
 

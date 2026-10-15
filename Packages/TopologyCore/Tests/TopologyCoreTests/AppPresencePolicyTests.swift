@@ -30,6 +30,19 @@ final class AppPresencePolicyTests: XCTestCase {
 
     // MARK: - Safe startup
 
+    func testSafeStartupNamesDefaultGroupDayRestorationPowerAndSleepPolicies() {
+        var settings = OpenDisplaySettings.default
+        settings.defaultDisplayGroup.syncBrightness = true
+        settings.adaptiveDayPresetByDisplay = ["cg:A": 5]
+        settings.xdrBrightnessEnabled = true
+        settings.xdrDisableOnBattery = true
+        settings.preventDisplaySleepWithExternal = true
+        let before = settings
+        XCTAssertEqual(SafeStartup.activeSuspensions(settings: settings, turnedOffDisplays: false),
+                       [.displayGroupSync, .launchRestores, .xdrPowerAutomation, .displaySleepPrevention])
+        XCTAssertEqual(settings, before, "safe-session reporting retains every stored setting")
+    }
+
     func testSafeStartupIsShiftOrTheLaunchArgument() {
         XCTAssertFalse(SafeStartup.isRequested(arguments: ["/Applications/OpenDisplay.app"], shiftHeld: false))
         XCTAssertTrue(SafeStartup.isRequested(arguments: [], shiftHeld: true))
