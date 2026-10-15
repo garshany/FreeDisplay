@@ -533,6 +533,7 @@ final class AppModel: ObservableObject {
     /// The one timer behind the configuration and wake delays (SO-10, `ConfiguredReactionSchedule`):
     /// every display event re-arms it, so the user's rules run once, after the last event.
     private let configuredReactionTimer = RecheckTimer()
+    private var configuredReactionGeneration = ConfiguredReactionGeneration()
     /// The trigger the pending run reports. A wake outranks the changes that follow it.
     private var pendingReactionTrigger: ConfiguredReactionSchedule.Trigger?
     private var appManagementIsQuitting = false
@@ -715,6 +716,7 @@ final class AppModel: ObservableObject {
                 self?.activeSurfaceRecheck.cancel()
                 self?.offlineIntentRecheck.cancel()
                 self?.configuredReactionTimer.cancel()
+                self?.configuredReactionGeneration.invalidate()
                 self?.stopObservingSleepAndWake()
                 self?.clockModeTask?.cancel()
                 #if !PUBLIC_API_ONLY
@@ -1801,7 +1803,7 @@ final class AppModel: ObservableObject {
     /// so a mode macOS rejected or a field scenes don't execute (rotation, on/off, brightness…) is
     /// reported instead of an apparently clean apply. A missing required member blocks the apply.
     @discardableResult
-    func applyScene(_ scene: Scene) async -> SceneApplyReport {
+    func applyScene(_ scene: Scene, reaction: UUID? = nil) async -> SceneApplyReport {
         // One display transaction at a time (`displayConfigurationBusy`): judged and claimed before
         // the first suspension point, so nothing can start in between. A scene that would have to
         // write meanwhile writes nothing; its report judges the topology as it is, and says why.
@@ -1823,7 +1825,7 @@ final class AppModel: ObservableObject {
                 guard let cgID = before.observation(for: write.target)?.cgDisplayID else { return nil }
                 return .init(displayID: cgID, origin: write.origin, mode: write.mode)
             }
-            if !targets.isEmpty, busy {
+            if !targets.isEmpty, busy || !configuredReactionIsCurrent(reaction) {
                 refused = true
                 warnings = ["another display change is in progress"]
             } else if !targets.isEmpty {
@@ -2637,6 +2639,7 @@ final class AppModel: ObservableObject {
             attempts += 1
         }
         displays = snapshot.observations.sorted { $0.recordID.rawValue < $1.recordID.rawValue }
+        observeAutoDisconnectArrival()
         reconcileDisplaySleepGuard()
         refreshRevertRecord()
         pruneControlCaches(to: Set(displays.map(\.recordID)))
@@ -5421,15 +5424,18 @@ final class AppModel: ObservableObject {
     /// stranded monitor lost its only record. The entry goes when the display is observed lit; if
     /// it never is, the entry stays, stamped, and the off card says what happened.
     @discardableResult
-    private func reconnectOffline(_ offline: OfflineDisplay, forgettingIntent: Bool) async -> Bool {
+    private func reconnectOffline(_ offline: OfflineDisplay, forgettingIntent: Bool, reaction: UUID? = nil) async -> Bool {
+        guard configuredReactionIsCurrent(reaction) else { return false }
         busy = true
         defer { busy = false }
         if forgettingIntent { stampReconnectFailure(nil, for: offline) }  // a fresh attempt
         do {
             // By raw number only while it still names this display (`ReconnectIdentity`): the
             // number may have been handed to another monitor since the entry was written.
+            let observations = await observer.currentSnapshot().observations
+            guard configuredReactionIsCurrent(reaction) else { return false }
             try await ManagedOfflineRecovery.requestReconnect(
-                offline, lifecycle: lifecycle, observations: await observer.currentSnapshot().observations,
+                offline, lifecycle: lifecycle, observations: observations,
                 ledger: managedOffline, uuidForDisplayNumber: { CoreGraphicsProvider.persistentUUID(for: $0) },
                 deadline: Date().addingTimeInterval(10), beforeRequest: { [weak self] in
                     await self?.integrationSession.soft(.softReconnect, display: offline.recordID, attempt: UUID())
@@ -5564,6 +5570,7 @@ final class AppModel: ObservableObject {
     private func observeTopologyChanges() async {
         let stream = await observer.changes()
         for await _ in stream {
+            configuredReactionGeneration.invalidate()
             let prior = displays
             // A reconfiguration can mean a monitor was re-plugged or power-cycled — its DDC may have
             // just come back (or gone away), so any negative probe knowledge is stale.
@@ -5653,17 +5660,17 @@ final class AppModel: ObservableObject {
     /// On an external-arrival edge (and only then), turn the built-in panel off through the gated
     /// coordinator path (Issue 5). The built-in returns when the last external leaves — that's the
     /// existing always-one-active safety net (`enforceActiveSurfaceInvariant`), not duplicated here.
+    private func observeAutoDisconnectArrival() {
+        autoDisconnectPolicy.observe(enabled: settings.autoDisconnectBuiltInOnExternal,
+            externalPresent: AutoDisconnectBuiltInPolicy.eligibleExternalPresent(in: displays), suppressed: safeStartup)
+    }
+
     @discardableResult
-    private func applyAutoDisconnectBuiltInIfNeeded() async -> Bool {
-        let fire = autoDisconnectPolicy.onTopologyChange(
-            enabled: settings.autoDisconnectBuiltInOnExternal,
-            externalPresent: AutoDisconnectBuiltInPolicy.eligibleExternalPresent(in: displays)
-        )
-        // The edge detector above still runs in safe startup (FA-09), so its view of "an external
-        // just arrived" stays right; only the action is held back.
-        guard fire, !safeStartup, !busy,
-              let builtIn = displays.first(where: { $0.displayClass == .builtIn && $0.isActive })
-        else { return false }
+    private func applyAutoDisconnectBuiltInIfNeeded(reaction: UUID? = nil) async -> Bool {
+        observeAutoDisconnectArrival()
+        guard configuredReactionIsCurrent(reaction), !safeStartup, !busy else { return false }
+        guard autoDisconnectPolicy.takePendingArrival(),
+              let builtIn = displays.first(where: { $0.displayClass == .builtIn && $0.isActive }) else { return false }
         #if DEBUG
         Self.err("AUTO-DISCONNECT firing: turning off \(displayName(for: builtIn))")
         #endif
@@ -5678,6 +5685,7 @@ final class AppModel: ObservableObject {
     func setAutoDisconnectBuiltInOnExternal(_ enabled: Bool) {
         guard settings.autoDisconnectBuiltInOnExternal != enabled else { return }
         settings.autoDisconnectBuiltInOnExternal = enabled
+        observeAutoDisconnectArrival()
         persistSettings()
     }
 
@@ -5974,6 +5982,7 @@ final class AppModel: ObservableObject {
                                queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.configuredReactionTimer.cancel()
+                    self?.configuredReactionGeneration.invalidate()
                     self?.pendingReactionTrigger = nil
                     self?.integrationSession.sleep()
                     self?.isBetweenSleepAndWake = true
@@ -6008,6 +6017,7 @@ final class AppModel: ObservableObject {
     /// re-armed by the topology events that keep arriving as displays finish waking, so a display
     /// that takes ten seconds to light up is still converged on when it does.
     private func convergeAfterWake() async {
+        configuredReactionGeneration.invalidate()
         logDisplayEvent("wake")
         lastWakeAt = Date()
         clockModeSession.didWake(policy: settings.clockMode?.resumePolicy ?? .currentInterval)
@@ -6040,25 +6050,34 @@ final class AppModel: ObservableObject {
         layoutProtectionRecheck.cancel()
         offlineIntentRecheck.cancel()
         pendingReactionTrigger = ConfiguredReactionSchedule.merged(pendingReactionTrigger, with: trigger)
+        let generation = configuredReactionGeneration.invalidate()
         configuredReactionTimer.arm(after: delay) { [weak self] in
-            await self?.runDeferredReactions()
+            await self?.runDeferredReactions(generation: generation)
         }
         return true
     }
 
     /// The deferred run: the same rules, in the same order, against the topology as it is now.
-    private func runDeferredReactions() async {
-        guard !appManagementIsQuitting, !isBetweenSleepAndWake else { return }
+    private func configuredReactionIsCurrent(_ generation: UUID?) -> Bool {
+        guard let generation else { return true }
+        return !appManagementIsQuitting && !isBetweenSleepAndWake
+            && configuredReactionGeneration.isCurrent(generation)
+    }
+
+    private func runDeferredReactions(generation: UUID) async {
+        guard configuredReactionIsCurrent(generation) else { return }
         let trigger = pendingReactionTrigger ?? .topologyChange
-        pendingReactionTrigger = nil
         await refresh()
-        guard !appManagementIsQuitting, !isBetweenSleepAndWake else { return }
+        guard configuredReactionIsCurrent(generation) else { return }
+        pendingReactionTrigger = nil
         let before = displays
-        if await applyAutoDisconnectBuiltInIfNeeded() {
-            postDisplayNotifications(prior: before, builtInAutoDisconnected: true)  // Batch-2 #5
+        if await applyAutoDisconnectBuiltInIfNeeded(reaction: generation) {
+            postDisplayNotifications(prior: before, builtInAutoDisconnected: true)
         }
-        await reassertManagedOfflineIntent()
-        await evaluateLayoutProtection(trigger: trigger == .wake ? .wake : .topologyChange)
+        guard configuredReactionIsCurrent(generation) else { return }
+        await reassertManagedOfflineIntent(reaction: generation)
+        guard configuredReactionIsCurrent(generation) else { return }
+        await evaluateLayoutProtection(trigger: trigger == .wake ? .wake : .topologyChange, reaction: generation)
     }
 
     /// Puts back off every display the ledger owns that woke up with the machine.
@@ -6069,7 +6088,8 @@ final class AppModel: ObservableObject {
     /// next to the externals for the rest of the session. Now the return is recognised for what it
     /// is and undone — but only once something else is lit to take over, and only a bounded number
     /// of times, so the safety net's guarantee is never the thing being argued with.
-    private func reassertManagedOfflineIntent() async {
+    private func reassertManagedOfflineIntent(reaction: UUID? = nil) async {
+        guard configuredReactionIsCurrent(reaction) else { return }
         offlineIntentRecheck.cancel()
         // Safe startup (FA-09): nothing is turned off automatically. The ledger itself is left as
         // it is, so the off cards stay and switching a display back on by hand works as usual.
@@ -6085,11 +6105,12 @@ final class AppModel: ObservableObject {
             offlineIntentRecheck.arm(after: delay) { [weak self] in
                 guard let self else { return }
                 await self.refresh()
-                await self.reassertManagedOfflineIntent()
+                await self.reassertManagedOfflineIntent(reaction: reaction)
             }
         }
         guard !busy, !intent.reassert.isEmpty else { return }
         for offline in intent.reassert {
+            guard configuredReactionIsCurrent(reaction) else { return }
             guard let live = displays.first(where: { $0.recordID == offline.recordID && $0.isActive })
             else { continue }
             offlineReassertAttempts[offline.recordID, default: 0] += 1
@@ -6183,9 +6204,11 @@ final class AppModel: ObservableObject {
     /// launch. All the deciding — which drifts matter, the managed-offline rule, suppression,
     /// debounce, retry cap — is the pure `LayoutProtectionPolicy`; this only reads the world and
     /// performs the writes.
-    func evaluateLayoutProtection(trigger: LayoutProtectionPolicy.Trigger) async {
+    func evaluateLayoutProtection(trigger: LayoutProtectionPolicy.Trigger, reaction: UUID? = nil) async {
+        guard configuredReactionIsCurrent(reaction) else { return }
         layoutProtectionRecheck.cancel()
         let snapshot = await observer.currentSnapshot()
+        guard configuredReactionIsCurrent(reaction) else { return }
         // The ledger is part of the key. Without it the fingerprint changes the instant macOS
         // relights a display the user turned off — so on wake the app would look up a display set
         // it had never protected and conclude, correctly and uselessly, that there is nothing to
@@ -6212,7 +6235,7 @@ final class AppModel: ObservableObject {
         }
         if let delay = evaluation.recheckAfter {
             layoutProtectionRecheck.arm(after: delay) { [weak self] in
-                await self?.evaluateLayoutProtection(trigger: trigger)
+                await self?.evaluateLayoutProtection(trigger: trigger, reaction: reaction)
             }
             return
         }
@@ -6223,7 +6246,7 @@ final class AppModel: ObservableObject {
         // decides what protection makes of the result — no attempt is spent on it.
         guard !displayConfigurationBusy else { return }
         layoutProtectionState = LayoutProtectionPolicy.noteRestoreAttempt(state: layoutProtectionState)
-        await restoreProtectedLayout(protected, analysis: analysis, before: snapshot.generation)
+        await restoreProtectedLayout(protected, analysis: analysis, before: snapshot.generation, reaction: reaction)
     }
 
     /// Marks whatever the app just wrote as OpenDisplay's own doing, so Protected Layout never
@@ -6264,15 +6287,21 @@ final class AppModel: ObservableObject {
     /// generation our own writes raise, and tells the user what moved.
     private func restoreProtectedLayout(_ config: ProtectedConfig,
                                         analysis: DisplayConfigDrifter.DriftAnalysis,
-                                        before generation: TopologyGeneration) async {
+                                        before generation: TopologyGeneration, reaction: UUID? = nil) async {
+        guard configuredReactionIsCurrent(reaction) else { return }
         await appendLayoutProtectionAudit(status: "attempted", analysis: analysis)
-        await restoreProtectedActiveState(config, analysis: analysis)
+        guard configuredReactionIsCurrent(reaction) else { return }
+        await restoreProtectedActiveState(config, analysis: analysis, reaction: reaction)
         // Before the scene: the saved origins were captured with the saved rotation.
-        await restoreProtectedRotation(config, analysis: analysis)
-        await applyScene(LayoutProtectionPolicy.restoreScene(for: config))
-        await restoreProtectedMirroring(config, analysis: analysis)
+        guard configuredReactionIsCurrent(reaction) else { return }
+        await restoreProtectedRotation(config, analysis: analysis, reaction: reaction)
+        guard configuredReactionIsCurrent(reaction) else { return }
+        await applyScene(LayoutProtectionPolicy.restoreScene(for: config), reaction: reaction)
+        guard configuredReactionIsCurrent(reaction) else { return }
+        await restoreProtectedMirroring(config, analysis: analysis, reaction: reaction)
 
         let settled = await observer.awaitStableGeneration(after: generation)
+        guard configuredReactionIsCurrent(reaction) else { return }
         // Suppress the generation our writes raised — or, when they raised none, clear the
         // suppression `applyScene` optimistically took, so a restore that didn't land can be retried
         // instead of silencing the drift it failed to fix.
@@ -6302,9 +6331,11 @@ final class AppModel: ObservableObject {
     /// it actionable when the arrangement says that display must be off, so the wanted state for
     /// every id reaching here is simply "off unless the arrangement lists it as lit".
     private func restoreProtectedActiveState(_ config: ProtectedConfig,
-                                             analysis: DisplayConfigDrifter.DriftAnalysis) async {
+                                             analysis: DisplayConfigDrifter.DriftAnalysis, reaction: UUID? = nil) async {
+        guard configuredReactionIsCurrent(reaction) else { return }
         let wantsOff = LayoutProtectionPolicy.desiredOff(in: config.snapshot)
         for change in analysis.changes {
+            guard configuredReactionIsCurrent(reaction) else { return }
             let id: DisplayRecordID
             switch change {
             case .activeChanged(let changed), .appeared(let changed): id = changed
@@ -6312,7 +6343,7 @@ final class AppModel: ObservableObject {
             }
             let wanted = !wantsOff.contains(id)
             if wanted, let offline = managedOffline.first(where: { $0.recordID == id }) {
-                await reconnectOffline(offline)
+                await reconnectOffline(offline, forgettingIntent: true, reaction: reaction)
             } else if !wanted, let live = displays.first(where: { $0.recordID == id && $0.isActive }) {
                 await setDisplayActive(false, for: live)
             }
@@ -6324,9 +6355,11 @@ final class AppModel: ObservableObject {
     /// `setRotation`, the one rotation writer with the recovery marker and the safe-angle rollback;
     /// `applyScene` cannot rotate at all.
     private func restoreProtectedRotation(_ config: ProtectedConfig,
-                                          analysis: DisplayConfigDrifter.DriftAnalysis) async {
+                                          analysis: DisplayConfigDrifter.DriftAnalysis, reaction: UUID? = nil) async {
+        guard configuredReactionIsCurrent(reaction) else { return }
         guard rotationWritable else { return }
         for change in analysis.changes {
+            guard configuredReactionIsCurrent(reaction) else { return }
             guard case .rotationChanged(let id) = change,
                   let wanted = config.snapshot.observation(for: id)?.rotation,
                   let live = displays.first(where: { $0.recordID == id && $0.isActive }),
@@ -6347,20 +6380,23 @@ final class AppModel: ObservableObject {
     /// Each target goes back to the exact source it was saved with (`mirrorRestoreSteps`), not to
     /// "mirrored onto whatever is main" — a C→A arrangement that drifted to C→B is put back to C→A.
     private func restoreProtectedMirroring(_ config: ProtectedConfig,
-                                           analysis: DisplayConfigDrifter.DriftAnalysis) async {
+                                           analysis: DisplayConfigDrifter.DriftAnalysis, reaction: UUID? = nil) async {
+        guard configuredReactionIsCurrent(reaction) else { return }
         let current = await observer.currentSnapshot()
+        guard configuredReactionIsCurrent(reaction) else { return }
         let steps = LayoutProtectionPolicy.mirrorRestoreSteps(
             protected: config.snapshot, current: current, analysis: analysis)
-        if await applyMirrorSteps(steps, in: current) { await refresh() }
+        if await applyMirrorSteps(steps, in: current, reaction: reaction) { await refresh() }
     }
 
     /// Performs mirror steps against fresh Core Graphics IDs from `snapshot`. A step whose display or
     /// source has no live ID is skipped rather than substituted. Returns whether anything was written.
     /// A rejected write isn't retried here: Protected Layout's residual check reports it, and the
     /// keep/revert path reads the topology back and keeps its record (`RevertMarkerPolicy`).
-    private func applyMirrorSteps(_ steps: [MirrorRestorePlan.Step], in snapshot: TopologySnapshot) async -> Bool {
+    private func applyMirrorSteps(_ steps: [MirrorRestorePlan.Step], in snapshot: TopologySnapshot, reaction: UUID? = nil) async -> Bool {
         var wrote = false
         for step in steps {
+            guard configuredReactionIsCurrent(reaction) else { return wrote }
             guard let target = snapshot.observation(for: step.target)?.cgDisplayID else { continue }
             var source: CGDirectDisplayID?
             if let sourceID = step.source {
@@ -6418,6 +6454,7 @@ final class AppModel: ObservableObject {
     func teardownForQuit() async {
         appManagementIsQuitting = true
         configuredReactionTimer.cancel()
+        configuredReactionGeneration.invalidate()
         pendingReactionTrigger = nil
         sleepGuard.releaseAll()
         displaySleepPrevention = .init()

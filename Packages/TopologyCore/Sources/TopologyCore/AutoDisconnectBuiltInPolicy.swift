@@ -17,6 +17,7 @@ public struct AutoDisconnectBuiltInPolicy {
                 && $0.physicalPresence == .physical && $0.isActive }
     }
 
+    private var pendingArrival = false
     private var externalPresent: Bool
 
     public init(externalPresent: Bool = false) {
@@ -28,6 +29,20 @@ public struct AutoDisconnectBuiltInPolicy {
     /// mistaken for a fresh arrival.
     public mutating func seed(externalPresent: Bool) {
         self.externalPresent = externalPresent
+        pendingArrival = false
+    }
+
+    /// Observe every topology, independently of when configured reactions are allowed to run.
+    public mutating func observe(enabled: Bool, externalPresent: Bool, suppressed: Bool) {
+        let arrived = onTopologyChange(enabled: enabled, externalPresent: externalPresent)
+        if !enabled || !externalPresent || suppressed { pendingArrival = false }
+        else { pendingArrival = pendingArrival || arrived }
+    }
+
+    public mutating func takePendingArrival() -> Bool {
+        let pending = pendingArrival
+        pendingArrival = false
+        return pending
     }
 
     /// Feed the latest `(enabled, externalPresent)` on every topology change. Returns true exactly when

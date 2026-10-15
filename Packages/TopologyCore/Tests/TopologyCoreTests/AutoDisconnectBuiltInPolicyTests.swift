@@ -3,6 +3,28 @@ import XCTest
 @testable import TopologyCore
 
 final class AutoDisconnectBuiltInPolicyTests: XCTestCase {
+    func testDebouncedUnplugReconnectRetainsArrivalUntilExecution() {
+        var policy = AutoDisconnectBuiltInPolicy(externalPresent: true)
+        policy.observe(enabled: true, externalPresent: false, suppressed: false)
+        policy.observe(enabled: true, externalPresent: true, suppressed: false)
+        policy.observe(enabled: true, externalPresent: true, suppressed: false)
+        XCTAssertTrue(policy.takePendingArrival())
+        XCTAssertFalse(policy.takePendingArrival())
+    }
+
+    func testPendingArrivalIsCancelledByAbsenceDisableOrSafeStartup() {
+        for reason in 0..<3 {
+            var policy = AutoDisconnectBuiltInPolicy()
+            policy.observe(enabled: true, externalPresent: true, suppressed: false)
+            policy.observe(enabled: reason != 0, externalPresent: reason != 1, suppressed: reason == 2)
+            XCTAssertFalse(policy.takePendingArrival())
+        }
+        var policy = AutoDisconnectBuiltInPolicy()
+        policy.observe(enabled: true, externalPresent: true, suppressed: true)
+        policy.observe(enabled: true, externalPresent: true, suppressed: false)
+        XCTAssertFalse(policy.takePendingArrival())
+    }
+
     func testFiresOnFirstExternalArrivalWhenEnabled() {
         var policy = AutoDisconnectBuiltInPolicy()
         XCTAssertTrue(policy.onTopologyChange(enabled: true, externalPresent: true))
