@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src="Docs/images/freedisplay/hero-en.png" width="900" alt="FreeDisplay: the Settings window open on the Displays section (mode, colour temperature, software dimming), with the menu-bar panel in front showing the built-in display card, brightness and a resolution slider">
+  <img src="Docs/images/freedisplay/hero-en.png" width="900" alt="FreeDisplay: the Settings window open on the Displays section (mode picker with aspect, refresh and density filters, colour temperature, software contrast and image adjustments), with the menu-bar panel in front showing the built-in display card, brightness and a resolution slider">
 </p>
 
 <p align="center">
@@ -48,13 +48,22 @@ FreeDisplay is a fork of [**OpenDisplay**](https://github.com/aquitaine/OpenDisp
 a free GPL-3.0 menu-bar app that controls your monitors' real hardware and keeps your display setup
 safe to change. FreeDisplay builds on OpenDisplay 0.11.5 and adds:
 
-- a redesigned **menu-bar panel** and grouped Settings window;
+- a redesigned **menu-bar panel** you can arrange (which displays and controls it shows, in what
+  order, with which icons) and a grouped Settings window;
+- a **free-drag arrangement canvas** with snapping, in Settings and in the menu-bar panel;
+- **software contrast** next to dimming and colour temperature, and a **Default display group**
+  with absolute or delta brightness sync;
+- an in-app **EDID reader and decoder** (CTA-861, DisplayID), per-display information reports and
+  a complete, filterable mode list; EDID and HiDPI files are validated and exported, never installed;
+- **Shortcuts actions** for a chosen display, a **keyboard shortcut recorder**, a CLI with honest
+  results and exit codes, and a **local HTTP API** bound to 127.0.0.1 and protected by a token;
+- **settings backup, import and reset**, a **safe startup** (hold Shift at launch) and a list of
+  remembered displays you can forget or reset;
 - **virtual displays** for the current session (experimental);
 - **screen capture with a picture-in-picture preview** (experimental);
-- a **local HTTP API** for scripts, bound to 127.0.0.1 and protected by a token;
-- **EDID and HiDPI tools** (validate and export, never install) and an EDR headroom readout;
 - a full **Russian translation** with an in-app language switch;
-- fixes for Reconnect All, Black Out and display names;
+- a **reliability pass**: fixes for Reconnect All, Black Out and display names, and for 30 of the 31
+  most serious (P0) problems the guide study found in the code (see [Reliability](#reliability));
 - a page-by-page [study of the BetterDisplay guide](Docs/BetterDisplay-Guide/) that tracks what is
   still missing.
 
@@ -69,39 +78,48 @@ How to read the **Status** column:
 **Core** is always available. Where the note says *full build*, the feature needs private macOS
 APIs and is left out of the [public-API-only flavour](#public-api-only-flavour).
 **Experimental** is opt-in, relies on private APIs or recent work, and may break with macOS updates.
-**Labs** is off by default; you turn it on in *Settings → Diagnostics → Labs*.
+**Labs** is off by default; it is marked *Labs* in *Settings → Diagnostics*, where you turn it on.
 
 ### Brightness & dimming
 
 | Feature | What it does | Status |
 |---|---|---|
-| **Hardware brightness (DDC/CI)** | Sets the external monitor's real backlight, plus contrast, volume and mute, input source, colour preset, sharpness, RGB gain, power and factory reset. Settings are read back after a change, and if the monitor ignored it, the app tells you. The CLI can read or write any raw MCCS VCP code. | Core · full build |
+| **Hardware brightness (DDC/CI)** | Sets the external monitor's real backlight, plus contrast, volume and mute, input source, the monitor's own colour preset, sharpness, RGB gain, power and factory reset. Settings are read back after a change, and the app says whether a write was confirmed, only sent, or failed. Standby and power-off ask for confirmation first. The CLI can read or write any raw MCCS VCP code. | Core · full build |
 | **Built-in brightness** | Controls the built-in panel through the system brightness service. | Core · full build |
-| **Software dimming** | Dims any display with gamma, a black overlay or both, including displays without DDC. Each display also gets a colour-temperature slider. By design it never goes fully black. | Core |
+| **Software dimming, colour temperature, contrast** | Dims any display with gamma, a black overlay or both, including displays without DDC; by design it never goes fully black. Each display also gets colour temperature and **software contrast**: a tone curve in that display's colour table, not the monitor's own contrast. Dimming, temperature, contrast and the XDR boost are worked into one colour table. *Suspend* bypasses temperature and contrast without losing their values; *Reset* returns them and dimming to neutral. These adjustments last until you quit. A custom ICC profile pauses gamma-based adjustments unless you allow them. | Core |
 | **Black Out** | Makes a display fully black with a click-through overlay. Offered only while another display stays lit. | Core |
 | **XDR Brightness** | Pushes SDR content on a built-in XDR panel up to 2× its normal maximum using EDR headroom. Never survives quit or a crash. You can have it switch off on battery or in Low Power Mode. | Labs |
-| **Adaptive & scheduled brightness** | Follows the built-in display or the ambient light sensor. *Clock Mode* schedules brightness by fixed times or by sunrise, solar noon or sunset with offsets. *Location Mode* follows the sun's elevation. There's also evening warmth that follows Night Shift, and per-app presets. | Core · full build |
-| **Display groups** | One slider or brightness key moves several displays together. The group learns each display's offset from your adjustments. Contrast sync is optional. | Core |
+| **Adaptive & scheduled brightness** | Follows the built-in display or the ambient light sensor. *Clock Mode* schedules brightness by fixed times or by sunrise, solar noon or sunset with offsets. *Location Mode* follows the sun's elevation. There's also evening warmth that follows Night Shift, and per-app presets. | Core · full build; *Adaptive display* and *App Presets* are Labs |
+| **Display groups** | One slider or brightness key moves several displays together, in one of three modes: *learned offsets* (each display keeps the offset you taught it), *absolute* (every display takes the same percentage) or *delta* (every display moves by the same amount). Contrast sync is optional. The **Default group**, off by default, gives every connected display that isn't in a named group basic brightness sync. Hold **Shift** while dragging a brightness slider to change only that display. | Core |
 | **FaceLight** | One press turns a display into a bright fill light for video calls. Press again to restore the previous settings. | Core |
 
 ### Resolutions & modes
 
 | Feature | What it does | Status |
 |---|---|---|
-| **Mode picker** | Shows logical size, framebuffer, refresh rate and HiDPI for every mode macOS offers, with optional non-HiDPI variants and a resolution slider in the menu-bar panel. | Core |
-| **Favourite modes** | Star modes and switch between them quickly. Also available as `opendisplay favorite`. | Core |
-| **Keep or revert** | A new mode stays only if you confirm it. Otherwise it reverts automatically after a countdown. | Core |
-| **Main display, mirroring, colour profiles** | Choose the main display, mirror the main display, and apply or reset ICC profiles through ColorSync. | Core |
+| **Mode picker** | Lists every mode macOS reports for a display, with logical size, framebuffer, refresh rate, HiDPI and tags such as native, default or scaled. Filter by aspect ratio, refresh rate, density and depth, optionally include modes macOS marks as not for desktop use, and see why a mode isn't listed. The menu-bar panel has a resolution slider that keeps the current refresh rate, density and depth. | Core |
+| **Favourite modes** | Star modes and switch between them quickly. A favourite keeps the exact mode, so 59.94 Hz and 60 Hz stay different. Also available as `opendisplay favorite`. | Core |
+| **Keep or revert** | A new mode or arrangement stays only if you confirm it. Otherwise it reverts automatically after a countdown. | Core |
+| **Main display, mirroring, colour profiles** | Choose the main display, mirror the main display, and apply or reset ICC profiles through ColorSync. *Colour profile details* show where the active profile comes from, its class, colour space and file. You can import copies of profiles into your profiles folder, move your own profiles to the Trash (with undo), and open them in Finder or ColorSync Utility. | Core |
 | **Rotation** | Rotates through an isolated helper with automatic rollback. Unavailable on macOS versions where it can't be done safely. | Labs |
 
 ### Arrangement & scenes
 
 | Feature | What it does | Status |
 |---|---|---|
-| **Drag arrangement** | Drag displays on a canvas. Changes apply immediately. | Core |
-| **Protected layout** | When hotplug, sleep or another app changes your setup, puts back positions, modes, mirroring, the main display and which displays are off. Each combination of displays keeps its own layout. | Core |
-| **Scenes** | Saves the arrangement and modes of all displays so you can plan or apply them later from the app or the CLI. | Core |
-| **Logical disconnect** | Turns a display off without unplugging it, and always keeps at least one display active. Optionally turns the built-in panel off when an external display connects. | Experimental · full build |
+| **Arrangement canvas** | Drag displays freely. A dropped display snaps to the nearest edge, centre or corner of another one (hold Shift to keep the exact spot along the edge); dropping it between two displays inserts it there, and gaps close by themselves. Drag the white menu-bar strip onto another display, or Control-click it, to make that display the main one. Each change applies at once and reverts unless you keep it. A compact copy of the canvas sits in the menu-bar panel under *Tools → Display arrangement*. | Core |
+| **Protected layout** | When hotplug, sleep or another app changes your setup, puts back positions, modes, mirroring (with the exact mirror source), the main display and which displays are off. Each combination of displays keeps its own layout. | Core |
+| **Scenes** | Saves the arrangement and modes of all displays so you can plan or apply them later from the app or the CLI. Applying a scene reports anything macOS didn't apply. | Core |
+| **Logical disconnect** | Turns a display off without unplugging it, and always keeps at least one physical display active. Optionally turns the built-in panel off when an external display connects. | Experimental · full build |
+
+### Menu bar & remembered displays
+
+| Feature | What it does | Status |
+|---|---|---|
+| **Displays in the menu** | *Settings → Menu* shows or hides each display in the menu-bar panel, renames it, gives it an SF Symbols icon and sets the order (or keeps an automatic order, optionally with the main display first). A display the app turned off, or a blacked-out one, always stays in the menu. | Core |
+| **Menu contents** | Every slider and display feature can be *Visible*, *In More* or *Hidden*, and each tool can be shown or hidden. Open sections can be remembered, and *Reset Menu Layout* puts everything back. | Core |
+| **Hidden icon recovery** | If macOS hides the menu-bar icon (behind the camera notch, or switched off in System Settings), opening the app again brings up Settings, and **Open Menu Panel** shows the panel without the icon. | Core |
+| **Remembered displays** | *Settings → Displays → Remembered* lists every display the app keeps a record of. *Forget* (for a display that isn't connected) and *Reset Settings* (for a connected one) show exactly what will be removed and ask for confirmation. Forgetting is refused while the app may still need a display's record to bring it back. | Core |
 
 ### Virtual displays · Experimental
 
@@ -115,15 +133,25 @@ when no physical display is visible for recovery. *Full build only.*
 Shows a live ScreenCaptureKit preview of any display or window in a floating, resizable window.
 The preview can be flipped horizontally, rotated, cropped or zoomed, and passed through a `.cube`
 LUT. It's an SDR preview at 30 fps, scaled to at most 1920 px, and it stays in memory: nothing is
-recorded to disk. macOS asks for Screen Recording permission the first time you load sources.
+recorded to disk. A running preview keeps going when you close Settings. macOS asks for Screen
+Recording permission the first time you load sources.
 
-### EDID & HiDPI tools · export only
+### EDID & HiDPI tools · read and export only
 
-- Import a binary EDID and validate its header, checksum, extension count and identity. Export it
-  as an Apple display-override plist.
-- Plan HiDPI sizes and export a JSON plan that includes the restore steps.
-- Read the current and potential EDR headroom of each display.
-- Dump a connected display's EDID with `opendisplay edid <selector> --out edid.bin`.
+- *Settings → EDID & HiDPI* reads the selected display's EDID inside the app. The bytes must carry
+  that display's vendor, product code and serial number. If several EDIDs do (identical monitors
+  without serial numbers) or none does, the app says *ambiguous* or *not found* instead of guessing.
+- The decoder covers the base block, CTA-861 extensions (video and audio formats, HDR metadata,
+  colorimetry and more) and DisplayID 1.x/2.x, including tiled displays. Checksum and structure
+  problems are listed, not hidden.
+- The bytes can be shown as a hex dump, hex, Base64 or a C array and copied. Export the original
+  bytes as `.bin`, or an Apple display-override plist when the strict check passes. Imported EDID
+  files are decoded the same way.
+- *Settings → Displays → Information → Show Report…* builds a report for one display (identity,
+  modes, capabilities, connection, EDID) that you can copy or save as UTF-8 text. Unknown values
+  stay unknown.
+- Plan HiDPI sizes and export a JSON plan that includes the restore steps, read each display's
+  current and potential EDR headroom, or dump an EDID with `opendisplay edid <selector> --out edid.bin`.
 
 FreeDisplay **never installs** overrides or system configuration. Applying an exported file is up
 to you, and at your own risk.
@@ -132,39 +160,78 @@ to you, and at your own risk.
 
 | Surface | What it does |
 |---|---|
-| **CLI `opendisplay`** | Covers display lists, brightness, DDC (including raw VCP), scenes, layout protection, groups, favourites, EDID, ambient light (`lux`), lid state, diagnostics and recovery. `listen` streams events as JSON lines. |
-| **URL scheme** | `opendisplay://reconnect-all` runs immediately. A `disconnect` URL is recognised but never runs silently; it only brings the app forward. |
-| **Shortcuts & Siri** | Actions with a display picker: *Get* and *Set Display Brightness* (0–100 %, the result says whether the display confirmed the level), *Set Display Mode* (the display's exact modes; the change is kept or reverted like one made in the menu), *Set Main Display*, plus *Reconnect All Displays*. Results are typed, so a shortcut can branch on them. *Settings → Automation* opens the Shortcuts app. |
-| **Local HTTP API** | Listens only on 127.0.0.1, on a random port, with a new 256-bit bearer token each session. Endpoints: `GET /v1/displays`, `POST /v1/brightness`, `POST /v1/reconnect-all`. It runs only while *Settings → Automation* is open. |
-| **Media keys & OSD** | The brightness keys control the chosen display, in hardware or software. The volume keys use DDC only when sound plays through that monitor. The on-screen HUD has several styles, and events can optionally be broadcast to external HUD apps. Needs Accessibility permission. |
-| **Keyboard shortcuts** | *Settings → Keyboard* records a global shortcut for each action (Reconnect All, brightness steps, FaceLight, the menu, Settings, Quit), shows whether it is active or which shortcut it clashes with, and sets the brightness/volume step size. Input hotkeys (⌃⌥⌘-digit) switch a monitor to a chosen input, which is handy with a KVM. |
-| **Notifications** | Posts a system notification when an external display connects or disconnects. |
+| **CLI `opendisplay`** | Covers display lists, brightness, DDC (including raw VCP), scenes, layout protection, groups, favourites, EDID, ambient light (`lux`), lid state, diagnostics and recovery. `listen` streams events as JSON lines. A write is reported as `verified` only when a read-back matches, otherwise as `sent`. Exit codes: 0 success, 1 failure, 2 usage error (nothing ran), 3 partly done. Unknown options are errors, never ignored. |
+| **URL scheme** | `opendisplay://reconnect-all` runs immediately. A `disconnect` link is refused with a visible explanation: links never change displays. |
+| **Shortcuts & Siri** | Actions with a display picker: *Get* and *Set Display Brightness* (0–100 %, the result says whether the display confirmed the level), *Set Display Mode* (the display's exact modes; the change is kept or reverted like one made in the menu), *Set Main Display*, plus *Reconnect All Displays*. A saved display that isn't connected is reported, never swapped for another one. Results are typed, so a shortcut can branch on them. *Settings → Automation* opens the Shortcuts app. |
+| **Local HTTP API** | Listens only on 127.0.0.1, on a random port, with a new 256-bit bearer token each session. Endpoints: `GET /v1/displays`, `POST /v1/brightness`, `POST /v1/reconnect-all`. The display list gives the app's last known brightness with its age, or `null` when it isn't known. The server runs only while *Settings → Automation* is open. |
+| **Media keys & OSD** | The brightness keys control the chosen display, in hardware or software. The volume keys are taken over only for a monitor whose DDC volume has been read back; otherwise macOS keeps them. Mute uses the monitor's own mute when it has one, and is labelled as volume 0 when it doesn't. The on-screen HUD has several styles, and every brightness or volume change can be broadcast to external HUD apps. Needs Accessibility permission. |
+| **Keyboard shortcuts** | *Settings → Keyboard* records a global shortcut for each action: Reconnect All, making the next display main, FaceLight, brightness up and down (normal and fine steps), showing the menu, opening Settings and quitting. Each row says whether macOS registered the shortcut or why not (another action uses it, macOS refused it). Shortcuts can be removed or restored to their defaults. The same page sets the adjustment steps shared by the brightness and volume keys and the shortcuts. Input hotkeys (⌃⌥⌘-digit) switch a monitor to a chosen input, which is handy with a KVM. |
+| **Notifications** | Notices about displays connecting and disconnecting, the built-in panel turning off automatically, layout protection and failures. In *Settings → Diagnostics → Behavior* choose Notification Center, an OpenDisplay window or off, mute routine protection notices, and see what macOS currently allows. |
+
+### App settings
+
+| Feature | What it does |
+|---|---|
+| **Backup, import, reset** | *Settings → About → App settings → Manage…* exports preferences, display names, favourites, groups, app presets, protected layouts, shortcuts and scenes to a JSON file. Importing checks the file and shows a summary, including displays this Mac doesn't know. Import and reset to defaults back up the current settings first and then relaunch the app. |
+| **Safe startup** | Hold **Shift** while the app launches, or start it with `--safe-mode`. For that session nothing changes on its own: no layout restore, no automatic disconnects, no adaptive or scheduled brightness, no app presets and no group sync. Your settings stay untouched, and a banner lists what is held back. |
+| **Dock icon** | *Settings → Diagnostics → Behavior*: never, while Settings is open (the default), while any app window is open, or always. The menu-bar icon stays either way. |
+| **Settings window, build info** | Settings reopens on the last section and at the last size. *About* shows the build details and a **Copy Build Information** button. |
 
 ### Safety & recovery
 
 | Feature | What it does |
 |---|---|
 | **Reconnect All** | Available from the menu, a global hotkey (**⌃⌥⌘R** by default), Shortcuts, the URL scheme, HTTP and `opendisplay recover`. |
-| **Transactions & audit log** | Risky changes go through checkpoints, verification and rollback. Quitting the app reconnects every display it turned off. |
+| **Transactions & audit log** | Risky changes go through checkpoints, verification and rollback. Quitting the app reconnects every display it turned off, and keeps the record of any display that didn't come back. |
 | **Rescue app** | The standalone **OpenDisplay Rescue** restores the last known-safe arrangement, even when the main app can't run. |
 | **Diagnostics export** | Saves one zip to your Desktop with the app's records, macOS display configuration and recent display-related log lines. It is never sent anywhere. |
 
 If a display won't come back, see [Recovering a stranded display](Docs/Recovering-a-stranded-display.md).
 
+### Reliability
+
+Besides comparing features, the [BetterDisplay guide study](Docs/BetterDisplay-Guide/00-overview-and-backlog.md)
+checked FreeDisplay's own code and grouped what it found into 31 P0 clusters, mostly places where the
+app could act on the wrong display or report something it didn't know. Fixes for 30 of them are merged:
+
+- **DDC:** standby and power-off need confirmation, and every DDC result says confirmed, sent or
+  failed. A requested input isn't shown as current until the monitor reports it. When two monitors
+  can't be told apart, DDC refuses instead of guessing, and Apple displays get no generic DDC unless
+  you opt in per display.
+- **Identity and EDID:** identical monitors no longer silently share one record or borrow each
+  other's EDID; when they can't be told apart, the app says so.
+- **Recovery:** only a physical screen counts as the one that must stay on, so a virtual screen
+  can't stand in for it. A display that didn't reconnect when the app quit keeps its recovery record.
+- **Modes and colour:** the resolution slider keeps the current refresh rate, density and depth;
+  favourites keep exact modes; mirror restores use the exact source; colour-profile and gamma
+  failures are shown; an unknown HDR state stays unknown.
+- **Automation:** the CLI has strict options, real help and exit codes; HTTP brightness is labelled
+  as a cached value with its age; brightness events are broadcast even when the HUD is off; a
+  cleared shortcut stays cleared; the release script fails if signing or Gatekeeper checks fail.
+
+Still open: **FD-015**. The DDC reader still accepts some replies without a length and checksum
+check, because making it strict without hardware evidence could break monitors that work today.
+The gap is documented in the code and waits for the maintainer's decision. All of these are code
+fixes with unit tests; they haven't been checked on a wide range of real monitors.
+
 ## Gallery
 
 <table>
   <tr>
-    <td width="50%"><img src="Docs/images/freedisplay/arrange-en.png" alt="Arrange section: a display on the arrangement canvas and the Protected layout option"><br><sub><b>Arrange</b>: drag layout and protected layout</sub></td>
+    <td width="50%"><img src="Docs/images/freedisplay/menu-en.png" alt="Menu section: hidden-icon help with an Open Menu Panel button, displays in the menu with name, icon, Show in menu switch and order arrows, and sliders set to Visible or In More"><br><sub><b>Menu</b>: what the menu-bar panel shows, and in what order</sub></td>
+    <td width="50%"><img src="Docs/images/freedisplay/keyboard-en.png" alt="Keyboard section: shortcut recorder rows for Reconnect All, display, brightness and app actions, each with its registration status and Record Shortcut, remove and restore buttons"><br><sub><b>Keyboard</b>: shortcut recorder with registration status</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="Docs/images/freedisplay/arrange-en.png" alt="Arrange section: a display on the free-drag arrangement canvas with the menu-bar strip, instructions for snapping and changing the main display, and the Protected layout option"><br><sub><b>Arrange</b>: free-drag canvas and protected layout</sub></td>
+    <td width="50%"><img src="Docs/images/freedisplay/advanced-en.png" alt="EDID and HiDPI section: display picker, EDR headroom, the EDID of this display reported as not found for the built-in panel, EDID file import and HiDPI planning"><br><sub><b>EDID & HiDPI</b>: in-app EDID reader, read-only</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="Docs/images/freedisplay/automation-en.png" alt="Automation section: Shortcuts app actions with an Open Shortcuts button, and local HTTP control with Start Local Server, Stop and Copy Session Token buttons and the three endpoints"><br><sub><b>Automation</b>: Shortcuts and local HTTP</sub></td>
+    <td width="50%"><img src="Docs/images/freedisplay/about-en.png" alt="About section: version 0.11.5, local build note, upstream links, build information with a copy button, the Interface language picker and app settings backup, restore or reset"><br><sub><b>About</b>: build info, language, settings backup</sub></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="Docs/images/freedisplay/virtual-en.png" alt="Virtual Displays section: experimental opt-in toggle, name, size in pixels, refresh rate and HiDPI"><br><sub><b>Virtual displays</b> (experimental)</sub></td>
-  </tr>
-  <tr>
     <td width="50%"><img src="Docs/images/freedisplay/capture-en.png" alt="Screen Capture section: source picker, Start PIP, flip, rotation, crop and zoom, LUT loading"><br><sub><b>Screen capture & PiP</b> (experimental)</sub></td>
-    <td width="50%"><img src="Docs/images/freedisplay/advanced-en.png" alt="EDID and HiDPI section: HDR capabilities, export-only EDID tools and HiDPI mode planning"><br><sub><b>EDID & HiDPI</b>: export-only tools</sub></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="Docs/images/freedisplay/automation-en.png" alt="Automation section: local HTTP control with Start Local Server, Stop and Copy Session Token buttons and the three endpoints"><br><sub><b>Automation</b>: local HTTP control</sub></td>
-    <td width="50%"><img src="Docs/images/freedisplay/about-en.png" alt="About section: version 0.11.5, local build note, upstream links, licence and the Interface language picker"><br><sub><b>About</b>: local build and interface language</sub></td>
   </tr>
 </table>
 
@@ -172,24 +239,56 @@ If a display won't come back, see [Recovering a stranded display](Docs/Recoverin
 
 BetterDisplay is a mature commercial app with a free tier and a paid Pro tier. FreeDisplay is
 **not** a drop-in replacement. It covers the everyday core, and several large areas are still
-missing. The full, page-by-page study of the official guide, with code evidence and a prioritised
-backlog for every topic, lives in **[Docs/BetterDisplay-Guide/](Docs/BetterDisplay-Guide/)**:
-all 501 guide pages are covered, giving 392 backlog items (58 of them P0 fixes).
+missing. The page-by-page study of the official guide lives in
+**[Docs/BetterDisplay-Guide/](Docs/BetterDisplay-Guide/)**: all 501 guide pages, with code evidence
+for every topic. Its roadmap,
+**[00-overview-and-backlog.md](Docs/BetterDisplay-Guide/00-overview-and-backlog.md)**, merges the
+392 backlog items into 162 clusters: **31 P0 · 47 P1 · 62 P2 · 22 P3**. The status columns in that
+file describe the code as of 14 October 2026, before the work listed here.
+
+**Where the backlog stands on 15 October 2026:**
+
+- **P0 (fixes): 30 of 31 clusters fixed.** FD-015 (relaxed DDC checksum handling) is still open;
+  see [Reliability](#reliability).
+- **P1: work has landed for 22 of 47 clusters**, several of them only in part.
+  - *Wave 1, everyday display controls:* all 10 clusters (mode list and filters, adjustment steps,
+    arrangement canvas, colour profiles, software contrast and image-adjustment restore, menu
+    customisation, Default group). Partial: steps don't yet snap or follow scrolling, and physical
+    size can't be edited.
+  - *Wave 2, keyboard, audio and feedback:* 4 of 8 (shortcut recorder, notifications, Dock icon,
+    Shortcuts guidance). Missing: binding to audio devices, key target sets and listening options,
+    OSD placement.
+  - *Wave 3, identity, diagnostics and recovery:* 5 of 8 (remembered displays, information report,
+    EDID reader, settings backup, safe startup). Missing: moving settings between display
+    identities, measured refresh rate, luminance (nits) anchors.
+  - *Wave 4, shared automation:* 1 of 9 (Shortcuts display entity and actions, without a colour
+    profile action), plus menu, Settings and Quit shortcuts from another cluster. Missing: one typed
+    command model for CLI, URL and HTTP, a command console, outgoing actions, event hooks, unified
+    logging.
+  - *Wave 5:* 2 of 6 (Settings window memory, build information). *Wave 6* (FreeDisplay-owned
+    signed updates, recording guide, LG and Samsung TV control) hasn't started.
 
 | Area | FreeDisplay today |
 |---|---|
-| DDC/CI hardware controls (Apple Silicon) | ✔ Brightness, contrast, volume, input, presets, RGB gain, power, raw VCP |
-| Software dimming, colour temperature, media keys, OSD | ✔ |
-| Resolution and refresh picker, favourites, keep/revert | ✔ Only modes macOS already offers |
-| Layout protection, scenes, display groups | ✔ Groups sync brightness and contrast only |
+| DDC/CI hardware controls (Apple Silicon) | ✔ Brightness, contrast, volume, input, presets, RGB gain, power, raw VCP; results say confirmed, sent or failed |
+| Software dimming, colour temperature, software contrast, media keys, OSD | ✔ |
+| Resolution and refresh picker, favourites, keep/revert | ✔ Complete list with filters; only modes macOS already offers |
+| Arrangement, main display, layout protection, scenes | ✔ Free-drag canvas with snapping; no relative layout rules |
+| Display groups | Partial: learned-offset, absolute or delta brightness, optional contrast, Default group; one group per display, no directional sync rules |
+| Menu customisation | Partial: per-display visibility, order, name and icon, item placement; no detachable menu |
+| App settings: backup/import/reset, Dock icon, notifications, safe startup | ✔ |
+| EDID read, decode and export | ✔ In-app reader with CTA-861 and DisplayID decoding |
+| **EDID override installation** | ✘ Validate and export only |
 | **Flexible HiDPI scaling and custom resolutions** | ✘ The HiDPI planner exports a plan; it installs nothing |
 | **XDR / HDR extra brightness** | Partial: built-in XDR panel only (Labs); no third-party HDR displays, no nits calibration |
+| **Connection format (RGB/YCbCr, range, depth), timing, VRR, HDR switching** | ✘ |
 | **Streaming, PiP on another screen, video-filter windows, display-wide LUTs** | Partial: one floating SDR preview window |
 | **Network TV and AV-receiver control** (LG webOS, Samsung, Philips, Yamaha) | ✘ |
 | **HDMI-CEC, DisplayLink** | ✘ |
-| **EDID override installation** | ✘ Validate and export only |
 | Virtual screens | Partial: session-only, basic settings, no associations, no HDR |
-| Automation breadth | Partial: CLI, 5 Shortcuts actions, 3 HTTP endpoints, 1 URL command; no console or per-display event hooks |
+| Audio device association | Partial: matched by name; no native association |
+| Automation breadth | Partial: CLI with typed results, 5 Shortcuts actions, 3 HTTP endpoints (only while *Settings → Automation* is open), 1 URL command; no console, outgoing actions or per-display event hooks |
+| Signed releases and updates | ✘ Built from source only |
 | Intel Macs | ✘ Apple Silicon only |
 
 Where FreeDisplay takes a different path:
@@ -199,7 +298,8 @@ Where FreeDisplay takes a different path:
 - **Safety model.** Risky changes are transactions with verification and automatic rollback.
   Reconnect All is always one hotkey away, and a standalone rescue app is included.
 - **Honest results.** When a monitor ignores a DDC write, the UI says so instead of showing a value
-  the monitor isn't at.
+  the monitor isn't at. EDID reads, reports and the HTTP API say "unknown" or "ambiguous" rather
+  than guess.
 
 *The comparison reflects the public BetterDisplay guide as studied in October 2026. If something
 here is wrong or out of date, please open an issue.*
@@ -245,7 +345,9 @@ xcodebuild -project OpenDisplay.xcodeproj -scheme OpenDisplay -configuration Deb
   `OpenDisplay-PublicAPIOnly`. `make bundle-helper` copies the CLI into
   `OpenDisplay.app/Contents/Helpers`, where the Labs rotation helper expects it. It builds with the
   signing settings from `project.yml`.
-- The app lives in the menu bar and has no Dock icon. ⌥-click the menu-bar icon to open Settings.
+- The app lives in the menu bar. By default its Dock icon shows only while Settings is open
+  (change it in *Settings → Diagnostics → Behavior*). ⌥-click the menu-bar icon to open Settings,
+  and hold Shift while the app launches for a [safe startup](#app-settings).
 
 ### Tests
 
@@ -254,9 +356,9 @@ make test        # swift test --parallel
 ```
 
 This runs the platform-independent core (`DisplayDomain`, `SceneEngine`, `AutomationSchema`,
-`TopologyCore`): **727+ unit and state-machine tests**. The core is meant to build on Linux too
-(`make bootstrap` installs a Swift 6 toolchain there). There's no remote CI; the local test run
-is the gate.
+`TopologyCore`): **1,161 unit and state-machine tests**, all passing on 15 October 2026. The core
+is meant to build on Linux too (`make bootstrap` installs a Swift 6 toolchain there). There's no
+remote CI; the local test run is the gate.
 
 ### Public-API-only flavour
 
@@ -292,17 +394,27 @@ USAGE:
   opendisplay tag <selector> <tag>
   opendisplay disconnect <selector> [--dry-run] [--json]
   opendisplay reconnect <selector> [--json]
-  opendisplay recover [--json]
+  opendisplay recover [--json]                # reconnect every display OpenDisplay turned off
   opendisplay scene <list|save|show|plan|apply|delete> [name] [--json]
   opendisplay layout <protect|unprotect|status> [--json]
   opendisplay group <list|create|delete> [name] [--json]
   opendisplay group <add|remove> <name> <selector>
-  opendisplay brightness <selector> [0..1]
-  opendisplay ddc <selector> <brightness|contrast|volume|input|colour|sharpness|red|green|blue|mute|power|caps> [value]
+  opendisplay brightness <selector> [0..1] [--json]
+  opendisplay ddc <selector> <brightness|contrast|volume|input|colour|sharpness|red|green|blue|mute|power|caps> [value] [--json]
   opendisplay ddc <selector> reset                # restore the monitor's factory defaults (VCP 0x04)
   opendisplay ddc <selector> vcp <0xNN> [value]   # any raw MCCS feature code
   opendisplay edid <selector> [--out <path.bin>]
   opendisplay favorite <list|set|unset> <selector> [WxH[@Hz][@2x]]
+  opendisplay help | --help | -h
+
+Options are accepted only by the commands listed with them; any other option is an error, so
+for example `--dry-run` never silently performs a real write.
+
+RESULTS: a write is reported as `verified` only when reading the value back shows it; `sent`
+means the display accepted the write but nothing confirmed it took. Failures go to stderr.
+
+EXIT STATUS: 0 success (including nothing to do) · 1 failed · 2 usage error (nothing ran) ·
+3 partly done (some displays/fields applied, others failed or were skipped).
 
 SELECTORS: id:<recordID> · alias:<name> · tag:<tag> · group:<name> · main · builtin · state:<active|managedOffline> · <cgDisplayID>
 ```
@@ -326,15 +438,17 @@ shows, then click **Copy Session Token**:
 PORT=<port from the panel>
 TOKEN="$(pbpaste)"
 curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/v1/displays"
-# {"displays":[{"active":true,"brightness":0.8,"id":"…","name":"…"}]}
+# {"displays":[{"active":true,"brightness":0.8,"brightnessAgeSeconds":42.5,"brightnessCachedAt":"…",
+#   "brightnessSource":"appCache","id":"…","name":"…","physicalBrightnessVerified":false}]}
+# A display the app has no level for yet: "brightness":null,"brightnessSource":"unknown"
 
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
      -d '{"displayId":"<id from /v1/displays>","value":0.5}' \
      "http://127.0.0.1:$PORT/v1/brightness"
 ```
 
-A brightness response reports that the change was *requested*; it doesn't claim a verified
-hardware result. See [Docs/Local-HTTP-Control.md](Docs/Local-HTTP-Control.md) for the full
+A brightness response reports that the change was *requested* (`"physicalEffectVerified":false`);
+it doesn't claim a verified hardware result. See [Docs/Local-HTTP-Control.md](Docs/Local-HTTP-Control.md) for the full
 contract and threat model.
 
 **URL scheme:**
@@ -363,6 +477,7 @@ open "opendisplay://reconnect-all"
 - [Recovery model](Docs/Recovery/recovery.md) · [Recovering a stranded display](Docs/Recovering-a-stranded-display.md)
 - [Local HTTP control](Docs/Local-HTTP-Control.md) · [Advanced display tools (EDID/HiDPI)](Docs/ADVANCED-DISPLAY-TOOLS.md)
 - RFCs: [capture preview](Docs/RFCs/0010-opt-in-capture-preview.md) · [session virtual displays](Docs/RFCs/0042-session-virtual-displays.md)
+- [BetterDisplay guide study](Docs/BetterDisplay-Guide/) · [consolidated backlog and P1 waves](Docs/BetterDisplay-Guide/00-overview-and-backlog.md)
 - [Product requirements](Docs/PRD.md) · [Upstream changelog](CHANGELOG.md) (OpenDisplay history up to 0.11.5)
 
 </details>
@@ -389,7 +504,9 @@ and Russian. New user-visible strings need a Russian translation in the String C
   browser `Origin` requests and stops when you leave the Automation section. Any local process
   that obtains the token can change brightness or reconnect displays.
 - Permissions are requested only when you use the feature that needs them: Accessibility for the
-  media keys, Screen Recording for capture, Notifications for connect alerts.
+  media keys, Screen Recording for capture, Notifications for display notices.
+- Display reports and settings exports can contain hardware identifiers such as serial numbers and
+  display UUIDs. Check them before you share them.
 - Please report vulnerabilities **privately**. Use GitHub's private vulnerability reporting on
   this repository if it's enabled, or contact the maintainer
   [@garshany](https://github.com/garshany). Don't open a public issue. See also
