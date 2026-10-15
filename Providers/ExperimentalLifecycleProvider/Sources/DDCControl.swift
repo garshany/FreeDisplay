@@ -1,8 +1,10 @@
 #if os(macOS)
+import ColorSync
 import CoreGraphics
 import DisplayDomain
 import Foundation
 import IOKit
+import TopologyCore
 
 /// DDC/CI control of an external display over its private `IOAVService` I2C channel (Apple Silicon).
 /// VCP feature codes follow the DDC/CI + MCCS spec: 0x10 brightness, 0x12 contrast, 0x62 audio
@@ -242,9 +244,22 @@ public actor ExternalDisplayDDC {
             candidates.removeAll()
             IOIteratorReset(iterator)
         }
+        let online = externalDisplayIDs()
+        let observations = online.map { number in
+            let uuid: String?
+            if let value = CGDisplayCreateUUIDFromDisplayID(number)?.takeRetainedValue() {
+                uuid = CFUUIDCreateString(kCFAllocatorDefault, value) as String
+            } else { uuid = nil }
+            return DisplayObservation(recordID: uuid.map(DisplayRecordID.forCGUUID)
+                                        ?? DisplayRecordID(rawValue: "cgid:\(number)"),
+                                      cgDisplayID: number, cgUUID: uuid, isActive: CGDisplayIsActive(number) != 0,
+                                      generation: .initial)
+        }
+        let ledger = (try? ManagedOfflineStore.defaultDirectory()).map { ManagedOfflineStore(directory: $0).load() } ?? []
+        let offlineCount = DDCBindingPopulation.unobservedExternalCount(observations: observations, ledger: ledger)
         let index: Int
         switch DDCServiceMatcher.resolve(candidates, against: identity(of: displayID),
-                                         among: externalDisplayIDs().map(identity(of:))) {
+                                         among: online.map(identity(of:)), unobservedExternalCount: offlineCount) {
         case .matched(let found), .sole(let found): index = found
         case .refused(let reason):
             for kept in externals { IOObjectRelease(kept) }

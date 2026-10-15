@@ -126,7 +126,7 @@ extension AppModel {
         }
         #endif
         facts.gammaWriteError = gammaWriteFailures[id]
-        facts.gammaPausedForCustomProfile = !customProfileDisplays.isEmpty && !settings.allowGammaWithCustomProfiles
+        facts.gammaPausedForCustomProfile = gammaBlockedByCustomProfile(for: id)
         facts.colorProfileName = colorProfileName[id]
         if let screen {
             facts.edrHeadroom = Double(screen.maximumExtendedDynamicRangeColorComponentValue)
