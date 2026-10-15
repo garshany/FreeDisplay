@@ -346,6 +346,16 @@ final class SettingsArchiveTests: XCTestCase {
         XCTAssertEqual(try SettingsArchive.read(from: second).settings, .default)
     }
 
+    func testBackupsKeepEveryOlderAndSameTimestampArchive() throws {
+        let store = SettingsBackupStore(directory: directory)
+        let dates = [now.addingTimeInterval(-86_400), now, now, now.addingTimeInterval(86_400)]
+        let urls = try dates.map { try store.backUp(archive(), now: $0) }
+        XCTAssertEqual(Set(urls).count, dates.count)
+        for url in urls { XCTAssertEqual(try SettingsArchive.read(from: url), archive()) }
+        let retained = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        XCTAssertEqual(Set(retained.map(\.lastPathComponent)), Set(urls.map(\.lastPathComponent)))
+    }
+
     func testReplacementBacksUpCurrentStateAndCarriesLiveLedgers() throws {
         let store = SettingsBackupStore(directory: directory)
         let live = richSettings()
