@@ -55,10 +55,11 @@ safe to change. FreeDisplay builds on OpenDisplay 0.11.5 and adds:
   with absolute or delta brightness sync;
 - an in-app **EDID reader and decoder** (CTA-861, DisplayID), per-display information reports and
   a complete, filterable mode list; EDID and HiDPI files are validated and exported, never installed;
-- **Shortcuts actions** for a chosen display, a **keyboard shortcut recorder**, a CLI with honest
-  results and exit codes, and a **local HTTP API** bound to 127.0.0.1 and protected by a token;
+- nine **Shortcuts actions**, native key and CoreAudio controls, a **command console**, a CLI
+  that shares the running app’s state, and opt-in, token-protected **HTTP control**;
 - **settings backup, import and reset**, a **safe startup** (hold Shift at launch) and a list of
-  remembered displays you can forget or reset;
+  remembered identities with explicit settings transfer and manual DDC channel pairing through
+  a user-run test;
 - **virtual displays** for the current session (experimental);
 - **screen capture with a picture-in-picture preview** (experimental);
 - a full **Russian translation** with an in-app language switch;
@@ -89,7 +90,7 @@ APIs and is left out of the [public-API-only flavour](#public-api-only-flavour).
 | **Software dimming, colour temperature, contrast** | Dims any display with gamma, a black overlay or both, including displays without DDC; by design it never goes fully black. Each display also gets colour temperature and **software contrast**: a tone curve in that display's colour table, not the monitor's own contrast. Dimming, temperature, contrast and the XDR boost are worked into one colour table. *Suspend* bypasses temperature and contrast without losing their values; *Reset* returns them and dimming to neutral. These adjustments last until you quit. A custom ICC profile pauses gamma-based adjustments unless you allow them. | Core |
 | **Black Out** | Makes a display fully black with a click-through overlay. Offered only while another display stays lit. | Core |
 | **XDR Brightness** | Pushes SDR content on a built-in XDR panel up to 2× its normal maximum using EDR headroom. Never survives quit or a crash. You can have it switch off on battery or in Low Power Mode. | Labs |
-| **Adaptive & scheduled brightness** | Follows the built-in display or the ambient light sensor. *Clock Mode* schedules brightness by fixed times or by sunrise, solar noon or sunset with offsets. *Location Mode* follows the sun's elevation. There's also evening warmth that follows Night Shift, and per-app presets. | Core · full build; *Adaptive display* and *App Presets* are Labs |
+| **Adaptive & scheduled brightness** | Follows the built-in display or ambient light sensor, with evening warmth and per-app presets. **Clock Mode** adds independent recipes for explicitly selected displays: fixed or solar times, transitions, time zone, brightness method, Apply Now and an explicit brightness-only Restore. Wake can apply the current interval or pause until Resume; manual app changes hold until the next point. Competing group sync or app presets block a recipe with a reason. [Clock Mode](Docs/Clock-Mode.md). | Core; private sensor/native/DDC routes need the full build; *Adaptive display* and *App Presets* are Labs |
 | **Display groups** | One slider or brightness key moves several displays together, in one of three modes: *learned offsets* (each display keeps the offset you taught it), *absolute* (every display takes the same percentage) or *delta* (every display moves by the same amount). Contrast sync is optional. The **Default group**, off by default, gives every connected display that isn't in a named group basic brightness sync. Hold **Shift** while dragging a brightness slider to change only that display. | Core |
 | **FaceLight** | One press turns a display into a bright fill light for video calls. Press again to restore the previous settings. | Core |
 
@@ -119,7 +120,9 @@ APIs and is left out of the [public-API-only flavour](#public-api-only-flavour).
 | **Displays in the menu** | *Settings → Menu* shows or hides each display in the menu-bar panel, renames it, gives it an SF Symbols icon and sets the order (or keeps an automatic order, optionally with the main display first). A display the app turned off, or a blacked-out one, always stays in the menu. | Core |
 | **Menu contents** | Every slider and display feature can be *Visible*, *In More* or *Hidden*, and each tool can be shown or hidden. Open sections can be remembered, and *Reset Menu Layout* puts everything back. | Core |
 | **Hidden icon recovery** | If macOS hides the menu-bar icon (behind the camera notch, or switched off in System Settings), opening the app again brings up Settings, and **Open Menu Panel** shows the panel without the icon. | Core |
-| **Remembered displays** | *Settings → Displays → Remembered* lists every display the app keeps a record of. *Forget* (for a display that isn't connected) and *Reset Settings* (for a connected one) show exactly what will be removed and ask for confirmation. Forgetting is refused while the app may still need a display's record to bring it back. | Core |
+| **Remembered displays** | *Settings → Displays → Remembered* shows saved identities, dates and recognition evidence, including conflicts and earlier identifiers. Automatic, strict UUID and qualified vendor/model/serial strategies are available; ambiguous identity never borrows another display’s settings. Optional retention is off until you set a duration; recovery records are protected. Forget/Reset preview their scope. | Core |
+| **Settings transfer & migration** | Preview selected categories before replacing a connected display’s settings and forgetting the offline source, including its unselected preferences. Migration fills missing values from earlier IDs; conflicting sources require a choice. Stale previews refuse. Failed saves attempt rollback and retain a recovery snapshot; this is not crash-atomic storage. Physical consents and authored rules are not silently retargeted. | Core · partial strategy/portability coverage |
+| **Manual DDC channel pairing** | For indistinguishable monitors, choose a channel, enter a test brightness and duration, run the flash/restore, acknowledge the observed screen and confirm separately. Changed route evidence revokes the mapping; retest after cable swaps. A sent restore is not physical proof. | Core · full build; hardware unverified |
 
 ### Virtual displays · Experimental
 
@@ -148,34 +151,55 @@ Recording permission the first time you load sources.
   bytes as `.bin`, or an Apple display-override plist when the strict check passes. Imported EDID
   files are decoded the same way.
 - *Settings → Displays → Information → Show Report…* builds a report for one display (identity,
-  modes, capabilities, connection, EDID) that you can copy or save as UTF-8 text. Unknown values
-  stay unknown.
+  modes, capabilities, connection, EDID), also available as saved-only facts for offline records.
+  Preview, Copy and UTF-8 export share identifier-redaction options; hiding serials or UUIDs omits
+  EDID sections. Unknown values stay unknown.
 - Plan HiDPI sizes and export a JSON plan that includes the restore steps, read each display's
   current and potential EDR headroom, or dump an EDID with `opendisplay edid <selector> --out edid.bin`.
 
 FreeDisplay **never installs** overrides or system configuration. Applying an exported file is up
 to you, and at your own risk.
 
+### Refresh timing & luminance
+
+| Feature | What it does | Status |
+|---|---|---|
+| **Refresh timing measurement** | Start/Stop measures OS display-link callback cadence for the selected display. Nominal refresh, the reported fixed/variable range and measured timing stay separate. A mode change restarts a running measurement. This does not measure physical panel or cable timing. | Core |
+| **Luminance anchors** | Keeps EDID-reported and manually entered SDR/HDR anchors with their provenance. Overrides can be disabled without losing values or cleared. With usable SDR anchors, nits are a labelled linear estimate; unknown values stay unknown. No panel calibration, HDR enablement or nits-based group sync. | Core · partial luminance support |
+
 ### Automation
 
 | Surface | What it does |
 |---|---|
-| **CLI `opendisplay`** | Covers display lists, brightness, DDC (including raw VCP), scenes, layout protection, groups, favourites, EDID, ambient light (`lux`), lid state, diagnostics and recovery. `listen` streams events as JSON lines. A write is reported as `verified` only when a read-back matches, otherwise as `sent`. Exit codes: 0 success, 1 failure, 2 usage error (nothing ran), 3 partly done. Unknown options are errors, never ignored. |
-| **URL scheme** | `opendisplay://reconnect-all` runs immediately. A `disconnect` link is refused with a visible explanation: links never change displays. |
-| **Shortcuts & Siri** | Actions with a display picker: *Get* and *Set Display Brightness* (0–100 %, the result says whether the display confirmed the level), *Set Display Mode* (the display's exact modes; the change is kept or reverted like one made in the menu), *Set Main Display*, plus *Reconnect All Displays*. A saved display that isn't connected is reported, never swapped for another one. Results are typed, so a shortcut can branch on them. *Settings → Automation* opens the Shortcuts app. |
-| **Local HTTP API** | Listens only on 127.0.0.1, on a random port, with a new 256-bit bearer token each session. Endpoints: `GET /v1/displays`, `POST /v1/brightness`, `POST /v1/reconnect-all`. The display list gives the app's last known brightness with its age, or `null` when it isn't known. The server runs only while *Settings → Automation* is open. |
-| **Media keys & OSD** | The brightness keys control the chosen display, in hardware or software. The volume keys are taken over only for a monitor whose DDC volume has been read back; otherwise macOS keeps them. Mute uses the monitor's own mute when it has one, and is labelled as volume 0 when it doesn't. The on-screen HUD has several styles, and every brightness or volume change can be broadcast to external HUD apps. Needs Accessibility permission. |
-| **Keyboard shortcuts** | *Settings → Keyboard* records a global shortcut for each action: Reconnect All, making the next display main, FaceLight, brightness up and down (normal and fine steps), showing the menu, opening Settings and quitting. Each row says whether macOS registered the shortcut or why not (another action uses it, macOS refused it). Shortcuts can be removed or restored to their defaults. The same page sets the adjustment steps shared by the brightness and volume keys and the shortcuts. Input hotkeys (⌃⌥⌘-digit) switch a monitor to a chosen input, which is handy with a KVM. |
-| **Notifications** | Notices about displays connecting and disconnecting, the built-in panel turning off automatically, layout protection and failures. In *Settings → Diagnostics → Behavior* choose Notification Center, a FreeDisplay window or off, mute routine protection notices, and see what macOS currently allows. |
+| **Shared command model** | CLI, app, console, HTTP, URL and App Intents use shared selectors, units, capabilities, validation and outcomes for admitted commands. Each surface has its own allowed commands. Hardware-only brightness refuses a software-only route; accepted, read-back and physical effects remain distinct. [Command model](Docs/Automation-command-model.md). |
+| **CLI `opendisplay` & app IPC** | Typed commands use the running app’s live state through a same-user Unix socket. With the app off and the endpoint unavailable before sending, they use standalone providers and the persisted recovery ledger. Failed/uncertain IPC never retries standalone. Software brightness, atomic offsets, mode/main changes and ICC require the app. JSON objects expose `servedBy: app` or `standalone`; **`list --json` remains the legacy array**, without a wrapper. Unbridged legacy mutations refuse while the app runs; reads remain available. Exit codes stay 0/1/2/3. [Transport rules](Docs/Integration-transports.md). |
+| **URL scheme** | `opendisplay://reconnect-all` runs recovery immediately. Other display mutations, including `disconnect`, are refused with an explanation. |
+| **Shortcuts & Siri** | Nine App Intents: *Get/Set Display Brightness*, *Get/Set Display Mode*, *Get/Set/Reset Display Color Profile*, *Set Main Display* and *Reconnect All Displays*. Display selection and results are typed; a missing saved display never redirects. Set Brightness without a display targets the built-in panel. Mode/main changes use keep/revert; only **Set Display Mode** offers **Without confirmation**, **off by default**. Public-only builds support software brightness and public mode/ICC controls. *Settings → Automation* lists the actions and opens Shortcuts; installed action discovery still needs runtime acceptance. |
+| **App-owned HTTP API** | Opt-in in *Settings → Automation*, off on a new install, loopback by default; it keeps running after Settings closes. The bearer token persists in Keychain and the selected port is reused (a blank port asks the OS once). Disable stops access; explicit token replacement revokes the saved credential. Separate remote access requires a warning confirmation; HTTP has no built-in TLS. Adds `GET /v1/commands` and `POST /v1/command` to the legacy display/brightness/recovery routes. Cached brightness has provenance/age or is unknown. |
+| **Command console** | *Tools → Show Console…* runs shared named commands directly in the app, independently of HTTP. Quoting, history, draft restoration, help and separate output/log panes are supported; input never invokes a shell. Clear preserves history; exit closes the console. History/output/log capacities are configurable, with no default bound. [Console and diagnostics](Docs/Console-and-diagnostics.md). |
+| **Structured actions, hooks & feeds** | *Settings → Actions & Hooks* defines typed commands, executable/script arguments, HTTP, app URLs and distributed notifications, with previews and parsed readback. New controllers, controls, hooks and polling start disabled; archive import pauses them. Seven lifecycle phases distinguish attempted disconnect from observed loss, sleep and wake. Caller-configured budgets/cadence and per-control queues apply. Feeds update state without a setter. There is no startup replay or automatic rollback of external effects. [Actions and hooks](Docs/Automation-actions-and-hooks.md). |
+| **Native keys & audio** | Opt-in Accessibility capture has separate brightness/audio switches, conditions for taking over audio keys, F14/F15 mapping, fine steps, exclusions and native fallback. Targets include pointer, focused window and all eligible displays, with mirror expansion and endpoint deduplication; pointer/focus without a target never choose an unrelated screen. CoreAudio association uses actual names/UIDs and separate volume/mute capabilities, without changing the system playback output. DDC volume is probed at launch/connect; unqualified controls leave keys to macOS. Group audio sync and fullscreen-stream target integration remain absent. |
+| **OSD & external feedback** | App-drawn styles, optional interactive slider, independent basic/custom feedback and per-display volume visibility. Choose affected/pointer/focus/primary screen and corner/menu-bar/icon placement. Opt-in receiver get/claim/release can restore prior preferences. Broadcasts work with the local HUD off; group followers publish `source=groupSync` without follower HUDs. Events distinguish requested/software-applied/read-back state; they do not acknowledge receiver delivery. Private system OSD styles and calibrated nits are absent. |
+| **Keyboard shortcuts** | One recorder/registry exposes conflicts and registration failures, shared adjustment steps, recovery/display/input actions, brightness, software contrast/warmth/reset/suspend, CoreAudio volume/mute/unmute, menu, console, Settings, Quit and Restart. New action families start unbound. **⌃⌥⌘R** is reserved while recovery is enabled; recording pauses native dispatch. Carbon shortcuts need no Accessibility permission. Gamma exponent/inversion, HDR/upscaling, Night Shift/True Tone and keyboard-backlight actions remain unavailable. |
+| **Notifications** | *Settings → Application* selects Notification Center, a FreeDisplay window or off, with separate routine-protection filtering and visible OS permission state. Notification preferences do not disable recovery or error handling. |
+
+### Network TV control · partial
+
+| Feature | What it does | Status |
+|---|---|---|
+| **LG webOS & Samsung TV** | Per-display manual pairing/reconnect, Keychain credentials, explicit endpoints and relative volume/mute/power-off. LG uses reported input IDs; Samsung source/HDMI actions are remote keys, not observed input state. Optional discovery gives untrusted address hints. TLS uses system trust or an explicitly verified per-device certificate fingerprint. Control is available in the app card/console, not CLI, HTTP, URL, Intents or hooks. | Core · partial; hardware unverified |
+| **Wake-on-LAN** | Independent explicit MAC/destination/UDP configuration sends a wake request without requiring a paired session. Sent does not mean the TV woke. No independent wake probe, automatic sleep/wake power policy, delayed/repeated wake, native volume-key routing, signed/full LG manifest, absolute volume/picture controls or complete remote keypad. Philips, Yamaha and HDMI-CEC are absent. [TV guide](Docs/TV-control.md). | Core · partial; hardware unverified |
 
 ### App settings
 
 | Feature | What it does |
 |---|---|
-| **Backup, import, reset** | *Settings → About → App settings → Manage…* exports preferences, display names, favourites, groups, app presets, protected layouts, shortcuts and scenes to a JSON file. Importing checks the file and shows a summary, including displays this Mac doesn't know. Import and reset to defaults back up the current settings first and then relaunch the app. |
-| **Safe startup** | Hold **Shift** while the app launches, or start it with `--safe-mode`. For that session nothing changes on its own: no layout restore, no automatic disconnects, no adaptive or scheduled brightness, no app presets and no group sync. Your settings stay untouched, and a banner lists what is held back. |
-| **Dock icon** | *Settings → Diagnostics → Behavior*: never, while Settings is open (the default), while any app window is open, or always. The menu-bar icon stays either way. |
-| **Settings window, build info** | Settings reopens on the last section and at the last size. *About* shows the build details and a **Copy Build Information** button. |
+| **Backup, import, reset** | *Settings → Application* exports preferences, menu layout, luminance anchors, Clock recipes, names, favourites, groups, presets, layouts, shortcuts, scenes and integration definitions. Import previews unmatched IDs without guessing replacements, backs up the destination and pauses imported integrations. Reset also backs up first; all backups are retained. HTTP/TV configuration, secrets, recovery debts and machine-local window/console state are outside portable archives. Review unmatched displays through explicit transfer/migration after relaunch. |
+| **Safe startup** | Hold **Shift** at launch or use `--safe-mode`. Saved configuration stays intact while automatic layout/offline/built-in-off rules, adaptive/Clock/preset/group brightness, XDR power changes, keep-awake, retention, actions/hooks/polls and TV I/O are suppressed. HTTP stays paused for the session, including manual enable attempts. Explicit admitted commands and safety recovery remain available; crash mode/rotation rollback and last-screen protection still run. |
+| **Dock icon** | *Settings → Application*: never, while Settings is open (default), while any app window is open, or always. Changing it does not restart capture; closing Settings keeps app-owned services alive. |
+| **Keep displays awake** | Global external-display and per-display requests share one owned idle-display-sleep assertion. Only active verified physical screens hold it; the last owner leaving releases it. Unverified/virtual/headless screens cannot hold it. It does not prevent system, lid or manual sleep, and never removes another app’s assertions. |
+| **Preferences & timing** | Application groups login/startup, window placement, motion, notifications and privacy. Settings remembers section, size and position with a reachable-screen fallback. Configuration/wake delays and animation duration distinguish automatic, explicit zero and invalid input; Reduce Motion disables animation. |
+| **About & attribution** | Both About surfaces share selectable version/build/channel, copyable build information, FreeDisplay source/support/privacy/license links and separate aquitaine/OpenDisplay attribution. [Help](Docs/FreeDisplay-Help.md) and [operations/privacy](Docs/FreeDisplay-Operations.md) describe current scope. |
 
 ### Safety & recovery
 
@@ -184,7 +208,7 @@ to you, and at your own risk.
 | **Reconnect All** | Available from the menu, a global hotkey (**⌃⌥⌘R** by default), Shortcuts, the URL scheme, HTTP and `opendisplay recover`. |
 | **Transactions & audit log** | Risky changes go through checkpoints, verification and rollback. Quitting the app reconnects every display it turned off, and keeps the record of any display that didn't come back. |
 | **Rescue app** | The standalone **FreeDisplay Rescue** restores the last known-safe arrangement, even when the main app can't run. |
-| **Diagnostics export** | Saves one zip to your Desktop with the app's records, macOS display configuration and recent display-related log lines. It is never sent anywhere. |
+| **Diagnostics export** | Explicit local ZIP export includes app records, display configuration and recent logs, with a shared redaction policy for reports, settings and staged artifacts. Serial/UUID/registry removal defaults on; recognized credentials are always removed, opaque/unreadable material is omitted with a manifest. Sources stay untouched and nothing is uploaded. Redaction is not anonymization: review every file and omission report before sharing. |
 
 If a display won't come back, see [Recovering a stranded display](Docs/Recovering-a-stranded-display.md).
 
@@ -248,48 +272,40 @@ file describe the code as of 14 October 2026, before the work listed here.
 
 **Where the backlog stands on 15 October 2026:**
 
-- **P0 (fixes): 30 of 31 clusters fixed.** FD-015 (relaxed DDC checksum handling) is still open;
-  see [Reliability](#reliability).
-- **P1: work has landed for 22 of 47 clusters**, several of them only in part.
-  - *Wave 1, everyday display controls:* all 10 clusters (mode list and filters, adjustment steps,
-    arrangement canvas, colour profiles, software contrast and image-adjustment restore, menu
-    customisation, Default group). Partial: steps don't yet snap or follow scrolling, and physical
-    size can't be edited.
-  - *Wave 2, keyboard, audio and feedback:* 4 of 8 (shortcut recorder, notifications, Dock icon,
-    Shortcuts guidance). Missing: binding to audio devices, key target sets and listening options,
-    OSD placement.
-  - *Wave 3, identity, diagnostics and recovery:* 5 of 8 (remembered displays, information report,
-    EDID reader, settings backup, safe startup). Missing: moving settings between display
-    identities, measured refresh rate, luminance (nits) anchors.
-  - *Wave 4, shared automation:* 1 of 9 (Shortcuts display entity and actions, without a colour
-    profile action), plus menu, Settings and Quit shortcuts from another cluster. Missing: one typed
-    command model for CLI, URL and HTTP, a command console, outgoing actions, event hooks, unified
-    logging.
-  - *Wave 5:* 2 of 6 (Settings window memory, build information). *Wave 6* (FreeDisplay-owned
-    signed updates, recording guide, LG and Samsung TV control) hasn't started.
+- **P0:** 30 of 31 clusters fixed; FD-015 (relaxed DDC checksum handling) remains open. See [Reliability](#reliability).
+- **P1 waves 2–6 are integrated**, including their review fixes. This means implemented software paths and original guides, not complete guide parity or hardware certification. The roadmap’s older status cells are not a current completion count.
+- **Wave 2:** native keyboard/CoreAudio targeting, capture policies, OSD placement/receiver handshake, shortcut recording, notifications, Dock and nine-action Shortcuts guidance. Partial: private system OSD, fullscreen-stream target integration, audio-group sync and richer DDC mute/relative-only controllers.
+- **Wave 3:** explained remembered identities, previewed transfer/migration and manual DDC test pairing, refresh callback measurement, sourced luminance anchors, redacted reports, EDID inspection, settings archives and safe startup. Partial: the full identity strategy catalog, automatic cross-Mac remapping and crash-atomic multi-store recovery. Nits estimates are not calibration.
+- **Wave 4:** shared typed commands, app IPC, nine App Intents, console, structured actions/hooks/feeds, unified diagnostic redaction and public image/CoreAudio/app shortcuts. Surface admission and app-off restrictions remain explicit; console/log capacities have no default bound. Unqualified system/HDR action families remain absent.
+- **Wave 5:** app-owned opt-in HTTP, per-display Clock recipes, owned keep-awake, app preferences/timing, About attribution and help. Numeric timing parity defaults/maxima remain partial; remote HTTP needs separate transport protection.
+- **Wave 6:** update lifecycle/release preparation and recording/Stream Deck guides exist; distribution acceptance is still pending. LG/Samsung manual network control and WOL are partial. Four native Stream Deck recipe actions work in code; PC/Mac Input still depend on P2 FD-089.
 
 | Area | FreeDisplay today |
 |---|---|
-| DDC/CI hardware controls (Apple Silicon) | ✔ Brightness, contrast, volume, input, presets, RGB gain, power, raw VCP; results say confirmed, sent or failed |
-| Software dimming, colour temperature, software contrast, media keys, OSD | ✔ |
-| Resolution and refresh picker, favourites, keep/revert | ✔ Complete list with filters; only modes macOS already offers |
-| Arrangement, main display, layout protection, scenes | ✔ Free-drag canvas with snapping; no relative layout rules |
-| Display groups | Partial: learned-offset, absolute or delta brightness, optional contrast, Default group; one group per display, no directional sync rules |
-| Menu customisation | Partial: per-display visibility, order, name and icon, item placement; no detachable menu |
-| App settings: backup/import/reset, Dock icon, notifications, safe startup | ✔ |
-| EDID read, decode and export | ✔ In-app reader with CTA-861 and DisplayID decoding |
-| **EDID override installation** | ✘ Validate and export only |
-| **Flexible HiDPI scaling and custom resolutions** | ✘ The HiDPI planner exports a plan; it installs nothing |
-| **XDR / HDR extra brightness** | Partial: built-in XDR panel only (Labs); no third-party HDR displays, no nits calibration |
-| **Connection format (RGB/YCbCr, range, depth), timing, VRR, HDR switching** | ✘ |
-| **Streaming, PiP on another screen, video-filter windows, display-wide LUTs** | Partial: one floating SDR preview window |
-| **Network TV and AV-receiver control** (LG webOS, Samsung, Philips, Yamaha) | ✘ |
-| **HDMI-CEC, DisplayLink** | ✘ |
-| Virtual screens | Partial: session-only, basic settings, no associations, no HDR |
-| Audio device association | Partial: matched by name; no native association |
-| Automation breadth | Partial: CLI with typed results, 5 Shortcuts actions, 3 HTTP endpoints (only while *Settings → Automation* is open), 1 URL command; no console, outgoing actions or per-display event hooks |
+| DDC/CI hardware controls (Apple Silicon) | ✔ Brightness, contrast, volume, input, presets, RGB gain, power, raw VCP; readback and transport outcomes remain distinct |
+| Software dimming, colour temperature and contrast | ✔ Per-display controls and public image shortcuts; gamma/ICC guards apply |
+| Native keys, CoreAudio and OSD | Partial: UID/name association, pointer/focus/all targeting, capture policies and app-drawn OSD/receiver handshake; no group audio or fullscreen-stream target owner |
+| Resolution/refresh picker, favourites, keep/revert | ✔ Offered exact modes, filters and OS callback timing measurement; no physical-link measurement |
+| Arrangement, main display, layout protection, scenes | ✔ Canvas and keep/revert, including mirroring; relative layout rules remain P2 |
+| Display groups | Partial: brightness/optional contrast and Default group; overlapping/directional/audio/nits sync remain P2 |
+| Menu customisation | Partial: visibility/order/name/icon/item placement; detachable menu remains P2 |
+| Remembered identities and settings | Partial: explanations, safe strategies, transfer/migration, test pairing and archives; no guessed cross-Mac remapping or crash-atomic store transaction |
+| Safe startup, Dock, notifications, app preferences and keep-awake | ✔ Implemented public policy paths; timing/default-capacity parity and device acceptance remain separate |
+| EDID read, decode, report and export | ✔ CTA-861/DisplayID, original bytes and redacted reports; override installation remains P2, EEPROM writing P3 |
+| **Flexible HiDPI and custom resolutions** | ✘ Export-only plans; installers and generated ranges remain P2 |
+| **XDR / HDR extra brightness and luminance** | Partial: built-in XDR Labs and sourced SDR/HDR anchors/SDR nits estimates; calibrated/external upscaling and nits sync remain P2 |
+| **Link format, connection timing, VRR and HDR switching** | ✘ P2; software callback timing is a separate implemented reporter |
+| **Streaming, multiple PiP, effects and persistent virtual screens** | Partial: session virtual screens and one SDR preview, with an external-recording guide; full workflows remain P2 |
+| **Network TV and AV-receiver control** | Partial: manual LG/Samsung, relative keys/inputs/power-off and WOL; no automatic power/native volume keys/absolute picture controls/wake verification. Philips remains P2, Yamaha/service tools P3 |
+| **HDMI-CEC and DisplayLink-specific control** | ✘ P2 |
+| Automation | Partial breadth: shared engine, app IPC/standalone routes, nine Intents, durable HTTP, console, actions/hooks/feeds and per-display Clock recipes. URL remains recovery-only; broader lifecycle/input/effect adapters remain P2 |
 | Signed releases and updates | ✘ Built from source only |
 | Intel Macs | ✘ Apple Silicon only |
+
+P3 also retains model-specific/expert adaptations, system/NVRAM reset, additional release channels
+and optional extensions. Follow the [consolidated backlog](Docs/BetterDisplay-Guide/00-overview-and-backlog.md)
+for IDs and dependencies. Builds and fake/unit tests do not establish real keyboard/TCC, installed
+Shortcuts, socket/Keychain/LAN, TV, display/audio, sleep/wake, recorder or release acceptance.
 
 Where FreeDisplay takes a different path:
 
@@ -314,7 +330,7 @@ here is wrong or out of date, please open an issue.*
   preferred list that the app supports (English or Russian) and falls back to English if neither
   is there. You can also set a per-app language in *System Settings → General → Language & Region →
   Applications*.
-- To pin a language inside the app, open *Settings → About → Language → Interface language* and
+- To pin a language inside the app, open *Settings → Application → Interface language* and
   choose **System**, **English** or **Русский**. Click **Relaunch** to apply.
 - The strings live in Xcode String Catalogs (`Apps/OpenDisplay/Resources/*.xcstrings`), with
   English as the source language. CLI output and JSON/HTTP field names stay in English, so scripts
@@ -356,7 +372,7 @@ make test        # swift test --parallel
 ```
 
 This runs the platform-independent core (`DisplayDomain`, `SceneEngine`, `AutomationSchema`,
-`TopologyCore`): **1,254 unit and state-machine tests**, all passing on 15 October 2026, after a codex review of the whole fork diff and two follow-up fix rounds. The core
+`TopologyCore`): **2,015 unit and state-machine tests**, all passing on 15 October 2026, after a Codex review of the whole P1 diff and a follow-up fix round. The core
 is meant to build on Linux too (`make bootstrap` installs a Swift 6 toolchain there). There's no
 remote CI; the local test run is the gate.
 
@@ -364,8 +380,9 @@ remote CI; the local test run is the gate.
 
 `OpenDisplay-PublicAPIOnly` builds the same sources with `PUBLIC_API_ONLY` defined and without the
 private-API providers. That removes DDC, built-in brightness, logical disconnect, rotation,
-ambient-light and Night Shift readings, Clock Mode and virtual displays. Modes, arrangement,
-scenes, software dimming, colour profiles, capture and the EDID tools remain. Use it to audit the
+ambient-light and Night Shift readings, and virtual displays. Modes, arrangement,
+scenes, software dimming, colour profiles, capture and the EDID tools remain, as do software-brightness
+Clock recipes, CoreAudio controls and public-network TV adapters. Use it to audit the
 app or where private APIs aren't acceptable.
 
 ### Releases and updates
@@ -381,7 +398,7 @@ The upstream Homebrew cask and upstream releases install **OpenDisplay**, not Fr
 <summary><b>CLI usage</b> (<code>opendisplay help</code>)</summary>
 
 ```text
-opendisplay — OpenDisplay automation CLI
+opendisplay — FreeDisplay automation CLI
 
 USAGE:
   opendisplay list [--json]
@@ -399,7 +416,22 @@ USAGE:
   opendisplay layout <protect|unprotect|status> [--json]
   opendisplay group <list|create|delete> [name] [--json]
   opendisplay group <add|remove> <name> <selector>
-  opendisplay brightness <selector> [0..1] [--json]
+  opendisplay brightness <selector> [0..1|N%] [--method automatic|hardware|native|ddc|software] [--json]
+  opendisplay brightness <selector> --offset <delta>  # atomic in the running app
+  opendisplay mode <selector> [--json]       # exact available modes, current first
+  opendisplay capabilities <selector> [--json]
+  opendisplay commands [--json]             # typed command catalog
+  opendisplay ready [--json]
+  opendisplay contrast <selector> [0..1|N%] [--json]  # managed hardware contrast
+  opendisplay main <selector> [--json]
+  opendisplay profile <selector> [profile] [--json]
+  opendisplay profiles [--json]
+  opendisplay command <name> [parameter=value ...] [--json] [--dry-run]
+
+Shared-model commands use the running FreeDisplay app, or standalone providers when it is off.
+--timeout <seconds> is optional for IPC; without it no client deadline is imposed. Losing a
+response never retries standalone. Legacy reads work while the app runs; legacy mutations
+require it to be off. No command launches the app automatically.
   opendisplay ddc <selector> <brightness|contrast|volume|input|colour|sharpness|red|green|blue|mute|power|caps> [value] [--json]
   opendisplay ddc <selector> reset                # restore the monitor's factory defaults (VCP 0x04)
   opendisplay ddc <selector> vcp <0xNN> [value]   # any raw MCCS feature code
@@ -410,29 +442,48 @@ USAGE:
 Options are accepted only by the commands listed with them; any other option is an error, so
 for example `--dry-run` never silently performs a real write.
 
+DIAGNOSTICS: --log-output off|stdout|stderr (default off); -v = stdout, -v2e = stderr.
+stdout diagnostics are refused with --json or listen. Use stderr for machine-readable results.
+
 RESULTS: a write is reported as `verified` only when reading the value back shows it; `sent`
 means the display accepted the write but nothing confirmed it took. Failures go to stderr.
 
 EXIT STATUS: 0 success (including nothing to do) · 1 failed · 2 usage error (nothing ran) ·
 3 partly done (some displays/fields applied, others failed or were skipped).
 
+lux/lid exit non-zero when the sensor/state is unavailable. listen streams line-delimited JSON
+(one event per line) until Ctrl-C; see Tools/opendisplay/README.md for the event schema.
+
 SELECTORS: id:<recordID> · alias:<name> · tag:<tag> · group:<name> · main · builtin · state:<active|managedOffline> · <cgDisplayID>
+
+group:<name> matches every member of a display group. `brightness group:desk 0.6` sets the
+group's base level and each member follows it at its own learned offset.
 ```
 
 </details>
 
 ```sh
-opendisplay list                          # displays, IDs and states
-opendisplay alias 3 desk                  # name display 3 (CG display ID) "desk"
-opendisplay brightness alias:desk 0.6     # 0…1, over DDC (or the built-in panel's own brightness)
-opendisplay ddc alias:desk contrast 70    # raw DDC value
-opendisplay ddc alias:desk vcp 0x60       # read any MCCS feature (here: input source)
-opendisplay scene save Work               # later: opendisplay scene apply Work
+opendisplay list --json                   # legacy array, on both execution paths
+opendisplay command listDisplays --json   # typed result, with servedBy: app|standalone
+opendisplay ready --json                  # app readiness; false/exit 1 when it is off
+opendisplay brightness id:RECORD '60%' --json
+opendisplay brightness id:RECORD --offset '+5%' --json  # running app required
+opendisplay contrast id:RECORD '70%' --json  # normalized hardware contrast
+opendisplay mode id:RECORD --json          # available modes; mode changes require the app
+opendisplay ddc id:RECORD vcp 0x60         # raw MCCS read (here: input source)
+opendisplay recover --json                # app ledger via IPC, or persisted ledger standalone
 opendisplay listen                        # JSON events, one per line, until Ctrl-C
 ```
 
-**Local HTTP API.** Open *Settings → Automation*, click **Start Local Server**, note the port it
-shows, then click **Copy Session Token**:
+Replace `RECORD` with a record ID from discovery. Shared-model command-result JSON objects add `servedBy`;
+`list --json` keeps its legacy array and fields, with no provenance wrapper. Use
+`command listDisplays --json` for the typed discovery result. Raw DDC writes, alias/tag edits,
+scene mutations and other unbridged legacy writes require the app to be off. See the
+[execution table](Tools/opendisplay/README.md#execution-table) for each form.
+
+**Local HTTP API.** In *Settings → Automation*, enable local HTTP control, keep loopback selected,
+note the bound port and use **Copy HTTP Token**. Closing Settings leaves the service running.
+The token persists in Keychain; replace it explicitly with HTTP disabled to revoke old clients:
 
 ```sh
 PORT=<port from the panel>
@@ -447,9 +498,10 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
      "http://127.0.0.1:$PORT/v1/brightness"
 ```
 
-A brightness response reports that the change was *requested* (`"physicalEffectVerified":false`);
-it doesn't claim a verified hardware result. See [Docs/Local-HTTP-Control.md](Docs/Local-HTTP-Control.md) for the full
-contract and threat model.
+A brightness response distinguishes acceptance and readback; `"physicalEffectVerified":false`
+means neither is a physical luminance measurement. `GET /v1/commands` lists the shared HTTP catalog;
+`POST /v1/command` accepts its named parameters. See [transport/security rules](Docs/Integration-transports.md)
+and the [HTTP contract](Docs/Local-HTTP-Control.md).
 
 **URL scheme:**
 
@@ -500,13 +552,15 @@ and Russian. New user-visible strings need a Russian translation in the String C
   DisplayServices for built-in brightness and CGVirtualDisplay for virtual screens. They are
   undocumented and can change with any macOS update. Experimental and Labs features are opt-in and
   reversible, and the [public-API-only flavour](#public-api-only-flavour) leaves them out entirely.
-- The local HTTP server listens only on loopback, requires a per-session bearer token, rejects
-  browser `Origin` requests and stops when you leave the Automation section. Any local process
-  that obtains the token can change brightness or reconnect displays.
+- HTTP is opt-in, app-owned and loopback by default, with a persistent Keychain bearer token and
+  browser `Origin` rejection. Remote binding requires a separate warning confirmation; it is plaintext
+  without a separately configured TLS tunnel. Disable HTTP to stop access, or replace its token to
+  revoke clients. Same-user IPC has a separate UID/socket trust boundary. See [transports](Docs/Integration-transports.md).
 - Permissions are requested only when you use the feature that needs them: Accessibility for the
   media keys, Screen Recording for capture, Notifications for display notices.
-- Display reports and settings exports can contain hardware identifiers such as serial numbers and
-  display UUIDs. Check them before you share them.
+- Report/diagnostic exports remove selected identifiers by default and recognized credentials always.
+  Portable settings backups can retain hardware IDs and sensitive configuration. Redaction is not
+  anonymization; inspect the actual files before sharing.
 - Please report vulnerabilities **privately**. Use GitHub's private vulnerability reporting on
   this repository if it's enabled, or contact the maintainer
   [@garshany](https://github.com/garshany). Don't open a public issue. See also
