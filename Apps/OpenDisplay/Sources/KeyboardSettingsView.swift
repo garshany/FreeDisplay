@@ -104,6 +104,7 @@ private struct ShortcutRow: View {
                     Text("Apps use shortcuts like this in their menus; they won’t receive it while OpenDisplay runs.")
                         .font(.caption).foregroundStyle(ODColor.caution)
                 }
+                if let binding { SystemShortcutNotice(binding: binding) }  // SO-30: keys macOS keeps
                 if action == .quit, binding != nil {
                     Text("Quits at once, without asking. Choose keys you won’t press by accident.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -300,10 +301,11 @@ final class ShortcutRecorder: ObservableObject {
             feedback = String(localized: "Use a function key, or hold ⌘, ⌥ or ⌃ with the key.")
             return true
         case .accept(let binding):
-            // One chord, one action: a duplicate would leave one of the two silently dead.
-            if let holder = model.hotkeySlot(using: binding, excluding: action) {
+            // One chord, one action: a duplicate would leave one of the two silently dead. The
+            // recovery chord is refused outright (owner decision #26).
+            if let refusal = model.hotkeyRefusal(for: binding, action: action) {
                 NSSound.beep()
-                feedback = String(localized: "\(KeyBindingFormatter.string(for: binding)) is already used by \(model.hotkeySlotName(holder)).")
+                feedback = refusal
                 return true
             }
             stopRecording()

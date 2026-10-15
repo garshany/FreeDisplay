@@ -6037,6 +6037,9 @@ final class AppModel: ObservableObject {
     /// and re-registers. Choosing a Reconnect-All chord also turns the older on/off switch back on:
     /// picking a chord is asking for it to work.
     func setHotkeyBinding(_ binding: KeyBinding?, for action: HotkeyAction) {
+        // Owner decision #26: the recorder refuses the recovery chord with a message; this keeps any
+        // other path from saving it anyway.
+        if let binding, effectiveHotkeyRegistry.isReservedForRecovery(binding, slot: .action(action)) { return }
         var registry = settings.hotkeyShortcuts
         registry.setBinding(binding, for: action)
         settings.hotkeyShortcuts = registry
@@ -6067,6 +6070,19 @@ final class AppModel: ObservableObject {
     /// chord twice rather than leave one of the two silently dead.
     func hotkeySlot(using binding: KeyBinding, excluding action: HotkeyAction) -> HotkeySlot? {
         effectiveHotkeyRegistry.slot(using: binding, excluding: .action(action))
+    }
+
+    /// Why the recorder won't save `binding` for `action`, or nil when it may: the reserved
+    /// recovery chord (owner decision #26), or a chord another shortcut already uses.
+    func hotkeyRefusal(for binding: KeyBinding, action: HotkeyAction) -> String? {
+        let chord = KeyBindingFormatter.string(for: binding)
+        if effectiveHotkeyRegistry.isReservedForRecovery(binding, slot: .action(action)) {
+            return String(localized: "\(chord) is reserved for Reconnect All Displays, the recovery shortcut that works when the screens can’t be used. To use these keys for something else, remove the Reconnect All Displays shortcut first.")
+        }
+        if let holder = hotkeySlot(using: binding, excluding: action) {
+            return String(localized: "\(chord) is already used by \(hotkeySlotName(holder)).")
+        }
+        return nil
     }
 
     /// The display name Settings uses for a slot that holds a chord.
@@ -6127,8 +6143,9 @@ final class AppModel: ObservableObject {
     func inputSwitchHotkeyConflicts(_ combo: KeyBinding, excludingInputSwitchID: String?) -> Bool {
         // Checked against what `registerHotkeys` actually registers: defaults filled in, cleared
         // shortcuts left out (SO-01) — not the raw persisted map, which may lack either.
-        effectiveHotkeyRegistry
-            .inputSwitchBindingConflicts(combo, excludingInputSwitchID: excludingInputSwitchID)
+        let registry = effectiveHotkeyRegistry
+        return registry.inputSwitchBindingConflicts(combo, excludingInputSwitchID: excludingInputSwitchID)
+            || registry.isReservedForRecovery(combo, slot: .inputSwitch(id: excludingInputSwitchID ?? ""))
     }
 
     /// Makes the next active display the main display (wraps around).

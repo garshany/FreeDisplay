@@ -84,6 +84,7 @@ private struct InputHotkeyRow: View {
             default:
                 EmptyView()
             }
+            SystemShortcutNotice(binding: entry.binding)
         }
     }
 
@@ -140,6 +141,7 @@ private struct AddInputHotkeySheet: View {
                     Text(HotkeyDigitChords.label(forDigit: digit)).tag(digit)
                 }
             }
+            SystemShortcutNotice(binding: candidateBinding)
             if hasConflict {
                 Text("That shortcut is already assigned.").font(.caption).foregroundStyle(ODColor.danger)
             }

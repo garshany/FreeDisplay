@@ -39,7 +39,7 @@ public enum HotkeyAction: String, Hashable, Sendable, Codable, CaseIterable {
     public var defaultBinding: KeyBinding? {
         switch self {
         // ⌃⌥⌘R — the always-available Reconnect-All (recovery hierarchy step 3).
-        case .reconnectAll: return KeyBinding(keyCode: 0x0F, modifiers: KeyBinding.controlOptionCommand)
+        case .reconnectAll: return KeyboardShortcutRegistry.recoveryChord
         case .brightnessDown: return KeyBinding(keyCode: 0x7A, modifiers: KeyBinding.shift) // ⇧F1
         case .brightnessUp: return KeyBinding(keyCode: 0x78, modifiers: KeyBinding.shift) // ⇧F2
         default: return nil
@@ -191,7 +191,12 @@ public struct KeyboardShortcutRegistry: Hashable, Sendable, Codable {
         var savedChords = Set(merged.bindings.values)
         savedChords.formUnion(inputSwitchBindings.map(\.binding))
         for action in HotkeyAction.allCases where merged.bindings[action] == nil && !disabledActions.contains(action) {
-            if let shipped = action.defaultBinding, !savedChords.contains(shipped) { merged.bindings[action] = shipped }
+            // The recovery chord is the exception: it is reserved for Reconnect All (owner decision
+            // #26), so a saved binding of another action on it never takes it away — the
+            // registration plan reports that binding as the conflict instead.
+            if let shipped = action.defaultBinding, action == .reconnectAll || !savedChords.contains(shipped) {
+                merged.bindings[action] = shipped
+            }
         }
         return merged
     }
@@ -206,6 +211,24 @@ public struct KeyboardShortcutRegistry: Hashable, Sendable, Codable {
         var source = self
         if !reconnectAllEnabled { source.setBinding(nil, for: .reconnectAll) }
         return source.mergedWithDefaults()
+    }
+
+    /// ⌃⌥⌘R, Reconnect All's shipped chord. Reserved for it while the recovery shortcut is on
+    /// (owner decision #26): the one way back when the screens are unusable must not be given to
+    /// anything else.
+    public static let recoveryChord = KeyBinding(keyCode: 0x0F, modifiers: KeyBinding.controlOptionCommand)
+
+    /// Whether this registry keeps the recovery chord for Reconnect All: unless the user left Reconnect
+    /// All without a shortcut. Call it on `effective(reconnectAllEnabled:)`, which folds the older
+    /// on/off switch in as exactly that.
+    public var reservesRecoveryChord: Bool {
+        !disabledActions.contains(.reconnectAll)
+    }
+
+    /// True when `binding` is the recovery chord, `slot` isn't Reconnect All and the chord is
+    /// reserved — the recorder refuses such a binding outright rather than saving a conflict.
+    public func isReservedForRecovery(_ binding: KeyBinding, slot: HotkeySlot) -> Bool {
+        reservesRecoveryChord && binding == Self.recoveryChord && slot != .action(.reconnectAll)
     }
 
     /// The slot already using `binding` — a fixed action or an input-switch hotkey — other than

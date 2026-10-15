@@ -47,7 +47,11 @@ public struct HotkeyRegistrationPlan: Hashable, Sendable {
         cleared = registry.disabledActions
         var holders: [KeyBinding: HotkeySlot] = [:]
         func claim(_ slot: HotkeySlot, _ binding: KeyBinding) {
-            if let holder = holders[binding] {
+            // A binding saved on the recovery chord before it was reserved (owner decision #26)
+            // stays saved but never registers while Reconnect All keeps the chord.
+            if registry.isReservedForRecovery(binding, slot: slot) {
+                conflicts[slot] = .action(.reconnectAll)
+            } else if let holder = holders[binding] {
                 conflicts[slot] = holder
             } else {
                 holders[binding] = slot
