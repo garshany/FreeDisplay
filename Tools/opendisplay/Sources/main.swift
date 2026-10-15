@@ -909,6 +909,8 @@ func ddcRefusalText(_ reason: DDCBindingRefusal) -> String {
         return "DDC refused: another connected monitor reports the same identity, so a command could reach the wrong one"
     case .unidentified:
         return "DDC refused: can't tell which DDC service belongs to this display"
+    case .contradictingIdentity:
+        return "DDC refused: the only DDC service identifies a different monitor (vendor, model or serial)"
     case .appleDisplay:
         return "DDC refused: withheld from Apple displays (allow it per display in Settings → Displays)"
     }

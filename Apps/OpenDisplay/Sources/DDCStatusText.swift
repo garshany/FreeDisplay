@@ -15,6 +15,8 @@ enum DDCStatusText {
             return String(localized: "OpenDisplay sends no DDC commands to this monitor: another connected monitor reports the same identity (usually the same model without a serial number), so it can't tell which connection belongs to which.")
         case .unidentified:
             return String(localized: "OpenDisplay sends no DDC commands to this monitor: macOS doesn't report which connection belongs to it, and with several displays attached a guess could control the wrong one.")
+        case .contradictingIdentity:
+            return String(localized: "OpenDisplay sends no DDC commands to this monitor: the only DDC connection macOS reports identifies a different monitor (another vendor, model or serial number), so commands could reach the wrong one.")
         case .appleDisplay:
             return String(localized: "OpenDisplay doesn't send DDC commands to Apple displays: some older models can be left with a screen that stays black. You can allow it for this display in Settings → Displays.")
         }
