@@ -90,6 +90,49 @@ final class DDCTransportTests: XCTestCase {
         XCTAssertEqual(wire.reads, 0, "no retries through a withdrawn binding either")
     }
 
+    func testRequestRevokedWhileQueuedForBusDoesNotWriteButNextRequestCan() async {
+        let wire = RecordingWire()
+        let transport = DDCTransport(wire: wire)
+        let authorization = WriteAuthorization()
+        await transport.lockBus()
+        let writing = Task { await transport.write(vcp: 0x12, 40, authorization: authorization) }
+        await waitUntil { await transport.transactionsWaitingForBus == 1 }
+        authorization.revoke()
+        await transport.unlockBus()
+        let accepted = await writing.value
+        XCTAssertFalse(accepted)
+        XCTAssertEqual(wire.writes, [])
+        let next = await transport.write(vcp: 0x12, 60, authorization: WriteAuthorization())
+        XCTAssertTrue(next, "request cancellation must not withdraw the shared binding")
+        XCTAssertEqual(wire.writes, [Self.setVCP(0x12, 60)])
+    }
+
+    func testRequestRevokedDuringPacingDoesNotWrite() async {
+        let wire = RecordingWire()
+        let transport = DDCTransport(wire: wire, interTransactionGapNanos: 300_000_000)
+        _ = await transport.write(vcp: 0x10, 30)
+        let authorization = WriteAuthorization()
+        let writing = Task { await transport.write(vcp: 0x10, 40, authorization: authorization) }
+        await waitUntil { await transport.isBusHeld }
+        authorization.revoke()
+        let accepted = await writing.value
+        XCTAssertFalse(accepted)
+        XCTAssertEqual(wire.writes, [Self.setVCP(0x10, 30)])
+    }
+
+    func testCancelledWriterWaitingForBusDoesNotWrite() async {
+        let wire = RecordingWire()
+        let transport = DDCTransport(wire: wire)
+        await transport.lockBus()
+        let writing = Task { await transport.write(vcp: 0x10, 40) }
+        await waitUntil { await transport.transactionsWaitingForBus == 1 }
+        writing.cancel()
+        await transport.unlockBus()
+        let accepted = await writing.value
+        XCTAssertFalse(accepted)
+        XCTAssertEqual(wire.writes, [])
+    }
+
     /// The transport as moved out of the provider: same Set-VCP framing, same Get-VCP reply scan.
     func testAnOpenTransportFramesWritesAndReadsReplies() async {
         var frame: [UInt8] = [0x6e, 0x88, 0x02, 0x00, 0x10, 0x00, 0x00, 0x64, 0x00, 0x28]

@@ -210,7 +210,7 @@ public actor DDCTransport {
     /// call does; the mandatory settle time before the *next* transaction is enforced by pacing,
     /// not by sleeping here, so a single slider tick doesn't pay 50ms of dead latency.
     @discardableResult
-    public func write(vcp code: UInt8, _ value: Int) async -> Bool {
+    public func write(vcp code: UInt8, _ value: Int, authorization: WriteAuthorization? = nil) async -> Bool {
         let high = UInt8((value >> 8) & 0xff)
         let low = UInt8(value & 0xff)
         let checksum = UInt8(0x6e ^ Int(Self.i2cSource) ^ 0x84 ^ 0x03) ^ code ^ high ^ low
@@ -219,7 +219,8 @@ public actor DDCTransport {
         await paceBus()
         // Judged here, not on entry: the wait for the bus and the pacing are where a revocation
         // lands while this write is already queued.
-        guard let ok = send([0x84, 0x03, code, high, low, checksum]) else { return false }
+        guard !Task.isCancelled, authorization?.isAuthorized != false,
+              let ok = send([0x84, 0x03, code, high, low, checksum]) else { return false }
         markTransaction()
         return ok
     }

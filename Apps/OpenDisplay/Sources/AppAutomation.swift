@@ -14,9 +14,9 @@ import TopologyCore
 @MainActor
 enum AppAutomation {
     static func run(_ request: AutomationRequest, from surface: AutomationSurface,
-                    model: AppModel, beforeMutation: (@MainActor () -> AutomationIssue?)? = nil) async -> AutomationResult {
+                    model: AppModel, authorization: WriteAuthorization? = nil, beforeMutation: (@MainActor () -> AutomationIssue?)? = nil) async -> AutomationResult {
         AppDiagnostics.shared.record("command=\(request.command.name.rawValue) surface=\(surface.rawValue) started")
-        let result = await AutomationEngine(environment: AppAutomationEnvironment(model: model, surface: surface, beforeMutation: beforeMutation)).run(request)
+        let result = await AutomationEngine(environment: AppAutomationEnvironment(model: model, surface: surface, authorization: authorization, beforeMutation: beforeMutation)).run(request)
         AppDiagnostics.shared.record("command=\(request.command.name.rawValue) outcome=\(result.status.rawValue)")
         return result
     }
@@ -30,12 +30,14 @@ enum AppAutomation {
 final class AppAutomationEnvironment: AutomationEnvironment {
     nonisolated let surface: AutomationSurface
     private let model: AppModel
+    private let authorization: WriteAuthorization
     private let beforeMutation: (@MainActor () -> AutomationIssue?)?
     private let beforeClockWrite: (@MainActor () -> AutomationIssue?)?
 
-    init(model: AppModel, surface: AutomationSurface,
+    init(model: AppModel, surface: AutomationSurface, authorization: WriteAuthorization? = nil,
          beforeClockWrite: (@MainActor () -> AutomationIssue?)? = nil,
          beforeMutation: (@MainActor () -> AutomationIssue?)? = nil) {
+        self.authorization = WriteAuthorization(parent: authorization)
         self.model = model
         self.surface = surface
         self.beforeClockWrite = beforeClockWrite
@@ -64,7 +66,7 @@ final class AppAutomationEnvironment: AutomationEnvironment {
     func validateMutation() async throws(AutomationIssue) { try checkMutation() }
 
     private func makeReceipt(_ level: AutomationLevel) -> BrightnessWriteReceipt {
-        BrightnessWriteReceipt(level, beforeDispatch: { [self] in
+        BrightnessWriteReceipt(level, authorization: WriteAuthorization(parent: authorization), beforeDispatch: { [self] in
             do throws(AutomationIssue) { try checkMutation(); return beforeClockWrite?() } catch { return error }
         })
     }

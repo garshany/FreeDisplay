@@ -320,6 +320,8 @@ final class AppModel: ObservableObject {
     private var brightnessBeforeDDCWrite: [DisplayRecordID: Float] = [:]
     private var presetBeforeDDCWrite: [DisplayRecordID: Int] = [:]
     private var ddcWriters: [DisplayRecordID: Task<Void, Never>] = [:]
+    private let ddcWriterOwnership = CoalescedWriterOwnership<DisplayRecordID>()
+    private let ddcControlWriterOwnership = CoalescedWriterOwnership<DDCControlKey>()
     private struct DDCControlKey: Hashable { let id: DisplayRecordID; let vcp: UInt8 }
     private var ddcControlMax: [DDCControlKey: Int] = [:]
     private var ddcControlTarget: [DDCControlKey: Int] = [:]
@@ -2631,10 +2633,10 @@ final class AppModel: ObservableObject {
     /// cycles. Writer tasks are cancelled before their controller is dropped so a draining task can't
     /// re-acquire and recreate a removed entry; controllers are lazily rebuilt on next use.
     private func pruneDDCCaches(to ids: Set<DisplayRecordID>) {
-        for (id, task) in ddcWriters where !ids.contains(id) { task.cancel(); ddcWriters[id] = nil }
+        for (id, task) in ddcWriters where !ids.contains(id) { task.cancel(); ddcWriterOwnership.invalidate(id); ddcWriters[id] = nil }
         for (id, task) in inputSourceWriter where !ids.contains(id) { task.cancel(); inputSourceWriter[id] = nil }
         for (id, task) in colorPresetWriter where !ids.contains(id) { task.cancel(); colorPresetWriter[id] = nil }
-        for (key, task) in ddcControlWriter where !ids.contains(key.id) { task.cancel(); ddcControlWriter[key] = nil }
+        for (key, task) in ddcControlWriter where !ids.contains(key.id) { task.cancel(); ddcControlWriterOwnership.invalidate(key); ddcControlWriter[key] = nil }
         for (id, task) in muteWriter where !ids.contains(id) { task.cancel(); muteWriter[id] = nil }
         for (id, probe) in audioProbes where !ids.contains(id) {
             probe.task.cancel()
@@ -2931,7 +2933,8 @@ final class AppModel: ObservableObject {
             if ddcWriters[id] == nil { brightnessBeforeDDCWrite[id] = previous }
             ddcTarget[id] = Int((value * Float(brightnessMax[id] ?? 100)).rounded())
             if ddcWriters[id] == nil {
-                ddcWriters[id] = Task { [weak self] in await self?.drainDDCWrites(id, observation) }
+                let writer = ddcWriterOwnership.begin(id)
+                ddcWriters[id] = Task { [weak self] in await self?.drainDDCWrites(id, observation, writer: writer) }
             }
             #endif
         case .software:
@@ -2965,7 +2968,7 @@ final class AppModel: ObservableObject {
         }
         syncGroupBrightness(value, applied: brightness[id], previous: previous, from: observation,
                             token: syncToken, origin: origin, bypass: syncBypass,
-                            keyboardEligible: keyboardEligible)  // Issue #39
+                            keyboardEligible: keyboardEligible, receipt: receipt)  // Issue #39
     }
 
     func updateClockMode(_ configuration: ClockModeConfiguration?, enabled: Bool? = nil) {
@@ -3089,7 +3092,9 @@ final class AppModel: ObservableObject {
             while let target = nativeTargets.removeValue(forKey: id) {
                 let requestReceipt = brightnessReceipts.take(id)
                 guard requestReceipt?.admitDispatch() != false else { continue }
+                let authorization = requestReceipt?.authorization
                 let receipt = await Task.detached(priority: .userInitiated) {
+                    guard authorization?.isAuthorized != false else { return (false, Optional<Float>.none) }
                     let accepted = control.setBrightness(target, for: cgID)
                     return (accepted, control.brightness(for: cgID))
                 }.value
@@ -3116,7 +3121,7 @@ final class AppModel: ObservableObject {
                                      from observation: DisplayObservation,
                                      token: GroupSyncPolicy.SyncEcho.Token?,
                                      origin: GroupSyncPolicy.ManualWrite.Origin, bypass: Bool,
-                                     keyboardEligible: Set<DisplayRecordID>? = nil) {
+                                     keyboardEligible: Set<DisplayRecordID>? = nil, receipt: BrightnessWriteReceipt? = nil) {
         // Safe startup (FA-09): the display the user (or macOS) changed changes; the rest of its
         // group is left alone, and no offset is learned from it.
         guard !safeStartup else { return }
@@ -3138,7 +3143,7 @@ final class AppModel: ObservableObject {
         case .followerCorrection:
             storeDisplayGroupOffsets(result.group)
         case .leader(let fanOut):
-            applyFollowerBrightness(fanOut, leader: leader)
+            applyFollowerBrightness(fanOut, leader: leader, receipt: receipt)
             refreshUnknownGroupLevels(fanOut.unknownLevel)
         }
     }
@@ -3192,13 +3197,15 @@ final class AppModel: ObservableObject {
     /// into `setBrightness` (a cache-driven binding, a re-entrant slider) can't become a leader event
     /// of its own. The token closes as soon as the writes are queued — the coalescing DDC/gamma
     /// writers own them from there.
-    private func applyFollowerBrightness(_ fanOut: GroupSyncPolicy.FanOut, leader: DisplayRecordID) {
+    private func applyFollowerBrightness(_ fanOut: GroupSyncPolicy.FanOut, leader: DisplayRecordID,
+                                         receipt: BrightnessWriteReceipt? = nil) {
         guard !fanOut.isEmpty else { return }
         let token = groupSyncEcho.begin(leader: leader, followers: fanOut.writes.map(\.member))
         for follower in fanOut.writes {
             guard let observation = displays.first(where: { $0.recordID == follower.member })
             else { continue }
-            let write = applySilentBrightness(follower.value, for: observation)
+            let write = applySilentBrightness(follower.value, for: observation,
+                receipt: receipt?.follower(.init(clamping: Double(follower.value))))
             // Owner decision #8: each follower's change is published as its own event, once, with
             // no HUD; a rejected software write that changed nothing on screen is not.
             if let write, write.onScreen, OSDFeedbackPolicy.groupFollowerRoute(settings: settings).publishesEvent {
@@ -3217,6 +3224,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     private func applySilentBrightness(_ value: Float, for observation: DisplayObservation, receipt: BrightnessWriteReceipt? = nil)
         -> (method: BrightnessMethod, onScreen: Bool)? {
+        guard receipt?.admitDispatch() != false else { return nil }
         guard let cgID = observation.cgDisplayID else { receipt?.reject("Display is unavailable"); return nil }
         let id = observation.recordID
         #if PUBLIC_API_ONLY
@@ -3252,7 +3260,7 @@ final class AppModel: ObservableObject {
 
     /// Fans a leader's contrast out to the rest of its group — a flat mirror with no offset learning
     /// (`GroupSyncPolicy.contrastFanOut`), skipping members whose panel reports no contrast channel.
-    private func syncGroupContrast(_ value: Float, from observation: DisplayObservation) {
+    private func syncGroupContrast(_ value: Float, from observation: DisplayObservation, receipt: BrightnessWriteReceipt? = nil) {
         #if !PUBLIC_API_ONLY
         guard !safeStartup else { return }  // FA-09, as for brightness above
         let leader = observation.recordID
@@ -3265,7 +3273,8 @@ final class AppModel: ObservableObject {
         let token = groupSyncEcho.begin(leader: leader, followers: fanOut.writes.map(\.member))
         for follower in fanOut.writes {
             guard let target = displays.first(where: { $0.recordID == follower.member }) else { continue }
-            setHardwareControl(.contrast, follower.value, for: target, isGroupSync: true)
+            setHardwareControl(.contrast, follower.value, for: target, isGroupSync: true,
+                receipt: receipt?.follower(.init(clamping: Double(follower.value))))
         }
         groupSyncEcho.end(token)
         #endif
@@ -3400,38 +3409,44 @@ final class AppModel: ObservableObject {
         ddc[id] === controller
     }
 
-    private func drainDDCWrites(_ id: DisplayRecordID, _ observation: DisplayObservation) async {
+    private func drainDDCWrites(_ id: DisplayRecordID, _ observation: DisplayObservation, writer: UUID) async {
         var inFlight: BrightnessWriteReceipt?
         defer {
             inFlight?.reject("Request cancelled before readback")
-            brightnessReceipts.invalidate(id)
+            ddcWriterOwnership.finish(writer, for: id) {
+                brightnessReceipts.invalidate(id)
+                brightnessBeforeDDCWrite[id] = nil
+                ddcWriters[id] = nil
+            }
         }
         guard let controller = await ddcController(for: observation) else {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, ddcWriterOwnership.isCurrent(writer, for: id) else { return }
             brightness[id] = brightnessBeforeDDCWrite.removeValue(forKey: id)
             ddcWriteFailed[id, default: []].insert(0x10)
             ddcTarget[id] = nil
-            ddcWriters[id] = nil
             return
         }
-        defer { brightnessBeforeDDCWrite[id] = nil }
+        guard !Task.isCancelled, ddcWriterOwnership.isCurrent(writer, for: id) else { return }
         let vcp = ExternalDisplayDDC.Feature.brightness.rawValue
         while !Task.isCancelled && !settings.softwareBrightnessDisplayIDs.contains(id.rawValue) {
             var lastTarget: Int?
             var lastSent = true
             while !Task.isCancelled, !settings.softwareBrightnessDisplayIDs.contains(id.rawValue), let target = ddcTarget[id] {
-                guard ddcBindingIsCurrent(controller, for: id) else { return }
+                guard ddcWriterOwnership.isCurrent(writer, for: id),
+                      ddcBindingIsCurrent(controller, for: id) else { return }
                 inFlight?.reject()
                 inFlight = brightnessReceipts.take(id)
                 ddcTarget[id] = nil
                 guard inFlight?.admitDispatch() != false else { continue }
                 lastTarget = target
-                lastSent = await controller.write(.brightness, target)
+                lastSent = await controller.write(.brightness, target, authorization: inFlight?.authorization)
                 if !lastSent { inFlight?.complete(accepted: false, readback: .none) }
             }
-            guard let lastTarget else { break }
-            switch await readBackAfterDrain(controller, vcp: vcp, settleNanos: Self.continuousSettleNanos,
-                                            superseded: { [weak self] in self?.ddcTarget[id] != nil }) {
+            guard ddcWriterOwnership.isCurrent(writer, for: id), let lastTarget else { break }
+            let readback = await readBackAfterDrain(controller, vcp: vcp, settleNanos: Self.continuousSettleNanos,
+                                            superseded: { [weak self] in self?.ddcTarget[id] != nil })
+            guard ddcWriterOwnership.isCurrent(writer, for: id) else { return }
+            switch readback {
             case .cancelled: return  // pruned: the map entry is already gone, don't touch state
             case .superseded: inFlight?.reject(); inFlight = nil; continue  // a newer target arrived; write it, verify that one instead
             case .reading(let reading):
@@ -3452,7 +3467,6 @@ final class AppModel: ObservableObject {
             }
             break
         }
-        ddcWriters[id] = nil
     }
 
     /// Settle time between a coalesced writer's LAST write and its verification read. Panels apply a
@@ -3672,42 +3686,50 @@ final class AppModel: ObservableObject {
         if control == .volume, value > 0 { preMuteVolume[id] = nil }
         ddcControlTarget[key] = Int((value * Float(ddcControlMax[key] ?? 100)).rounded())
         if ddcControlWriter[key] == nil {
-            ddcControlWriter[key] = Task { [weak self] in await self?.drainHardwareWrites(key, control, observation) }
+            let writer = ddcControlWriterOwnership.begin(key)
+            ddcControlWriter[key] = Task { [weak self] in await self?.drainHardwareWrites(key, control, observation, writer: writer) }
         }
         // Batch-3 #4 local HUD only when asked; the volume event is published either way (IN-04).
         if control == .volume {
             presentOSD(kind: .volume, value: value, for: observation, source: eventSource, showsLocalHUD: showsOSD,
                        control: "ddc")
         }
-        if control == .contrast, !isGroupSync { syncGroupContrast(value, from: observation) }  // Issue #39
+        if control == .contrast, !isGroupSync { syncGroupContrast(value, from: observation, receipt: receipt) }  // Issue #39
         #else
         receipt?.reject("Hardware contrast is unavailable in this build")
         #endif
     }
 
     #if !PUBLIC_API_ONLY
-    private func drainHardwareWrites(_ key: DDCControlKey, _ control: HardwareControl, _ observation: DisplayObservation) async {
+    private func drainHardwareWrites(_ key: DDCControlKey, _ control: HardwareControl, _ observation: DisplayObservation, writer: UUID) async {
         var inFlight: BrightnessWriteReceipt?
         defer {
             inFlight?.reject("Request cancelled before readback")
-            if control == .contrast { contrastReceipts.invalidate(key.id) }
+            ddcControlWriterOwnership.finish(writer, for: key) {
+                if control == .contrast { contrastReceipts.invalidate(key.id) }
+                ddcControlWriter[key] = nil
+            }
         }
-        guard let controller = await ddcController(for: observation) else { ddcControlWriter[key] = nil; return }
+        guard let controller = await ddcController(for: observation),
+              !Task.isCancelled, ddcControlWriterOwnership.isCurrent(writer, for: key) else { return }
         while true {
             var lastTarget: Int?
             var lastSent = true
             while !Task.isCancelled, let target = ddcControlTarget[key] {
-                guard ddcBindingIsCurrent(controller, for: key.id) else { return }
+                guard ddcControlWriterOwnership.isCurrent(writer, for: key),
+                      ddcBindingIsCurrent(controller, for: key.id) else { return }
                 if control == .contrast { inFlight?.reject(); inFlight = contrastReceipts.take(key.id) }
                 ddcControlTarget[key] = nil
                 guard inFlight?.admitDispatch() != false else { continue }
                 lastTarget = target
-                lastSent = await controller.write(vcp: key.vcp, target)
+                lastSent = await controller.write(vcp: key.vcp, target, authorization: inFlight?.authorization)
                 if !lastSent { inFlight?.complete(accepted: false, readback: .none) }
             }
-            guard let lastTarget else { break }
-            switch await readBackAfterDrain(controller, vcp: key.vcp, settleNanos: Self.continuousSettleNanos,
-                                            superseded: { [weak self] in self?.ddcControlTarget[key] != nil }) {
+            guard ddcControlWriterOwnership.isCurrent(writer, for: key), let lastTarget else { break }
+            let readback = await readBackAfterDrain(controller, vcp: key.vcp, settleNanos: Self.continuousSettleNanos,
+                                            superseded: { [weak self] in self?.ddcControlTarget[key] != nil })
+            guard ddcControlWriterOwnership.isCurrent(writer, for: key) else { return }
+            switch readback {
             case .cancelled: return
             case .superseded: inFlight?.reject(); inFlight = nil; continue
             case .reading(let reading):
@@ -3729,7 +3751,6 @@ final class AppModel: ObservableObject {
             }
             break
         }
-        ddcControlWriter[key] = nil
     }
     #endif
 
@@ -4393,7 +4414,8 @@ final class AppModel: ObservableObject {
         brightness[id] = value  // keep the visible slider honest
         ddcTarget[id] = Int((value * Float(brightnessMax[id] ?? 100)).rounded())
         if ddcWriters[id] == nil {
-            ddcWriters[id] = Task { [weak self] in await self?.drainDDCWrites(id, observation) }
+            let writer = ddcWriterOwnership.begin(id)
+            ddcWriters[id] = Task { [weak self] in await self?.drainDDCWrites(id, observation, writer: writer) }
         }
     }
 
@@ -8037,6 +8059,7 @@ final class AppModel: ObservableObject {
             #if !PUBLIC_API_ONLY
             brightnessReceipts.invalidate(id)
             ddcWriters[id]?.cancel()
+            ddcWriterOwnership.invalidate(id)
             ddcWriters[id] = nil
             ddcTarget[id] = nil
             #endif

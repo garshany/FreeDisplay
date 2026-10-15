@@ -47,6 +47,55 @@ import XCTest
         let report = await caller.value
         XCTAssertFalse(report.accepted); XCTAssertTrue(report.failure?.contains("cancelled") == true)
     }
+    func testGenerationRevocationAfterAdmissionReachesBrightnessAndContrastFollowers() async {
+        for _ in ["brightness", "contrast"] {
+            let generation = AutomationExecutionGeneration()
+            let leader = BrightnessWriteReceipt(.maximum, authorization: WriteAuthorization(parent: generation.authorization))
+            let follower = leader.follower(.minimum)
+            XCTAssertTrue(leader.admitDispatch())
+            XCTAssertTrue(follower.admitDispatch())
+            generation.invalidate()
+            XCTAssertFalse(leader.authorization.isAuthorized)
+            XCTAssertFalse(follower.authorization.isAuthorized)
+            XCTAssertFalse(follower.admitDispatch())
+            let result = await follower.report()
+            XCTAssertFalse(result.accepted)
+        }
+    }
+
+    func testCallerCancellationAfterAdmissionReachesQueuedFollowers() async {
+        let leader = BrightnessWriteReceipt(.maximum)
+        let follower = leader.follower(.minimum)
+        XCTAssertTrue(leader.admitDispatch())
+        XCTAssertTrue(follower.admitDispatch())
+        let caller = Task { await leader.report() }
+        caller.cancel()
+        await Task.yield()
+        XCTAssertFalse(leader.admitDispatch())
+        _ = await caller.value
+        XCTAssertFalse(follower.authorization.isAuthorized)
+        XCTAssertFalse(follower.admitDispatch())
+    }
+
+    func testLeaderAdmissionRefusalAlsoRevokesAlreadyQueuedFollowers() {
+        let leader = BrightnessWriteReceipt(.maximum, beforeDispatch: {
+            AutomationIssue(.busy, "Integration configuration changed or execution was cancelled")
+        })
+        let follower = leader.follower(.minimum)
+        XCTAssertFalse(leader.admitDispatch())
+        XCTAssertFalse(follower.authorization.isAuthorized)
+        XCTAssertFalse(follower.admitDispatch())
+    }
+
+    func testLeaderCompletionOrFollowerSupersessionDoesNotRevokeOtherMembers() {
+        let leader = BrightnessWriteReceipt(.maximum)
+        let first = leader.follower(.minimum), second = leader.follower(.maximum)
+        leader.complete(accepted: true, readback: .none)
+        first.reject()
+        XCTAssertTrue(second.admitDispatch())
+        XCTAssertTrue(second.authorization.isAuthorized)
+    }
+
     func testWaitingRequestsReceiveTheirOwnReadback() async {
         let a = BrightnessWriteReceipt(.minimum), b = BrightnessWriteReceipt(.maximum)
         let waiterA = Task { await a.report() }, waiterB = Task { await b.report() }
