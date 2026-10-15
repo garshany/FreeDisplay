@@ -51,14 +51,14 @@ final class AudioOutputMatchTests: XCTestCase {
         }
     }
 
-    func testSingleExternalFallbackWhenNoNameMatch() {
-        // Name doesn't match, but there's exactly one external → HDMI audio must be coming through it.
+    func testSingleExternalWithoutNameMatchDoesNotGuess() {
+        // An unrelated HDMI receiver must not acquire this monitor's volume keys.
         let ext = obs("ext")
         let match = AudioOutputDisplayMatcher.match(
             deviceName: "HDMI", transport: .hdmi,
             displays: [obs("builtin", builtIn: true), ext],
             names: [rid("ext"): "Some Monitor", rid("builtin"): "Built-in Display"])
-        XCTAssertEqual(match, rid("ext"))
+        XCTAssertNil(match)
     }
 
     func testTwoExternalsNoNameMatchIsAmbiguousNil() {
@@ -118,11 +118,11 @@ final class AudioOutputMatchTests: XCTestCase {
             displays: [ext], names: [rid("ext"): "Dell U2720Q"]))
     }
 
-    func testEmptyDeviceNameFallsBackToSingleExternal() {
+    func testEmptyDeviceNameNeverSelectsAnExternal() {
         let ext = obs("ext")
         let match = AudioOutputDisplayMatcher.match(
             deviceName: "", transport: .displayPort,
             displays: [ext], names: [rid("ext"): "Dell U2720Q"])
-        XCTAssertEqual(match, rid("ext"))
+        XCTAssertNil(match)
     }
 }

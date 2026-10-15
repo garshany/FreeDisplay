@@ -237,6 +237,8 @@ public enum RememberedDisplayCleanup {
         public var adaptiveOffset: Bool
         /// This display's own "keep displays awake while connected" (AM-42).
         public var keepsDisplaysAwake: Bool = false
+        /// Keyboard participation, volume-key matching or a native audio binding (SD-11/SD-16).
+        public var keyboardAudioPreferences: Bool
         /// `forget` of a display OpenDisplay switched off: its recovery record goes with it.
         public var removesTurnedOffRecord: Bool
         public var keptRestores: [PendingRestore]
@@ -250,7 +252,8 @@ public enum RememberedDisplayCleanup {
         public var removesOnlyRecord: Bool {
             alias == nil && tagCount == 0 && favoriteModeCount == 0 && groupNames.isEmpty
                 && protectedLayoutKeys.isEmpty && !hasMenuPreferences && !softwareBrightness
-                && !appleDDCOverride && !ddcChannelMapping && !adaptiveOffset && !keepsDisplaysAwake && !removesTurnedOffRecord
+                && !appleDDCOverride && !ddcChannelMapping && !adaptiveOffset && !keepsDisplaysAwake
+                && !keyboardAudioPreferences && !removesTurnedOffRecord
         }
     }
 
@@ -291,6 +294,7 @@ public enum RememberedDisplayCleanup {
             appleDDCOverride: !raw.isDisjoint(with: settings.ddcAppleDisplayOverrideIDs),
             ddcChannelMapping: settings.ddcChannelMappings.contains { ids.contains($0.displayID) },
             adaptiveOffset: !raw.isDisjoint(with: settings.adaptiveBrightnessOffsetByDisplay.keys),
+            keyboardAudioPreferences: !raw.isDisjoint(with: settings.keyboardAudioByDisplay.keys),
             removesTurnedOffRecord: mode == .forget && ledger.contains { ids.contains($0.recordID) },
             keptRestores: kept,
             keptInputSwitchHotkeys: settings.hotkeyShortcuts.inputSwitchBindings.filter { ids.contains($0.displayID) }.count,
@@ -316,7 +320,10 @@ public enum RememberedDisplayCleanup {
         updated.ddcAppleDisplayOverrideIDs.subtract(raw)
         updated.ddcChannelMappings.removeAll { plan.observationIDs.contains($0.displayID) }
         updated.preventDisplaySleepDisplayIDs.subtract(raw)
-        for key in raw { updated.adaptiveBrightnessOffsetByDisplay[key] = nil }
+        for key in raw {
+            updated.adaptiveBrightnessOffsetByDisplay[key] = nil
+            updated.keyboardAudioByDisplay[key] = nil
+        }
         return updated
     }
 

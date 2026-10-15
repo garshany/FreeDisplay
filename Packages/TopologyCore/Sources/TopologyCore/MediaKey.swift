@@ -25,9 +25,9 @@ public enum MediaKeyAction: String, Hashable, Sendable, CaseIterable {
     }
 
     /// True for the volume/mute keys. Unlike brightness (which follows `MediaKeyTargetMode`), these
-    /// route to whichever display carries the system's *default audio output* — driving that monitor's
-    /// DDC volume (VCP `0x62`) only when the sound is actually coming out of it, and otherwise passing
-    /// through so macOS adjusts the real output device (speakers, AirPods, USB DAC) with its own HUD.
+    /// follow `AudioKeyEngagement`/`AudioKeyTargetMode` (`AudioKeyRouter`) — by default the display
+    /// the current sound output belongs to — and otherwise pass through so macOS adjusts the real
+    /// output device (speakers, AirPods, USB DAC) with its own HUD.
     public var isVolume: Bool {
         switch self {
         case .volumeUp, .volumeDown, .muteToggle: return true
@@ -80,67 +80,21 @@ public enum NXKeyType {
     public static let mute = 7
 }
 
-/// Which display a media key acts on (persisted in settings, Batch-3 #3/#5).
+/// Which displays the brightness keys act on (persisted in settings, Batch-3 #3/#5, SO-27). Resolved
+/// by `BrightnessKeyRouter`; a mode that finds no suitable display changes nothing rather than
+/// reaching for an unrelated one.
 public enum MediaKeyTargetMode: String, Hashable, Sendable, Codable, CaseIterable {
-    /// The display under the pointer (falls back to the main display).
+    /// The display under the pointer, with the displays mirroring with it.
     case underCursor
+    /// The display showing the focused window, with the displays mirroring with it.
+    case focusedWindow
+    /// Every display the keys may change, each adjusted directly (group sync is bypassed so no
+    /// display is written twice).
+    case allDisplays
     /// Always the current main display.
     case mainDisplay
-    /// Always the built-in panel (falls back to main).
+    /// Always the built-in panel; nothing when it is off or closed.
     case builtInAlways
-    /// External under the pointer, otherwise the first active external; never the built-in.
+    /// External under the pointer, otherwise the main or first active external; never the built-in.
     case externalOnly
-}
-
-/// Chooses the display a media key should drive (Batch-3 #1). Pure.
-///
-/// Brightness keys follow `mode` (under cursor / main / built-in). Volume/mute keys IGNORE `mode` and
-/// the cursor entirely: they route to `audioTarget` — the display carrying the system's default audio
-/// output — so the keys drive the DDC volume of whatever the sound is actually playing on. Returns nil
-/// to let the key pass through to macOS: for brightness when there's no active display, for volume when
-/// the audio route isn't a display, isn't active, or isn't DDC-volume-capable.
-public enum MediaKeyTargetPolicy {
-    public static func target(
-        for action: MediaKeyAction,
-        in displays: [DisplayObservation],
-        cursor: DisplayOrigin?,
-        mode: MediaKeyTargetMode,
-        volumeCapable: Set<DisplayRecordID>,
-        audioTarget: DisplayRecordID?
-    ) -> DisplayObservation? {
-        let active = displays.filter { $0.isActive }
-        guard !active.isEmpty else { return nil }
-
-        if action.isVolume {
-            // Volume follows the default audio output device, not the brightness target mode. Drive the
-            // monitor's DDC volume only when the audio routes through an active, DDC-volume-capable
-            // display; otherwise nil so the tap lets the key fall through to the real output device.
-            guard let audioTarget, volumeCapable.contains(audioTarget),
-                  let target = active.first(where: { $0.recordID == audioTarget })
-            else { return nil }
-            return target
-        }
-
-        switch mode {
-        case .underCursor:
-            return cursor.flatMap { point in active.first { contains($0, point) } }
-                ?? active.first { $0.isMain } ?? active.first
-        case .mainDisplay:
-            return active.first { $0.isMain } ?? active.first
-        case .externalOnly:
-            let external = active.filter { $0.displayClass == .external }
-            return cursor.flatMap { point in external.first { contains($0, point) } }
-                ?? external.first { $0.isMain } ?? external.first
-        case .builtInAlways:
-            return active.first { $0.displayClass == .builtIn }
-                ?? active.first { $0.isMain } ?? active.first
-        }
-    }
-
-    /// True if global point `p` lies within `display`'s bounds (origin + point size).
-    static func contains(_ display: DisplayObservation, _ p: DisplayOrigin) -> Bool {
-        guard let mode = display.mode else { return false }
-        return p.x >= display.origin.x && p.x < display.origin.x + mode.pointWidth
-            && p.y >= display.origin.y && p.y < display.origin.y + mode.pointHeight
-    }
 }

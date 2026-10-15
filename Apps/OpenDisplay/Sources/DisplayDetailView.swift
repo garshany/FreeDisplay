@@ -43,6 +43,8 @@ struct DisplayDetailView: View {
                     // follow-up offer, a pending confirmation) belongs to the display it was sent to.
                     ControlsCard(display: display).id(display.recordID)
                 }
+                // SD-11/SD-16: keyboard participation for every display, sound binding for externals.
+                KeyboardAndSoundCard(display: display).id(display.recordID)
                 DimmingCard(display: display)
                 LuminanceCard(display: display).id(display.recordID)
                 UseAsCard(display: display)
@@ -714,7 +716,10 @@ struct ControlsCard: View {
             if model.ddcWriteDidFail(0x10, for: display) { ignoredCaption(DDCStatusText.writeFailed) }
             else if model.ddcWriteWasIgnored(0x10, for: display) { ignoredCaption(Self.ignoredNote) }
             ODDivider()
-            let controls = HardwareControl.allCases.filter { model.ddcControl($0, for: display) != nil }
+            let controls = HardwareControl.allCases.filter {
+                model.ddcControl($0, for: display) != nil
+                    && ($0 != .volume || !model.settings.keyboardAudioPreferences(for: display.recordID).nativeAudioEnabled)
+            }
             #if !PUBLIC_API_ONLY
             if model.isAppleDisplay(display) {
                 // FB-08: DDC is withheld from Apple displays; this is the explicit, per-display way in.
@@ -756,7 +761,9 @@ struct ControlsCard: View {
                 ForEach(Array(controls.enumerated()), id: \.element) { index, control in
                     if index > 0 { ODDivider() }
                     ODRow(control.label) {
-                        sliderWithReadout(level: model.ddcControl(control, for: display) ?? 0.5) { value in
+                        sliderWithReadout(level: model.ddcControl(control, for: display) ?? 0.5,
+                                          onRelease: control == .volume
+                                              ? { model.volumeSliderReleased(for: display) } : nil) { value in
                             model.setHardwareControl(control, value, for: display)
                         }
                     }
@@ -872,9 +879,11 @@ struct ControlsCard: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func sliderWithReadout(level: Float, set: @escaping (Float) -> Void) -> some View {
+    private func sliderWithReadout(level: Float, onRelease: (() -> Void)? = nil,
+                                   set: @escaping (Float) -> Void) -> some View {
         HStack(spacing: 8) {
-            Slider(value: Binding(get: { Double(level) }, set: { set(Float($0)) }), in: 0...1)
+            Slider(value: Binding(get: { Double(level) }, set: { set(Float($0)) }), in: 0...1,
+                   onEditingChanged: { editing in if !editing { onRelease?() } })
                 .frame(width: 160)
             Text("\(Int((level * 100).rounded()))%")
                 .font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
