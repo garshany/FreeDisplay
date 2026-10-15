@@ -139,11 +139,12 @@ public enum DiagnosticsBundle {
         ("ioreg-displayport.txt", "/usr/sbin/ioreg", ["-lw0", "-r", "-c", "AppleDCPDPTXRemotePortProxy"]),
         ("ioreg-avservice.txt", "/usr/sbin/ioreg", ["-lw0", "-r", "-c", "DCPAVServiceProxy"]),
         ("display-log.txt", "/usr/bin/log",
-         ["show", "--last", "30m", "--style", "compact", "--predicate",
+         ["show", "--last", "30m", "--info", "--style", "compact", "--predicate",
           "(process == \"WindowServer\" AND eventMessage CONTAINS[c] \"display\" "
             + "AND NOT category == \"Brightness\") "
             + "OR (process == \"kernel\" AND (eventMessage CONTAINS \"DCP\" "
-            + "OR eventMessage CONTAINS[c] \"dptx\" OR eventMessage CONTAINS[c] \"dispext\"))"])
+            + "OR eventMessage CONTAINS[c] \"dptx\" OR eventMessage CONTAINS[c] \"dispext\")) "
+            + "OR subsystem == \"dev.opendisplay.diagnostics\""])
     ]
 
     private static func summary(app: AppInfo, now: Date) -> Data? {
