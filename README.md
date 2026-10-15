@@ -529,3 +529,12 @@ modified build, the GPL requires you to provide the corresponding source.
 - The public-domain NOAA solar equations behind Clock Mode and Location Mode.
 - The authors of BetterDisplay, MonitorControl and Lunar, for showing what display control on
   macOS can be. FreeDisplay is independent of all of them.
+
+## FreeDisplay help
+
+Start with the [capability and troubleshooting guide](Docs/FreeDisplay-Help.md),
+[privacy and deployment](Docs/FreeDisplay-Operations.md),
+[independent recording workspace](Docs/FreeDisplay-Recording.md), and
+[Shortcuts / Stream Deck recipe](Docs/FreeDisplay-Stream-Deck.md).
+Release publishers use the [verification checklist](Docs/FreeDisplay-Release-Checks.md);
+recipients use [download verification](Docs/ReleaseVerification.md).
